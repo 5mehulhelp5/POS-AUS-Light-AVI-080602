@@ -1,12 +1,15 @@
 #!/bin/bash
 set -e
 
+export DEBIAN_FRONTEND=noninteractive
+
 echo "========================================="
 echo "  POS AUS Light - Server Setup"
 echo "========================================="
 
-# Update system
-apt update && apt upgrade -y
+# Update system (no interactive prompts)
+apt update
+apt -y -o Dpkg::Options::="--force-confold" upgrade
 
 # Install Node.js 20
 echo "Installing Node.js 20..."
@@ -15,7 +18,6 @@ apt install -y nodejs
 
 # Install MySQL 8
 echo "Installing MySQL..."
-export DEBIAN_FRONTEND=noninteractive
 apt install -y mysql-server
 
 # Start MySQL
