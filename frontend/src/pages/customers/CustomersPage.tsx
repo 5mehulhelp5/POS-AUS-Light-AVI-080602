@@ -1,0 +1,230 @@
+import { useState, useEffect } from 'react';
+import { customersApi } from '../../services/api';
+import { MagnifyingGlassIcon, UserIcon, PhoneIcon, EnvelopeIcon } from '@heroicons/react/24/outline';
+
+interface Customer {
+  id: number;
+  firstName: string;
+  lastName: string;
+  email: string | null;
+  phone: string | null;
+  mobile: string | null;
+  company: string | null;
+  address: string | null;
+  suburb: string | null;
+  state: string | null;
+  postcode: string | null;
+  taxExempt: boolean;
+  notes: string | null;
+  createdAt: string;
+}
+
+interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export default function CustomersPage() {
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  const [isLoading, setIsLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+
+  useEffect(() => {
+    fetchCustomers();
+  }, [pagination.page, search]);
+
+  const fetchCustomers = async () => {
+    try {
+      setIsLoading(true);
+      const response = await customersApi.getCustomers({
+        search: search || undefined,
+        page: pagination.page,
+        limit: 20,
+      });
+      setCustomers(response.data.data.customers);
+      setPagination(response.data.data.pagination);
+    } catch (error) {
+      console.error('Failed to fetch customers:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString('en-AU', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
+  return (
+    <div className="h-full p-6 overflow-auto">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Customers</h1>
+        <div className="text-sm text-gray-400">
+          Total: {pagination.total} customers
+        </div>
+      </div>
+
+      {/* Search Bar */}
+      <div className="relative mb-4">
+        <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+        <input
+          type="text"
+          placeholder="Search by name, email, or phone..."
+          className="input pl-12"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
+
+      {/* Customers Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {isLoading ? (
+          <div className="col-span-full p-8 text-center text-gray-400">Loading customers...</div>
+        ) : customers.length === 0 ? (
+          <div className="col-span-full p-8 text-center text-gray-400">No customers found</div>
+        ) : (
+          customers.map((customer) => (
+            <div
+              key={customer.id}
+              className="card p-4 cursor-pointer hover:bg-pos-accent/50 transition-colors"
+              onClick={() => setSelectedCustomer(customer)}
+            >
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-primary-600 rounded-full">
+                  <UserIcon className="h-6 w-6" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h3 className="font-medium truncate">
+                    {customer.firstName} {customer.lastName}
+                  </h3>
+                  {customer.company && (
+                    <p className="text-sm text-gray-400 truncate">{customer.company}</p>
+                  )}
+                  <div className="mt-2 space-y-1">
+                    {customer.email && (
+                      <div className="flex items-center gap-2 text-sm text-gray-400">
+                        <EnvelopeIcon className="h-4 w-4" />
+                        <span className="truncate">{customer.email}</span>
+                      </div>
+                    )}
+                    {(customer.phone || customer.mobile) && (
+                      <div className="flex items-center gap-2 text-sm text-gray-400">
+                        <PhoneIcon className="h-4 w-4" />
+                        <span>{customer.mobile || customer.phone}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Pagination */}
+      {pagination.totalPages > 1 && (
+        <div className="flex justify-center gap-2 mt-4">
+          <button
+            className="btn-sm"
+            disabled={pagination.page <= 1}
+            onClick={() => setPagination((p) => ({ ...p, page: p.page - 1 }))}
+          >
+            Previous
+          </button>
+          <span className="px-4 py-2 text-sm">
+            Page {pagination.page} of {pagination.totalPages}
+          </span>
+          <button
+            className="btn-sm"
+            disabled={pagination.page >= pagination.totalPages}
+            onClick={() => setPagination((p) => ({ ...p, page: p.page + 1 }))}
+          >
+            Next
+          </button>
+        </div>
+      )}
+
+      {/* Customer Detail Modal */}
+      {selectedCustomer && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-pos-card rounded-lg p-6 max-w-lg w-full mx-4">
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-primary-600 rounded-full">
+                  <UserIcon className="h-8 w-8" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">
+                    {selectedCustomer.firstName} {selectedCustomer.lastName}
+                  </h2>
+                  {selectedCustomer.company && (
+                    <p className="text-gray-400">{selectedCustomer.company}</p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedCustomer(null)}
+                className="text-gray-400 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-gray-400">Email</p>
+                  <p>{selectedCustomer.email || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-400">Phone</p>
+                  <p>{selectedCustomer.phone || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-400">Mobile</p>
+                  <p>{selectedCustomer.mobile || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-400">Tax Exempt</p>
+                  <p>{selectedCustomer.taxExempt ? 'Yes' : 'No'}</p>
+                </div>
+              </div>
+
+              {(selectedCustomer.address || selectedCustomer.suburb) && (
+                <div>
+                  <p className="text-sm text-gray-400">Address</p>
+                  <p>
+                    {selectedCustomer.address && <span>{selectedCustomer.address}<br /></span>}
+                    {selectedCustomer.suburb && <span>{selectedCustomer.suburb} </span>}
+                    {selectedCustomer.state && <span>{selectedCustomer.state} </span>}
+                    {selectedCustomer.postcode && <span>{selectedCustomer.postcode}</span>}
+                  </p>
+                </div>
+              )}
+
+              {selectedCustomer.notes && (
+                <div>
+                  <p className="text-sm text-gray-400">Notes</p>
+                  <p className="text-sm">{selectedCustomer.notes}</p>
+                </div>
+              )}
+
+              <div className="border-t border-gray-700 pt-4">
+                <p className="text-sm text-gray-400">
+                  Customer since {formatDate(selectedCustomer.createdAt)}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

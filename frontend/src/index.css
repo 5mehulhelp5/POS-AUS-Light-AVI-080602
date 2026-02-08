@@ -1,0 +1,171 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles */
+:root {
+  --pos-bg: #1a1a2e;
+  --pos-card: #16213e;
+  --pos-accent: #0f3460;
+  --pos-text: #e8e8e8;
+}
+
+body {
+  @apply bg-pos-bg text-pos-text font-sans antialiased;
+  min-height: 100vh;
+}
+
+/* POS-specific components */
+@layer components {
+  /* Touch-friendly button */
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-3
+           font-medium rounded-lg transition-all duration-150
+           focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-pos-bg
+           active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed
+           min-h-[48px] min-w-[48px];
+  }
+
+  .btn-primary {
+    @apply btn bg-primary-600 text-white hover:bg-primary-700
+           focus:ring-primary-500;
+  }
+
+  .btn-secondary {
+    @apply btn bg-pos-accent text-pos-text hover:bg-pos-card
+           focus:ring-pos-accent border border-gray-600;
+  }
+
+  .btn-success {
+    @apply btn bg-pos-success text-white hover:bg-green-600
+           focus:ring-green-500;
+  }
+
+  .btn-danger {
+    @apply btn bg-pos-danger text-white hover:bg-red-600
+           focus:ring-red-500;
+  }
+
+  .btn-lg {
+    @apply px-6 py-4 text-lg min-h-[56px];
+  }
+
+  .btn-sm {
+    @apply px-3 py-2 text-sm min-h-[36px];
+  }
+
+  /* Card component */
+  .card {
+    @apply bg-pos-card rounded-xl border border-gray-700 shadow-lg;
+  }
+
+  /* Input styles */
+  .input {
+    @apply w-full px-4 py-3 bg-pos-accent border border-gray-600 rounded-lg
+           text-pos-text placeholder-gray-400
+           focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent
+           transition-colors min-h-[48px];
+  }
+
+  .input-lg {
+    @apply py-4 text-lg min-h-[56px];
+  }
+
+  /* Product grid item */
+  .product-card {
+    @apply card p-4 cursor-pointer hover:border-primary-500
+           transition-all duration-150 active:scale-95;
+  }
+
+  /* Cart item */
+  .cart-item {
+    @apply flex items-center justify-between p-3 border-b border-gray-700
+           last:border-b-0;
+  }
+
+  /* Numeric keypad button */
+  .keypad-btn {
+    @apply btn bg-pos-accent text-2xl font-mono
+           aspect-square hover:bg-pos-card;
+  }
+
+  /* Modal backdrop */
+  .modal-backdrop {
+    @apply fixed inset-0 bg-black/50 backdrop-blur-sm z-50
+           flex items-center justify-center p-4;
+  }
+
+  /* Modal content */
+  .modal-content {
+    @apply card w-full max-w-md max-h-[90vh] overflow-y-auto p-6;
+  }
+
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-success {
+    @apply badge bg-green-500/20 text-green-400;
+  }
+
+  .badge-warning {
+    @apply badge bg-yellow-500/20 text-yellow-400;
+  }
+
+  .badge-danger {
+    @apply badge bg-red-500/20 text-red-400;
+  }
+
+  .badge-info {
+    @apply badge bg-blue-500/20 text-blue-400;
+  }
+}
+
+/* Utilities */
+@layer utilities {
+  /* Hide scrollbar but allow scrolling */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Custom scrollbar */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.gray.600') transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: theme('colors.gray.600');
+    border-radius: 3px;
+  }
+}
+
+/* Print styles for receipts */
+@media print {
+  body {
+    background: white;
+    color: black;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+}

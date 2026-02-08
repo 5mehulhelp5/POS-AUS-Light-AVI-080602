@@ -1,0 +1,328 @@
+import { useState, useEffect } from 'react';
+import { inquiriesApi } from '../../services/api';
+import {
+  MagnifyingGlassIcon,
+  PhoneIcon,
+  EnvelopeIcon,
+  UserGroupIcon,
+  ChatBubbleLeftIcon,
+} from '@heroicons/react/24/outline';
+
+interface Inquiry {
+  id: number;
+  type: string;
+  status: string;
+  subject: string | null;
+  description: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+  followUpDate: string | null;
+  customer: { id: number; firstName: string; lastName: string } | null;
+  user: { id: number; firstName: string; lastName: string };
+  createdAt: string;
+}
+
+interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export default function InquiriesPage() {
+  const [inquiries, setInquiries] = useState<Inquiry[]>([]);
+  const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  const [isLoading, setIsLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [typeFilter, setTypeFilter] = useState<string>('');
+  const [selectedInquiry, setSelectedInquiry] = useState<Inquiry | null>(null);
+
+  useEffect(() => {
+    fetchInquiries();
+  }, [pagination.page, statusFilter, typeFilter]);
+
+  const fetchInquiries = async () => {
+    try {
+      setIsLoading(true);
+      const response = await inquiriesApi.getInquiries({
+        status: statusFilter || undefined,
+        type: typeFilter || undefined,
+        page: pagination.page,
+        limit: 20,
+      });
+      setInquiries(response.data.data.inquiries);
+      setPagination(response.data.data.pagination);
+    } catch (error) {
+      console.error('Failed to fetch inquiries:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const formatDate = (date: string) => {
+    return new Date(date).toLocaleDateString('en-AU', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const getStatusBadge = (status: string) => {
+    const colors: Record<string, string> = {
+      new: 'bg-blue-600',
+      in_progress: 'bg-yellow-600',
+      resolved: 'bg-green-600',
+      converted: 'bg-purple-600',
+    };
+    const labels: Record<string, string> = {
+      new: 'NEW',
+      in_progress: 'IN PROGRESS',
+      resolved: 'RESOLVED',
+      converted: 'CONVERTED',
+    };
+    return (
+      <span className={`px-2 py-1 rounded text-xs font-medium ${colors[status] || 'bg-gray-600'}`}>
+        {labels[status] || status.toUpperCase()}
+      </span>
+    );
+  };
+
+  const getTypeIcon = (type: string) => {
+    switch (type) {
+      case 'phone_call':
+        return <PhoneIcon className="h-5 w-5" />;
+      case 'email':
+        return <EnvelopeIcon className="h-5 w-5" />;
+      case 'walk_in':
+        return <UserGroupIcon className="h-5 w-5" />;
+      default:
+        return <ChatBubbleLeftIcon className="h-5 w-5" />;
+    }
+  };
+
+  const getTypeLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      walk_in: 'Walk-in',
+      phone_call: 'Phone',
+      email: 'Email',
+      other: 'Other',
+    };
+    return labels[type] || type;
+  };
+
+  const filteredInquiries = inquiries.filter(
+    (inquiry) =>
+      inquiry.subject?.toLowerCase().includes(search.toLowerCase()) ||
+      inquiry.contactName?.toLowerCase().includes(search.toLowerCase()) ||
+      inquiry.customer?.firstName?.toLowerCase().includes(search.toLowerCase()) ||
+      inquiry.customer?.lastName?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div className="h-full p-6 overflow-auto">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Inquiries & Calls</h1>
+        <div className="text-sm text-gray-400">
+          Total: {pagination.total} inquiries
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex gap-4 mb-4">
+        <div className="relative flex-1">
+          <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search by subject or contact..."
+            className="input pl-12"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <select
+          className="input w-40"
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+        >
+          <option value="">All Status</option>
+          <option value="new">New</option>
+          <option value="in_progress">In Progress</option>
+          <option value="resolved">Resolved</option>
+          <option value="converted">Converted</option>
+        </select>
+        <select
+          className="input w-40"
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+        >
+          <option value="">All Types</option>
+          <option value="walk_in">Walk-in</option>
+          <option value="phone_call">Phone Call</option>
+          <option value="email">Email</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+
+      {/* Inquiries Table */}
+      <div className="card overflow-hidden">
+        {isLoading ? (
+          <div className="p-8 text-center text-gray-400">Loading inquiries...</div>
+        ) : filteredInquiries.length === 0 ? (
+          <div className="p-8 text-center text-gray-400">No inquiries found</div>
+        ) : (
+          <table className="w-full">
+            <thead className="bg-pos-accent">
+              <tr>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Type</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Subject</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Contact</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Status</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Follow Up</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Logged By</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Date</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-700">
+              {filteredInquiries.map((inquiry) => (
+                <tr
+                  key={inquiry.id}
+                  className="hover:bg-pos-accent/50 cursor-pointer"
+                  onClick={() => setSelectedInquiry(inquiry)}
+                >
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      {getTypeIcon(inquiry.type)}
+                      <span>{getTypeLabel(inquiry.type)}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3 font-medium">
+                    {inquiry.subject || 'No subject'}
+                  </td>
+                  <td className="px-4 py-3">
+                    {inquiry.customer
+                      ? `${inquiry.customer.firstName} ${inquiry.customer.lastName}`
+                      : inquiry.contactName || '-'}
+                  </td>
+                  <td className="px-4 py-3">{getStatusBadge(inquiry.status)}</td>
+                  <td className="px-4 py-3 text-sm">
+                    {inquiry.followUpDate
+                      ? new Date(inquiry.followUpDate).toLocaleDateString('en-AU')
+                      : '-'}
+                  </td>
+                  <td className="px-4 py-3">{inquiry.user.firstName}</td>
+                  <td className="px-4 py-3 text-sm text-gray-400">
+                    {formatDate(inquiry.createdAt)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Pagination */}
+      {pagination.totalPages > 1 && (
+        <div className="flex justify-center gap-2 mt-4">
+          <button
+            className="btn-sm"
+            disabled={pagination.page <= 1}
+            onClick={() => setPagination((p) => ({ ...p, page: p.page - 1 }))}
+          >
+            Previous
+          </button>
+          <span className="px-4 py-2 text-sm">
+            Page {pagination.page} of {pagination.totalPages}
+          </span>
+          <button
+            className="btn-sm"
+            disabled={pagination.page >= pagination.totalPages}
+            onClick={() => setPagination((p) => ({ ...p, page: p.page + 1 }))}
+          >
+            Next
+          </button>
+        </div>
+      )}
+
+      {/* Inquiry Detail Modal */}
+      {selectedInquiry && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-pos-card rounded-lg p-6 max-w-lg w-full mx-4">
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-primary-600 rounded-full">
+                  {getTypeIcon(selectedInquiry.type)}
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold">
+                    {selectedInquiry.subject || 'No subject'}
+                  </h2>
+                  <div className="flex items-center gap-2 mt-1">
+                    {getStatusBadge(selectedInquiry.status)}
+                    <span className="text-sm text-gray-400">
+                      {getTypeLabel(selectedInquiry.type)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedInquiry(null)}
+                className="text-gray-400 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-gray-400">Contact</p>
+                  <p>
+                    {selectedInquiry.customer
+                      ? `${selectedInquiry.customer.firstName} ${selectedInquiry.customer.lastName}`
+                      : selectedInquiry.contactName || '-'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-400">Phone</p>
+                  <p>{selectedInquiry.contactPhone || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-400">Email</p>
+                  <p>{selectedInquiry.contactEmail || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-400">Follow Up</p>
+                  <p>
+                    {selectedInquiry.followUpDate
+                      ? new Date(selectedInquiry.followUpDate).toLocaleDateString('en-AU')
+                      : '-'}
+                  </p>
+                </div>
+              </div>
+
+              {selectedInquiry.description && (
+                <div>
+                  <p className="text-sm text-gray-400">Description</p>
+                  <p className="bg-pos-dark p-3 rounded mt-1 text-sm">
+                    {selectedInquiry.description}
+                  </p>
+                </div>
+              )}
+
+              <div className="border-t border-gray-700 pt-4">
+                <div className="flex justify-between text-sm text-gray-400">
+                  <span>Logged by {selectedInquiry.user.firstName}</span>
+                  <span>{formatDate(selectedInquiry.createdAt)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

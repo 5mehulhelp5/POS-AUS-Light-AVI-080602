@@ -1,0 +1,777 @@
+import { useState, useEffect } from 'react';
+import { settingsApi } from '../../services/api';
+import {
+  BuildingStorefrontIcon,
+  CreditCardIcon,
+  UserGroupIcon,
+  Cog6ToothIcon,
+  ClockIcon,
+} from '@heroicons/react/24/outline';
+
+interface Role {
+  id: number;
+  name: string;
+  displayName: string;
+  maxDiscountPercent: number;
+  canStackDiscounts: boolean;
+}
+
+interface TradingHours {
+  [key: string]: { open: string; close: string; closed: boolean };
+}
+
+const defaultTradingHours: TradingHours = {
+  monday: { open: '09:00', close: '17:30', closed: false },
+  tuesday: { open: '09:00', close: '17:30', closed: false },
+  wednesday: { open: '09:00', close: '17:30', closed: false },
+  thursday: { open: '09:00', close: '21:00', closed: false },
+  friday: { open: '09:00', close: '17:30', closed: false },
+  saturday: { open: '09:00', close: '17:00', closed: false },
+  sunday: { open: '10:00', close: '16:00', closed: false },
+};
+
+export default function SettingsPage() {
+  const [activeTab, setActiveTab] = useState<'store' | 'payments' | 'roles' | 'system'>('store');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+
+  // Store settings
+  const [storeSettings, setStoreSettings] = useState({
+    store_name: '',
+    store_abn: '',
+    store_address: '',
+    store_phone: '',
+    store_email: '',
+    tax_rate: 0.1,
+    quote_expiry_days: 14,
+    trading_hours: defaultTradingHours,
+  });
+
+  // Payment settings
+  const [paymentSettings, setPaymentSettings] = useState({
+    payment_cash_enabled: true,
+    payment_eftpos_enabled: true,
+    payment_credit_card_enabled: true,
+    payment_store_credit_enabled: true,
+    default_payment_method: 'cash',
+  });
+
+  // Roles
+  const [roles, setRoles] = useState<Role[]>([]);
+  const [editingRole, setEditingRole] = useState<Role | null>(null);
+
+  // System settings
+  const [systemSettings, setSystemSettings] = useState({
+    receipt_print_enabled: true,
+    receipt_logo_url: '',
+    receipt_footer_text: 'Thank you for shopping with us!',
+    default_stock_hold: false,
+    offline_mode_enabled: false,
+  });
+
+  useEffect(() => {
+    fetchSettings();
+  }, [activeTab]);
+
+  const fetchSettings = async () => {
+    setIsLoading(true);
+    try {
+      switch (activeTab) {
+        case 'store':
+          const storeRes = await settingsApi.getStoreSettings();
+          const storeData = storeRes.data.data;
+          setStoreSettings({
+            store_name: storeData.store_name || '',
+            store_abn: storeData.store_abn || '',
+            store_address: storeData.store_address || '',
+            store_phone: storeData.store_phone || '',
+            store_email: storeData.store_email || '',
+            tax_rate: storeData.tax_rate || 0.1,
+            quote_expiry_days: storeData.quote_expiry_days || 14,
+            trading_hours: storeData.trading_hours || defaultTradingHours,
+          });
+          break;
+        case 'payments':
+          const payRes = await settingsApi.getPaymentSettings();
+          setPaymentSettings(payRes.data.data);
+          break;
+        case 'roles':
+          const rolesRes = await settingsApi.getRoles();
+          setRoles(rolesRes.data.data.roles);
+          break;
+        case 'system':
+          const sysRes = await settingsApi.getSystemSettings();
+          setSystemSettings(sysRes.data.data);
+          break;
+      }
+    } catch (error) {
+      console.error('Failed to fetch settings:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleSaveStore = async () => {
+    setIsSaving(true);
+    setSaveMessage('');
+    try {
+      await settingsApi.updateStoreSettings(storeSettings);
+      setSaveMessage('Store settings saved successfully!');
+      setTimeout(() => setSaveMessage(''), 3000);
+    } catch (error) {
+      setSaveMessage('Failed to save settings');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSavePayments = async () => {
+    setIsSaving(true);
+    setSaveMessage('');
+    try {
+      await settingsApi.updatePaymentSettings(paymentSettings);
+      setSaveMessage('Payment settings saved successfully!');
+      setTimeout(() => setSaveMessage(''), 3000);
+    } catch (error) {
+      setSaveMessage('Failed to save settings');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveRole = async () => {
+    if (!editingRole) return;
+    setIsSaving(true);
+    setSaveMessage('');
+    try {
+      await settingsApi.updateRole(editingRole.id, {
+        displayName: editingRole.displayName,
+        maxDiscountPercent: editingRole.maxDiscountPercent,
+        canStackDiscounts: editingRole.canStackDiscounts,
+      });
+      setRoles(roles.map((r) => (r.id === editingRole.id ? editingRole : r)));
+      setEditingRole(null);
+      setSaveMessage('Role updated successfully!');
+      setTimeout(() => setSaveMessage(''), 3000);
+    } catch (error) {
+      setSaveMessage('Failed to update role');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleSaveSystem = async () => {
+    setIsSaving(true);
+    setSaveMessage('');
+    try {
+      await settingsApi.updateSystemSettings(systemSettings);
+      setSaveMessage('System settings saved successfully!');
+      setTimeout(() => setSaveMessage(''), 3000);
+    } catch (error) {
+      setSaveMessage('Failed to save settings');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const updateTradingHours = (
+    day: string,
+    field: 'open' | 'close' | 'closed',
+    value: string | boolean
+  ) => {
+    setStoreSettings({
+      ...storeSettings,
+      trading_hours: {
+        ...storeSettings.trading_hours,
+        [day]: {
+          ...storeSettings.trading_hours[day],
+          [field]: value,
+        },
+      },
+    });
+  };
+
+  const tabs = [
+    { id: 'store', label: 'Store', icon: BuildingStorefrontIcon },
+    { id: 'payments', label: 'Payments', icon: CreditCardIcon },
+    { id: 'roles', label: 'Roles', icon: UserGroupIcon },
+    { id: 'system', label: 'System', icon: Cog6ToothIcon },
+  ];
+
+  const dayLabels: Record<string, string> = {
+    monday: 'Monday',
+    tuesday: 'Tuesday',
+    wednesday: 'Wednesday',
+    thursday: 'Thursday',
+    friday: 'Friday',
+    saturday: 'Saturday',
+    sunday: 'Sunday',
+  };
+
+  return (
+    <div className="h-full p-6 overflow-auto">
+      <h1 className="text-2xl font-bold mb-6">Settings</h1>
+
+      {/* Tabs */}
+      <div className="flex gap-2 mb-6">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+              activeTab === tab.id
+                ? 'bg-primary-600 text-white'
+                : 'bg-pos-accent text-gray-300 hover:bg-pos-accent/70'
+            }`}
+            onClick={() => setActiveTab(tab.id as any)}
+          >
+            <tab.icon className="h-5 w-5" />
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Save Message */}
+      {saveMessage && (
+        <div
+          className={`mb-4 px-4 py-2 rounded ${
+            saveMessage.includes('success')
+              ? 'bg-green-600/20 text-green-400 border border-green-600'
+              : 'bg-red-600/20 text-red-400 border border-red-600'
+          }`}
+        >
+          {saveMessage}
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="card p-8 text-center text-gray-400">Loading settings...</div>
+      ) : (
+        <>
+          {/* Store Settings */}
+          {activeTab === 'store' && (
+            <div className="space-y-6">
+              <div className="card p-6">
+                <h2 className="text-lg font-semibold mb-4">Store Information</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Store Name</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={storeSettings.store_name}
+                      onChange={(e) =>
+                        setStoreSettings({ ...storeSettings, store_name: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">ABN</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={storeSettings.store_abn}
+                      onChange={(e) =>
+                        setStoreSettings({ ...storeSettings, store_abn: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm text-gray-400 mb-1">Address</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={storeSettings.store_address}
+                      onChange={(e) =>
+                        setStoreSettings({ ...storeSettings, store_address: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Phone</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={storeSettings.store_phone}
+                      onChange={(e) =>
+                        setStoreSettings({ ...storeSettings, store_phone: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Email</label>
+                    <input
+                      type="email"
+                      className="input"
+                      value={storeSettings.store_email}
+                      onChange={(e) =>
+                        setStoreSettings({ ...storeSettings, store_email: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="card p-6">
+                <h2 className="text-lg font-semibold mb-4">Tax & Quotes</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">GST Rate (%)</label>
+                    <input
+                      type="number"
+                      className="input"
+                      value={storeSettings.tax_rate * 100}
+                      onChange={(e) =>
+                        setStoreSettings({
+                          ...storeSettings,
+                          tax_rate: parseFloat(e.target.value) / 100,
+                        })
+                      }
+                      min="0"
+                      max="100"
+                      step="0.1"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">
+                      Quote Expiry (days)
+                    </label>
+                    <input
+                      type="number"
+                      className="input"
+                      value={storeSettings.quote_expiry_days}
+                      onChange={(e) =>
+                        setStoreSettings({
+                          ...storeSettings,
+                          quote_expiry_days: parseInt(e.target.value),
+                        })
+                      }
+                      min="1"
+                      max="90"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="card p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <ClockIcon className="h-5 w-5 text-primary-500" />
+                  <h2 className="text-lg font-semibold">Trading Hours</h2>
+                </div>
+                <div className="space-y-3">
+                  {Object.keys(dayLabels).map((day) => (
+                    <div key={day} className="flex items-center gap-4">
+                      <div className="w-28 text-gray-300">{dayLabels[day]}</div>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={!storeSettings.trading_hours[day]?.closed}
+                          onChange={(e) => updateTradingHours(day, 'closed', !e.target.checked)}
+                          className="rounded bg-pos-dark border-gray-600"
+                        />
+                        <span className="text-sm text-gray-400">Open</span>
+                      </label>
+                      {!storeSettings.trading_hours[day]?.closed && (
+                        <>
+                          <input
+                            type="time"
+                            className="input w-32"
+                            value={storeSettings.trading_hours[day]?.open || '09:00'}
+                            onChange={(e) => updateTradingHours(day, 'open', e.target.value)}
+                          />
+                          <span className="text-gray-400">to</span>
+                          <input
+                            type="time"
+                            className="input w-32"
+                            value={storeSettings.trading_hours[day]?.close || '17:30'}
+                            onChange={(e) => updateTradingHours(day, 'close', e.target.value)}
+                          />
+                        </>
+                      )}
+                      {storeSettings.trading_hours[day]?.closed && (
+                        <span className="text-red-400">Closed</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  onClick={handleSaveStore}
+                  disabled={isSaving}
+                  className="btn-primary px-6"
+                >
+                  {isSaving ? 'Saving...' : 'Save Store Settings'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Payment Settings */}
+          {activeTab === 'payments' && (
+            <div className="space-y-6">
+              <div className="card p-6">
+                <h2 className="text-lg font-semibold mb-4">Payment Methods</h2>
+                <div className="space-y-4">
+                  <label className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={paymentSettings.payment_cash_enabled}
+                      onChange={(e) =>
+                        setPaymentSettings({
+                          ...paymentSettings,
+                          payment_cash_enabled: e.target.checked,
+                        })
+                      }
+                      className="rounded bg-pos-dark border-gray-600 h-5 w-5"
+                    />
+                    <span className="text-lg">Cash</span>
+                  </label>
+                  <label className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={paymentSettings.payment_eftpos_enabled}
+                      onChange={(e) =>
+                        setPaymentSettings({
+                          ...paymentSettings,
+                          payment_eftpos_enabled: e.target.checked,
+                        })
+                      }
+                      className="rounded bg-pos-dark border-gray-600 h-5 w-5"
+                    />
+                    <span className="text-lg">EFTPOS</span>
+                  </label>
+                  <label className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={paymentSettings.payment_credit_card_enabled}
+                      onChange={(e) =>
+                        setPaymentSettings({
+                          ...paymentSettings,
+                          payment_credit_card_enabled: e.target.checked,
+                        })
+                      }
+                      className="rounded bg-pos-dark border-gray-600 h-5 w-5"
+                    />
+                    <span className="text-lg">Credit Card</span>
+                  </label>
+                  <label className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={paymentSettings.payment_store_credit_enabled}
+                      onChange={(e) =>
+                        setPaymentSettings({
+                          ...paymentSettings,
+                          payment_store_credit_enabled: e.target.checked,
+                        })
+                      }
+                      className="rounded bg-pos-dark border-gray-600 h-5 w-5"
+                    />
+                    <span className="text-lg">Store Credit</span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="card p-6">
+                <h2 className="text-lg font-semibold mb-4">Default Payment Method</h2>
+                <select
+                  className="input w-full md:w-64"
+                  value={paymentSettings.default_payment_method}
+                  onChange={(e) =>
+                    setPaymentSettings({
+                      ...paymentSettings,
+                      default_payment_method: e.target.value,
+                    })
+                  }
+                >
+                  <option value="cash">Cash</option>
+                  <option value="eftpos">EFTPOS</option>
+                  <option value="credit_card">Credit Card</option>
+                  <option value="store_credit">Store Credit</option>
+                </select>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  onClick={handleSavePayments}
+                  disabled={isSaving}
+                  className="btn-primary px-6"
+                >
+                  {isSaving ? 'Saving...' : 'Save Payment Settings'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Role Settings */}
+          {activeTab === 'roles' && (
+            <div className="space-y-6">
+              <div className="card overflow-hidden">
+                <table className="w-full">
+                  <thead className="bg-pos-accent">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">
+                        Role
+                      </th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">
+                        Display Name
+                      </th>
+                      <th className="px-4 py-3 text-center text-sm font-medium text-gray-300">
+                        Max Discount %
+                      </th>
+                      <th className="px-4 py-3 text-center text-sm font-medium text-gray-300">
+                        Can Stack Discounts
+                      </th>
+                      <th className="px-4 py-3 text-center text-sm font-medium text-gray-300">
+                        Actions
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-700">
+                    {roles.map((role) => (
+                      <tr key={role.id}>
+                        <td className="px-4 py-3 font-mono text-primary-400">{role.name}</td>
+                        <td className="px-4 py-3">{role.displayName}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span
+                            className={`px-2 py-1 rounded text-sm ${
+                              role.maxDiscountPercent >= 100
+                                ? 'bg-green-600/20 text-green-400'
+                                : role.maxDiscountPercent >= 20
+                                ? 'bg-blue-600/20 text-blue-400'
+                                : 'bg-yellow-600/20 text-yellow-400'
+                            }`}
+                          >
+                            {role.maxDiscountPercent}%
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {role.canStackDiscounts ? (
+                            <span className="text-green-400">Yes</span>
+                          ) : (
+                            <span className="text-red-400">No</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <button
+                            onClick={() => setEditingRole({ ...role })}
+                            className="text-primary-400 hover:text-primary-300"
+                          >
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="card p-6 bg-pos-accent/50">
+                <h3 className="font-medium mb-2">Role Permissions Summary</h3>
+                <div className="text-sm text-gray-400 space-y-1">
+                  <p>
+                    <strong className="text-yellow-400">Sales Staff:</strong> Can apply up to 10%
+                    discount, cannot stack discounts
+                  </p>
+                  <p>
+                    <strong className="text-blue-400">Manager:</strong> Can apply up to 20%
+                    discount, can stack multiple discounts
+                  </p>
+                  <p>
+                    <strong className="text-green-400">Admin:</strong> Unlimited discount authority,
+                    full system access
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* System Settings */}
+          {activeTab === 'system' && (
+            <div className="space-y-6">
+              <div className="card p-6">
+                <h2 className="text-lg font-semibold mb-4">Receipt Settings</h2>
+                <div className="space-y-4">
+                  <label className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={systemSettings.receipt_print_enabled}
+                      onChange={(e) =>
+                        setSystemSettings({
+                          ...systemSettings,
+                          receipt_print_enabled: e.target.checked,
+                        })
+                      }
+                      className="rounded bg-pos-dark border-gray-600 h-5 w-5"
+                    />
+                    <span>Enable Receipt Printing</span>
+                  </label>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Receipt Logo URL</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={systemSettings.receipt_logo_url}
+                      onChange={(e) =>
+                        setSystemSettings({
+                          ...systemSettings,
+                          receipt_logo_url: e.target.value,
+                        })
+                      }
+                      placeholder="https://..."
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-400 mb-1">Receipt Footer Text</label>
+                    <input
+                      type="text"
+                      className="input"
+                      value={systemSettings.receipt_footer_text}
+                      onChange={(e) =>
+                        setSystemSettings({
+                          ...systemSettings,
+                          receipt_footer_text: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="card p-6">
+                <h2 className="text-lg font-semibold mb-4">Checkout Defaults</h2>
+                <div className="space-y-4">
+                  <label className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={systemSettings.default_stock_hold}
+                      onChange={(e) =>
+                        setSystemSettings({
+                          ...systemSettings,
+                          default_stock_hold: e.target.checked,
+                        })
+                      }
+                      className="rounded bg-pos-dark border-gray-600 h-5 w-5"
+                    />
+                    <div>
+                      <span>Hold Stock by Default</span>
+                      <p className="text-sm text-gray-400">
+                        When creating quotes, hold stock automatically
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div className="card p-6">
+                <h2 className="text-lg font-semibold mb-4">Offline Mode</h2>
+                <div className="space-y-4">
+                  <label className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={systemSettings.offline_mode_enabled}
+                      onChange={(e) =>
+                        setSystemSettings({
+                          ...systemSettings,
+                          offline_mode_enabled: e.target.checked,
+                        })
+                      }
+                      className="rounded bg-pos-dark border-gray-600 h-5 w-5"
+                    />
+                    <div>
+                      <span>Enable Offline Mode</span>
+                      <p className="text-sm text-gray-400">
+                        Allow sales to be captured when offline and sync later
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
+                <button
+                  onClick={handleSaveSystem}
+                  disabled={isSaving}
+                  className="btn-primary px-6"
+                >
+                  {isSaving ? 'Saving...' : 'Save System Settings'}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Edit Role Modal */}
+      {editingRole && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-pos-card rounded-lg p-6 max-w-md w-full mx-4">
+            <h2 className="text-xl font-bold mb-4">Edit Role: {editingRole.name}</h2>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Display Name</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={editingRole.displayName}
+                  onChange={(e) =>
+                    setEditingRole({ ...editingRole, displayName: e.target.value })
+                  }
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Max Discount (%)</label>
+                <input
+                  type="number"
+                  className="input"
+                  value={editingRole.maxDiscountPercent}
+                  onChange={(e) =>
+                    setEditingRole({
+                      ...editingRole,
+                      maxDiscountPercent: parseFloat(e.target.value),
+                    })
+                  }
+                  min="0"
+                  max="100"
+                  step="1"
+                />
+              </div>
+              <label className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={editingRole.canStackDiscounts}
+                  onChange={(e) =>
+                    setEditingRole({
+                      ...editingRole,
+                      canStackDiscounts: e.target.checked,
+                    })
+                  }
+                  className="rounded bg-pos-dark border-gray-600 h-5 w-5"
+                />
+                <span>Can Stack Discounts</span>
+              </label>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setEditingRole(null)}
+                className="px-4 py-2 text-gray-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveRole}
+                disabled={isSaving}
+                className="btn-primary"
+              >
+                {isSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
