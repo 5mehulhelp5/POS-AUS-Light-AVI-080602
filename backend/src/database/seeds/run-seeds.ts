@@ -24,33 +24,131 @@ async function seed() {
 
     const queryRunner = dataSource.createQueryRunner();
 
+    // Ensure essential tables exist (in case app hasn't started yet)
+    console.log('📋 Ensuring tables exist...');
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS roles (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(50) NOT NULL UNIQUE,
+        display_name VARCHAR(100) NOT NULL,
+        max_discount_percent DECIMAL(5,2) DEFAULT 0,
+        can_stack_discounts BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        role_id INT,
+        email VARCHAR(255) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        pin_code VARCHAR(10),
+        first_name VARCHAR(100) NOT NULL,
+        last_name VARCHAR(100) NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (role_id) REFERENCES roles(id)
+      )
+    `);
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS categories (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        magento_id INT,
+        parent_id INT,
+        name VARCHAR(255) NOT NULL,
+        path VARCHAR(500),
+        level INT DEFAULT 0,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS products (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        magento_id INT,
+        sku VARCHAR(100) UNIQUE,
+        name VARCHAR(500) NOT NULL,
+        description TEXT,
+        price DECIMAL(10,2) DEFAULT 0,
+        special_price DECIMAL(10,2),
+        stock_qty INT DEFAULT 0,
+        is_in_stock BOOLEAN DEFAULT TRUE,
+        tax_class_id INT DEFAULT 2,
+        barcode VARCHAR(100),
+        product_type VARCHAR(50) DEFAULT 'simple',
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS product_categories (
+        product_id INT NOT NULL,
+        category_id INT NOT NULL,
+        PRIMARY KEY (product_id, category_id)
+      )
+    `);
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS customers (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        magento_id INT,
+        email VARCHAR(255),
+        first_name VARCHAR(100),
+        last_name VARCHAR(100),
+        phone VARCHAR(50),
+        mobile VARCHAR(50),
+        company VARCHAR(255),
+        billing_street VARCHAR(500),
+        billing_city VARCHAR(100),
+        billing_state VARCHAR(50),
+        billing_postcode VARCHAR(20),
+        sync_status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS settings (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        setting_key VARCHAR(100) NOT NULL UNIQUE,
+        setting_value TEXT,
+        setting_type VARCHAR(20) DEFAULT 'string',
+        description VARCHAR(500),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Tables ready\n');
+
     // Generate password hash
     const passwordHash = await bcrypt.hash('password123', 10);
     console.log('Generated password hash for "password123"');
 
+    // Helper to truncate a table only if it exists
+    const safeTruncate = async (table: string) => {
+      try {
+        await queryRunner.query(`TRUNCATE TABLE ${table}`);
+      } catch {
+        // Table doesn't exist yet, skip
+      }
+    };
+
     // Clear existing data (in reverse order of dependencies)
     console.log('\n🗑️  Clearing existing data...');
     await queryRunner.query('SET FOREIGN_KEY_CHECKS = 0');
-    await queryRunner.query('TRUNCATE TABLE discount_audit_log');
-    await queryRunner.query('TRUNCATE TABLE activity_logs');
-    await queryRunner.query('TRUNCATE TABLE sync_queue');
-    await queryRunner.query('TRUNCATE TABLE sync_logs');
-    await queryRunner.query('TRUNCATE TABLE payments');
-    await queryRunner.query('TRUNCATE TABLE order_items');
-    await queryRunner.query('TRUNCATE TABLE orders');
-    await queryRunner.query('TRUNCATE TABLE quote_items');
-    await queryRunner.query('TRUNCATE TABLE quotes');
-    await queryRunner.query('TRUNCATE TABLE inquiries');
-    await queryRunner.query('TRUNCATE TABLE product_categories');
-    await queryRunner.query('TRUNCATE TABLE product_attributes');
-    await queryRunner.query('TRUNCATE TABLE products');
-    await queryRunner.query('TRUNCATE TABLE categories');
-    await queryRunner.query('TRUNCATE TABLE customers');
-    await queryRunner.query('TRUNCATE TABLE user_sessions');
-    await queryRunner.query('TRUNCATE TABLE permissions');
-    await queryRunner.query('TRUNCATE TABLE users');
-    await queryRunner.query('TRUNCATE TABLE roles');
-    await queryRunner.query('TRUNCATE TABLE settings');
+    const tables = [
+      'discount_audit_log', 'activity_logs', 'sync_queue', 'sync_logs',
+      'payments', 'order_items', 'orders', 'quote_items', 'quotes',
+      'inquiries', 'product_categories', 'product_attributes', 'products',
+      'categories', 'customers', 'user_sessions', 'permissions', 'users',
+      'roles', 'settings',
+    ];
+    for (const table of tables) {
+      await safeTruncate(table);
+    }
     await queryRunner.query('SET FOREIGN_KEY_CHECKS = 1');
     console.log('✅ Tables cleared\n');
 

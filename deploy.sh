@@ -103,17 +103,22 @@ echo "Building backend..."
 cd /opt/pos-aus-light/backend
 npm run build
 
-# Run database seeds
-echo "Seeding database..."
-npm run seed || echo "Seed may have already been run, continuing..."
-
-# Start with PM2
+# Start with PM2 first (so TypeORM creates tables)
 echo "Starting app with PM2..."
 cd /opt/pos-aus-light
 pm2 delete pos-aus-light 2>/dev/null || true
 pm2 start ecosystem.config.js
 pm2 save
 pm2 startup systemd -u root --hp /root
+
+# Wait for app to start and create database tables
+echo "Waiting for app to initialize database tables..."
+sleep 10
+
+# Run database seeds (after tables exist)
+echo "Seeding database..."
+cd /opt/pos-aus-light/backend
+npm run seed || echo "Seed may have already been run, continuing..."
 
 # Configure nginx
 echo "Configuring nginx..."
