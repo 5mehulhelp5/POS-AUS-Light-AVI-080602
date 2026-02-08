@@ -150,7 +150,7 @@ export default function InvoiceModal({ invoice, onClose }: InvoiceModalProps) {
               backgroundColor: invoice.buyerType === 'retail' ? '#fef3c7' : '#dbeafe',
               color: invoice.buyerType === 'retail' ? '#92400e' : '#1e40af'
             }}>
-              {invoice.buyerType === 'retail' ? 'RETAIL SALE' : 'CUSTOMER SALE'}
+              {invoice.buyerType === 'retail' ? 'TRADE SALE' : 'CUSTOMER SALE'}
             </span>
           </div>
 
@@ -273,7 +273,7 @@ export default function InvoiceModal({ invoice, onClose }: InvoiceModalProps) {
 
           {invoice.buyerType === 'retail' && (
             <div style={{ marginTop: '20px', padding: '15px', background: '#f9fafb', borderRadius: '8px' }}>
-              <h4 style={{ color: '#374151', marginBottom: '10px' }}>Retail Purchase Policy</h4>
+              <h4 style={{ color: '#374151', marginBottom: '10px' }}>Trade Purchase Policy</h4>
               <p style={{ fontSize: '14px', color: '#666' }}>
                 Thank you for your purchase! Returns accepted within 14 days with original
                 receipt. Items must be in original packaging and unused condition.

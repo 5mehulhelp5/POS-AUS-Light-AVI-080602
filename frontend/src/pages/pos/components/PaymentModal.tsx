@@ -217,7 +217,7 @@ export default function PaymentModal({
               onClick={() => setBuyerType('retail')}
             >
               <BuildingStorefrontIcon className="h-5 w-5" />
-              <span className="font-medium">Retail</span>
+              <span className="font-medium">Trade</span>
             </button>
             <button
               className={`p-3 rounded-lg border-2 flex items-center justify-center gap-2 transition-colors ${
@@ -233,7 +233,7 @@ export default function PaymentModal({
           </div>
           <p className="text-xs text-gray-500 mt-2">
             {buyerType === 'retail'
-              ? 'Walk-in customer - standard retail invoice'
+              ? 'Walk-in customer - standard trade invoice'
               : 'Registered customer - invoice with account details'}
           </p>
         </div>
