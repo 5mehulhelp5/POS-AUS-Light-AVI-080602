@@ -12,7 +12,7 @@ export const getDatabaseConfig = (
   database: configService.get<string>('DB_DATABASE', 'pos_aus_light'),
   entities: [__dirname + '/../**/*.entity{.ts,.js}'],
   migrations: [__dirname + '/migrations/*{.ts,.js}'],
-  synchronize: configService.get<string>('NODE_ENV') === 'development',
+  synchronize: true,
   logging: configService.get<string>('NODE_ENV') === 'development',
   timezone: 'Z',
   charset: 'utf8mb4',
