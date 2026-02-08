@@ -7,9 +7,14 @@ echo "========================================="
 echo "  POS AUS Light - Server Setup"
 echo "========================================="
 
-# Update system (no interactive prompts)
+# Clean up any stale locks
+rm -f /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/cache/apt/archives/lock /var/cache/debconf/*.dat-old
+killall -9 apt dpkg 2>/dev/null || true
+sleep 2
+dpkg --configure -a || true
+
+# Update package list
 apt update
-apt -y -o Dpkg::Options::="--force-confold" upgrade
 
 # Install Node.js 20
 echo "Installing Node.js 20..."
