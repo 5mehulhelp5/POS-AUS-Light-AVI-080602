@@ -7,6 +7,7 @@ import {
   XMarkIcon,
   TagIcon,
   ExclamationTriangleIcon,
+  ArrowTopRightOnSquareIcon,
 } from '@heroicons/react/24/outline';
 import { CartItem, CartDiscount } from '../../../store/slices/cartSlice';
 
@@ -55,6 +56,11 @@ export default function CartPanel({
   const [itemDiscountValue, setItemDiscountValue] = useState('');
   const [editingQuantity, setEditingQuantity] = useState<number | null>(null);
   const [quantityInput, setQuantityInput] = useState('');
+
+  const handleComparePrice = (productName: string) => {
+    const query = encodeURIComponent(`${productName} site:onlinelighting.com.au`);
+    window.open(`https://www.google.com/search?q=${query}`, '_blank');
+  };
 
   const handleQuantityBlur = (productId: number) => {
     setEditingQuantity(null);
@@ -244,6 +250,14 @@ export default function CartPanel({
                             title="Apply item discount"
                           >
                             <TagIcon className="h-4 w-4" />
+                          </button>
+                          {/* Compare competitor price button */}
+                          <button
+                            className="w-8 h-8 rounded flex items-center justify-center bg-pos-accent hover:bg-pos-bg text-gray-400 hover:text-primary-400"
+                            onClick={() => handleComparePrice(item.name)}
+                            title="Compare competitor price"
+                          >
+                            <ArrowTopRightOnSquareIcon className="h-4 w-4" />
                           </button>
                         </div>
                         <span className="font-bold">
