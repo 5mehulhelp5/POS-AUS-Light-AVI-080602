@@ -220,7 +220,11 @@ export class CompetitorService implements OnModuleInit {
       const $ = cheerio.load(data);
 
       // Try multiple selectors for price extraction
+      // onlinelighting.com.au uses CS-Cart with .product-price-actual and .ty-price classes
       const priceSelectors = [
+        '.product-price-actual',
+        '.price-discounted.ty-price',
+        '.ty-price-num',
         '.price-wrapper .price',
         '.product-info-price .price',
         '.special-price .price',
