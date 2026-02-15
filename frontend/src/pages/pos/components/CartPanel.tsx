@@ -7,9 +7,10 @@ import {
   XMarkIcon,
   TagIcon,
   ExclamationTriangleIcon,
-  ArrowTopRightOnSquareIcon,
+  MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 import { CartItem, CartDiscount } from '../../../store/slices/cartSlice';
+import { competitorApi } from '../../../services/api';
 
 interface CartPanelProps {
   items: CartItem[];
@@ -56,10 +57,43 @@ export default function CartPanel({
   const [itemDiscountValue, setItemDiscountValue] = useState('');
   const [editingQuantity, setEditingQuantity] = useState<number | null>(null);
   const [quantityInput, setQuantityInput] = useState('');
+  const [competitorPrices, setCompetitorPrices] = useState<
+    Record<number, { price: number | null; loading: boolean; error?: string; url?: string | null }>
+  >({});
 
-  const handleComparePrice = (productName: string) => {
-    const query = encodeURIComponent(`${productName} site:onlinelighting.com.au`);
-    window.open(`https://www.google.com/search?q=${query}`, '_blank');
+  const handleComparePrice = async (productId: number, productName: string) => {
+    // If already loaded, toggle visibility by clearing it
+    if (competitorPrices[productId] && !competitorPrices[productId].loading) {
+      setCompetitorPrices((prev) => {
+        const next = { ...prev };
+        delete next[productId];
+        return next;
+      });
+      return;
+    }
+
+    setCompetitorPrices((prev) => ({
+      ...prev,
+      [productId]: { price: null, loading: true },
+    }));
+
+    try {
+      const { data } = await competitorApi.getPrice(productName);
+      setCompetitorPrices((prev) => ({
+        ...prev,
+        [productId]: {
+          price: data.price,
+          loading: false,
+          error: data.error,
+          url: data.url,
+        },
+      }));
+    } catch {
+      setCompetitorPrices((prev) => ({
+        ...prev,
+        [productId]: { price: null, loading: false, error: 'Failed to fetch' },
+      }));
+    }
   };
 
   const handleQuantityBlur = (productId: number) => {
@@ -253,11 +287,19 @@ export default function CartPanel({
                           </button>
                           {/* Compare competitor price button */}
                           <button
-                            className="w-8 h-8 rounded flex items-center justify-center bg-pos-accent hover:bg-pos-bg text-gray-400 hover:text-primary-400"
-                            onClick={() => handleComparePrice(item.name)}
-                            title="Compare competitor price"
+                            className={`w-8 h-8 rounded flex items-center justify-center ${
+                              competitorPrices[item.productId]?.price
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-pos-accent hover:bg-pos-bg text-gray-400 hover:text-primary-400'
+                            }`}
+                            onClick={() => handleComparePrice(item.productId, item.name)}
+                            title="Check competitor price"
                           >
-                            <ArrowTopRightOnSquareIcon className="h-4 w-4" />
+                            {competitorPrices[item.productId]?.loading ? (
+                              <div className="h-4 w-4 border-2 border-gray-400 border-t-white rounded-full animate-spin" />
+                            ) : (
+                              <MagnifyingGlassIcon className="h-4 w-4" />
+                            )}
                           </button>
                         </div>
                         <span className="font-bold">
@@ -269,6 +311,49 @@ export default function CartPanel({
                         <div className="mt-2 flex items-center gap-1 text-yellow-400 text-xs">
                           <ExclamationTriangleIcon className="h-4 w-4" />
                           <span>Only {stock} in stock</span>
+                        </div>
+                      )}
+                      {/* Competitor price */}
+                      {competitorPrices[item.productId] && !competitorPrices[item.productId].loading && (
+                        <div className="mt-2 flex items-center gap-2 text-xs">
+                          {competitorPrices[item.productId].price !== null ? (
+                            <>
+                              <span className="text-gray-400">Competitor:</span>
+                              <span className={`font-bold ${
+                                competitorPrices[item.productId].price! < item.unitPrice
+                                  ? 'text-red-400'
+                                  : competitorPrices[item.productId].price! > item.unitPrice
+                                  ? 'text-green-400'
+                                  : 'text-yellow-400'
+                              }`}>
+                                ${competitorPrices[item.productId].price!.toFixed(2)}
+                              </span>
+                              {competitorPrices[item.productId].price! < item.unitPrice && (
+                                <span className="text-red-400">
+                                  (${(item.unitPrice - competitorPrices[item.productId].price!).toFixed(2)} more)
+                                </span>
+                              )}
+                              {competitorPrices[item.productId].price! > item.unitPrice && (
+                                <span className="text-green-400">
+                                  (${(competitorPrices[item.productId].price! - item.unitPrice).toFixed(2)} cheaper)
+                                </span>
+                              )}
+                              {competitorPrices[item.productId].url && (
+                                <a
+                                  href={competitorPrices[item.productId].url!}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-400 hover:text-blue-300 underline ml-auto"
+                                >
+                                  View
+                                </a>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-gray-500">
+                              {competitorPrices[item.productId].error || 'Not found on competitor site'}
+                            </span>
+                          )}
                         </div>
                       )}
                       {/* Item discount input */}

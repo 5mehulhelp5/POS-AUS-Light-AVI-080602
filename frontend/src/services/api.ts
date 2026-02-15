@@ -242,4 +242,10 @@ export const settingsApi = {
   }) => api.put('/settings/system', data),
 };
 
+// Competitor API
+export const competitorApi = {
+  getPrice: (productName: string) =>
+    api.get('/competitor/price', { params: { name: productName } }),
+};
+
 export default api;

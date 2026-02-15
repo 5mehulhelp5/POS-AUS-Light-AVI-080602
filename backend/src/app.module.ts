@@ -18,6 +18,7 @@ import { InquiriesModule } from './modules/inquiries/inquiries.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { SettingsModule } from './modules/settings/settings.module';
+import { CompetitorModule } from './modules/competitor/competitor.module';
 
 // Database configuration
 import { getDatabaseConfig } from './database/database.config';
@@ -59,6 +60,7 @@ import { getDatabaseConfig } from './database/database.config';
     SyncModule,
     ReportsModule,
     SettingsModule,
+    CompetitorModule,
   ],
 })
 export class AppModule {}
