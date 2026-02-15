@@ -61,7 +61,7 @@ export default function CartPanel({
     Record<number, { price: number | null; loading: boolean; error?: string; url?: string | null }>
   >({});
 
-  const handleComparePrice = async (productId: number, productName: string) => {
+  const handleComparePrice = async (productId: number, productName: string, sku: string) => {
     // If already loaded, toggle visibility by clearing it
     if (competitorPrices[productId] && !competitorPrices[productId].loading) {
       setCompetitorPrices((prev) => {
@@ -78,7 +78,7 @@ export default function CartPanel({
     }));
 
     try {
-      const { data } = await competitorApi.getPrice(productName);
+      const { data } = await competitorApi.getPrice(productName, sku);
       setCompetitorPrices((prev) => ({
         ...prev,
         [productId]: {
@@ -292,7 +292,7 @@ export default function CartPanel({
                                 ? 'bg-blue-600 text-white'
                                 : 'bg-pos-accent hover:bg-pos-bg text-gray-400 hover:text-primary-400'
                             }`}
-                            onClick={() => handleComparePrice(item.productId, item.name)}
+                            onClick={() => handleComparePrice(item.productId, item.name, item.sku)}
                             title="Check competitor price"
                           >
                             {competitorPrices[item.productId]?.loading ? (

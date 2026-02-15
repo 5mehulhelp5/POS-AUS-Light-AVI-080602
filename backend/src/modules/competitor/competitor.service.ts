@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 
@@ -9,25 +9,56 @@ export interface CompetitorPrice {
   error?: string;
 }
 
+interface SitemapProduct {
+  url: string;
+  slug: string;
+  tokens: string[];
+  skus: string[];
+}
+
 @Injectable()
-export class CompetitorService {
+export class CompetitorService implements OnModuleInit {
   private readonly logger = new Logger(CompetitorService.name);
 
-  // Simple in-memory cache: productName -> { result, timestamp }
+  // Sitemap-based product index
+  private productIndex: SitemapProduct[] = [];
+  private indexLoaded = false;
+  private indexLoading = false;
+
+  // Price cache: productName -> { result, timestamp }
   private cache = new Map<string, { result: CompetitorPrice; timestamp: number }>();
   private readonly CACHE_TTL = 1000 * 60 * 60; // 1 hour
+  private readonly SITEMAP_REFRESH = 1000 * 60 * 60 * 24; // 24 hours
+  private lastSitemapLoad = 0;
 
-  async getCompetitorPrice(productName: string): Promise<CompetitorPrice> {
+  async onModuleInit() {
+    // Load sitemap index in background on startup
+    this.loadSitemapIndex().catch((err) =>
+      this.logger.warn(`Initial sitemap load failed: ${err.message}`),
+    );
+  }
+
+  async getCompetitorPrice(productName: string, sku?: string): Promise<CompetitorPrice> {
     // Check cache first
-    const cacheKey = productName.toLowerCase().trim();
+    const cacheKey = (sku || productName).toLowerCase().trim();
     const cached = this.cache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
       return cached.result;
     }
 
+    // Ensure index is loaded
+    if (!this.indexLoaded) {
+      await this.loadSitemapIndex();
+    }
+
+    // Refresh sitemap if stale
+    if (Date.now() - this.lastSitemapLoad > this.SITEMAP_REFRESH) {
+      this.loadSitemapIndex().catch(() => {});
+    }
+
     try {
-      // Step 1: Search Google for the product on the competitor site
-      const productUrl = await this.searchGoogle(productName);
+      // Step 1: Find matching product in sitemap index
+      const productUrl = this.findProduct(productName, sku);
       if (!productUrl) {
         const result: CompetitorPrice = {
           price: null,
@@ -51,7 +82,9 @@ export class CompetitorService {
       this.cache.set(cacheKey, { result, timestamp: Date.now() });
       return result;
     } catch (error) {
-      this.logger.error(`Failed to get competitor price for "${productName}": ${error.message}`);
+      this.logger.error(
+        `Failed to get competitor price for "${productName}": ${error.message}`,
+      );
       return {
         price: null,
         url: null,
@@ -61,56 +94,115 @@ export class CompetitorService {
     }
   }
 
-  private async searchGoogle(productName: string): Promise<string | null> {
-    const query = `${productName} site:onlinelighting.com.au`;
-    const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=3`;
+  private async loadSitemapIndex(): Promise<void> {
+    if (this.indexLoading) return;
+    this.indexLoading = true;
 
     try {
-      const { data } = await axios.get(url, {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          Accept: 'text/html,application/xhtml+xml',
-          'Accept-Language': 'en-AU,en;q=0.9',
+      this.logger.log('Loading competitor sitemap...');
+      const { data } = await axios.get(
+        'https://onlinelighting.com.au/sitemap.xml',
+        {
+          headers: { 'User-Agent': 'Mozilla/5.0' },
+          timeout: 30000,
         },
-        timeout: 10000,
+      );
+
+      const urls = [
+        ...data.matchAll(
+          /<loc>(https:\/\/onlinelighting\.com\.au\/([^<]*\.html))<\/loc>/g,
+        ),
+      ];
+
+      this.productIndex = urls.map((m: RegExpMatchArray) => {
+        const url = m[1];
+        const slug = m[2].replace('.html', '');
+        const tokens = slug.split('-').map((t: string) => t.toLowerCase());
+        // Extract SKU-like values: pure numbers (4+ digits) or letter+number combos
+        const skus = tokens.filter(
+          (t: string) => /^\d{4,}$/.test(t) || /^[a-z]{1,4}\d{3,}/i.test(t),
+        );
+        return { url, slug, tokens, skus };
       });
 
-      const $ = cheerio.load(data);
-
-      // Google search results contain links in <a> tags
-      // Look for links to onlinelighting.com.au
-      let productUrl: string | null = null;
-
-      $('a[href]').each((_, el) => {
-        if (productUrl) return;
-        const href = $(el).attr('href') || '';
-
-        // Google wraps URLs in /url?q=<actual-url>&...
-        const match = href.match(/\/url\?q=(https?:\/\/[^&]+onlinelighting\.com\.au[^&]*)/);
-        if (match) {
-          const decoded = decodeURIComponent(match[1]);
-          // Only accept product pages (ending in .html)
-          if (decoded.includes('.html')) {
-            productUrl = decoded;
-          }
-        }
-
-        // Direct links
-        if (
-          href.includes('onlinelighting.com.au') &&
-          href.includes('.html') &&
-          href.startsWith('http')
-        ) {
-          productUrl = href;
-        }
-      });
-
-      return productUrl;
+      this.indexLoaded = true;
+      this.lastSitemapLoad = Date.now();
+      this.logger.log(
+        `Competitor sitemap loaded: ${this.productIndex.length} products`,
+      );
     } catch (error) {
-      this.logger.warn(`Google search failed: ${error.message}`);
-      return null;
+      this.logger.error(`Failed to load sitemap: ${error.message}`);
+    } finally {
+      this.indexLoading = false;
     }
+  }
+
+  private findProduct(productName: string, sku?: string): string | null {
+    if (this.productIndex.length === 0) return null;
+
+    // Strategy 1: Match by SKU if provided
+    if (sku) {
+      // Clean the SKU: remove brand prefixes like "Eglo.", take last segment
+      const skuParts = sku
+        .replace(/[^a-zA-Z0-9]/g, ' ')
+        .trim()
+        .split(/\s+/);
+      for (const part of skuParts) {
+        const skuLower = part.toLowerCase();
+        if (skuLower.length < 3) continue;
+        const match = this.productIndex.find(
+          (p) =>
+            p.skus.includes(skuLower) ||
+            p.tokens.includes(skuLower) ||
+            p.slug.includes(skuLower),
+        );
+        if (match) return match.url;
+      }
+    }
+
+    // Strategy 2: Match by product name keywords
+    const nameTokens = productName
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .split(/\s+/)
+      .filter((t) => t.length > 2);
+
+    // Remove common generic words
+    const stopWords = new Set([
+      'the',
+      'and',
+      'with',
+      'for',
+      'led',
+      'light',
+      'lamp',
+      'range',
+      'modern',
+      'new',
+    ]);
+    const keywords = nameTokens.filter((t) => !stopWords.has(t));
+
+    if (keywords.length === 0) return null;
+
+    // Score each product by keyword match count
+    let bestMatch: SitemapProduct | null = null;
+    let bestScore = 0;
+
+    for (const product of this.productIndex) {
+      let score = 0;
+      const slugStr = product.tokens.join(' ');
+      for (const kw of keywords) {
+        if (slugStr.includes(kw)) score++;
+      }
+      // Require at least 2 keyword matches or 50% of keywords
+      const threshold = Math.max(2, Math.ceil(keywords.length * 0.4));
+      if (score >= threshold && score > bestScore) {
+        bestScore = score;
+        bestMatch = product;
+      }
+    }
+
+    return bestMatch?.url || null;
   }
 
   private async scrapePrice(productUrl: string): Promise<number | null> {
@@ -176,7 +268,9 @@ export class CompetitorService {
         try {
           const json = JSON.parse($(el).html() || '');
           if (json['@type'] === 'Product' && json.offers) {
-            const offers = Array.isArray(json.offers) ? json.offers[0] : json.offers;
+            const offers = Array.isArray(json.offers)
+              ? json.offers[0]
+              : json.offers;
             if (offers.price) {
               ldPrice = parseFloat(offers.price);
             }
@@ -188,7 +282,9 @@ export class CompetitorService {
 
       return ldPrice;
     } catch (error) {
-      this.logger.warn(`Failed to scrape price from ${productUrl}: ${error.message}`);
+      this.logger.warn(
+        `Failed to scrape price from ${productUrl}: ${error.message}`,
+      );
       return null;
     }
   }

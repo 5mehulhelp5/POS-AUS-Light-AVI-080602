@@ -244,8 +244,8 @@ export const settingsApi = {
 
 // Competitor API
 export const competitorApi = {
-  getPrice: (productName: string) =>
-    api.get('/competitor/price', { params: { name: productName } }),
+  getPrice: (productName: string, sku?: string) =>
+    api.get('/competitor/price', { params: { name: productName, sku } }),
 };
 
 export default api;

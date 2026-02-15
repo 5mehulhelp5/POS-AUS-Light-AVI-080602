@@ -8,10 +8,13 @@ export class CompetitorController {
   constructor(private readonly competitorService: CompetitorService) {}
 
   @Get('price')
-  async getPrice(@Query('name') productName: string) {
+  async getPrice(
+    @Query('name') productName: string,
+    @Query('sku') sku?: string,
+  ) {
     if (!productName) {
       return { price: null, error: 'Product name is required' };
     }
-    return this.competitorService.getCompetitorPrice(productName);
+    return this.competitorService.getCompetitorPrice(productName, sku);
   }
 }
