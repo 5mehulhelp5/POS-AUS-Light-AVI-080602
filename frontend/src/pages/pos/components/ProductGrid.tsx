@@ -41,7 +41,7 @@ export default function ProductGrid({
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin">
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 auto-rows-max">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 auto-rows-max">
         {products.map((product) => (
           <button
             key={product.id}
@@ -50,12 +50,12 @@ export default function ProductGrid({
             disabled={!product.isInStock}
           >
             {/* Product Image */}
-            <div className="aspect-square bg-pos-accent rounded-lg mb-3 overflow-hidden relative max-h-48">
+            <div className="h-36 bg-pos-accent rounded-lg mb-3 overflow-hidden relative">
               {product.thumbnailUrl ? (
                 <img
                   src={product.thumbnailUrl}
                   alt={product.name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain p-1"
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-gray-500">
