@@ -88,6 +88,7 @@ export const customersApi = {
 export const ordersApi = {
   getOrders: (params?: {
     status?: string;
+    search?: string;
     userId?: number;
     customerId?: number;
     dateFrom?: string;

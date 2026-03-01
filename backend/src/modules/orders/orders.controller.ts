@@ -24,6 +24,7 @@ export class OrdersController {
   @ApiOperation({ summary: 'List orders' })
   async findAll(
     @Query('status') status?: string,
+    @Query('search') search?: string,
     @Query('userId') userId?: number,
     @Query('customerId') customerId?: number,
     @Query('dateFrom') dateFrom?: string,
@@ -33,6 +34,7 @@ export class OrdersController {
   ) {
     const { orders, total } = await this.ordersService.findAll({
       status: status as any,
+      search,
       userId,
       customerId,
       dateFrom: dateFrom ? new Date(dateFrom) : undefined,

@@ -10,7 +10,7 @@ import {
   MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
 import { CartItem, CartDiscount } from '../../../store/slices/cartSlice';
-import { competitorApi } from '../../../services/api';
+import { competitorApi, customersApi } from '../../../services/api';
 
 interface CartPanelProps {
   items: CartItem[];
@@ -27,6 +27,7 @@ interface CartPanelProps {
   onUpdateQuantity: (productId: number, quantity: number) => void;
   onSetItemDiscount: (productId: number, discountPercent: number) => void;
   onSetCartDiscount: (discount: CartDiscount | null) => void;
+  onSetCustomer: (customer: { id: number; name: string } | null) => void;
   onClearCart: () => void;
   onCheckout: () => void;
 }
@@ -46,10 +47,20 @@ export default function CartPanel({
   onUpdateQuantity,
   onSetItemDiscount,
   onSetCartDiscount,
+  onSetCustomer,
   onClearCart,
   onCheckout,
 }: CartPanelProps) {
   const [showDiscountModal, setShowDiscountModal] = useState(false);
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
+  const [custResults, setCustResults] = useState<any[]>([]);
+  const [custSearching, setCustSearching] = useState(false);
+  const [showCreateCustomer, setShowCreateCustomer] = useState(false);
+  const [newCustFirstName, setNewCustFirstName] = useState('');
+  const [newCustLastName, setNewCustLastName] = useState('');
+  const [newCustEmail, setNewCustEmail] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  const [createCustError, setCreateCustError] = useState('');
   const [discountType, setDiscountType] = useState<'percent' | 'fixed'>('percent');
   const [discountValue, setDiscountValue] = useState('');
   const [discountReason, setDiscountReason] = useState('');
@@ -163,10 +174,29 @@ export default function CartPanel({
 
       {/* Customer */}
       <div className="p-4 border-b border-gray-700">
-        <button className="w-full btn-secondary flex items-center justify-center gap-2">
-          <UserIcon className="h-5 w-5" />
-          {customerName || 'Add Customer'}
-        </button>
+        {customerName ? (
+          <div className="flex items-center justify-between bg-pos-accent rounded-lg px-3 py-2">
+            <div className="flex items-center gap-2">
+              <UserIcon className="h-5 w-5 text-primary-400" />
+              <span className="font-medium">{customerName}</span>
+            </div>
+            <button
+              className="text-gray-400 hover:text-red-400"
+              onClick={() => onSetCustomer(null)}
+              title="Remove customer"
+            >
+              <XMarkIcon className="h-4 w-4" />
+            </button>
+          </div>
+        ) : (
+          <button
+            className="w-full btn-secondary flex items-center justify-center gap-2"
+            onClick={() => { setShowCustomerModal(true); setCustResults([]); setShowCreateCustomer(false); }}
+          >
+            <UserIcon className="h-5 w-5" />
+            Add Customer
+          </button>
+        )}
       </div>
 
       {/* Cart Items */}
@@ -270,18 +300,24 @@ export default function CartPanel({
                           >
                             <PlusIcon className="h-4 w-4" />
                           </button>
-                          {/* Item discount button */}
+                          {/* Item discount button - blocked for SALE items */}
                           <button
                             className={`w-8 h-8 rounded flex items-center justify-center ${
-                              item.discountPercent > 0
+                              item.isSaleItem
+                                ? 'bg-red-900/50 text-red-400 cursor-not-allowed'
+                                : item.discountPercent > 0
                                 ? 'bg-green-600 text-white'
                                 : 'bg-pos-accent hover:bg-pos-bg text-gray-400'
                             }`}
                             onClick={() => {
+                              if (item.isSaleItem) {
+                                alert('Cannot apply further discount on SALE/Clearance items');
+                                return;
+                              }
                               setEditingItemDiscount(item.productId);
                               setItemDiscountValue(item.discountPercent.toString());
                             }}
-                            title="Apply item discount"
+                            title={item.isSaleItem ? 'No discount on SALE items' : 'Apply item discount'}
                           >
                             <TagIcon className="h-4 w-4" />
                           </button>
@@ -362,7 +398,7 @@ export default function CartPanel({
                           <input
                             type="number"
                             className="input flex-1 text-sm py-1"
-                            placeholder={`Max ${maxDiscountPercent}%`}
+                            placeholder={maxDiscountPercent >= 100 ? 'No Limit' : `Max ${maxDiscountPercent}%`}
                             value={itemDiscountValue}
                             onChange={(e) => setItemDiscountValue(e.target.value)}
                             max={maxDiscountPercent}
@@ -419,11 +455,11 @@ export default function CartPanel({
           </div>
         )}
         <div className="flex justify-between text-sm">
-          <span className="text-gray-400">GST (10%)</span>
+          <span className="text-gray-400">GST included</span>
           <span>${tax.toFixed(2)}</span>
         </div>
         <div className="flex justify-between text-xl font-bold pt-2 border-t border-gray-600">
-          <span>Total</span>
+          <span>Total (incl. GST)</span>
           <span className="text-primary-400">${total.toFixed(2)}</span>
         </div>
       </div>
@@ -442,8 +478,8 @@ export default function CartPanel({
           >
             <TagIcon className="h-5 w-5" />
             {cartDiscount
-              ? `Cart Discount: ${cartDiscount.type === 'percent' ? `${cartDiscount.value}%` : `$${cartDiscount.value}`}`
-              : 'Add Cart Discount'}
+              ? `Further Discount: ${cartDiscount.type === 'percent' ? `${cartDiscount.value}%` : `$${cartDiscount.value}`}`
+              : 'Add Further Discount'}
           </button>
         )}
 
@@ -462,7 +498,7 @@ export default function CartPanel({
         <div className="modal-backdrop" onClick={() => setShowDiscountModal(false)}>
           <div className="modal-content max-w-sm" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold">Apply Cart Discount</h3>
+              <h3 className="text-lg font-bold">Apply Further Discount</h3>
               <button
                 className="text-gray-400 hover:text-white"
                 onClick={() => setShowDiscountModal(false)}
@@ -472,7 +508,7 @@ export default function CartPanel({
             </div>
 
             <p className="text-sm text-gray-400 mb-4">
-              Max discount: {maxDiscountPercent}% | Stacking: {canStackDiscounts ? 'Allowed' : 'Not allowed'}
+              Max discount: {maxDiscountPercent >= 100 ? 'No Limit (Admin)' : `${maxDiscountPercent}%`} | Stacking: {canStackDiscounts ? 'Allowed' : 'Not allowed'}
             </p>
 
             {/* Discount Type */}
@@ -502,7 +538,7 @@ export default function CartPanel({
             {/* Discount Value */}
             <div className="mb-4">
               <label className="block text-sm text-gray-400 mb-1">
-                {discountType === 'percent' ? `Discount % (max ${maxDiscountPercent}%)` : 'Discount Amount ($)'}
+                {discountType === 'percent' ? (maxDiscountPercent >= 100 ? 'Discount % (No Limit)' : `Discount % (max ${maxDiscountPercent}%)`) : 'Discount Amount ($)'}
               </label>
               <input
                 type="number"
@@ -538,6 +574,242 @@ export default function CartPanel({
             >
               Apply Discount
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Customer Search / Create Modal */}
+      {showCustomerModal && (
+        <div className="modal-backdrop" onClick={() => setShowCustomerModal(false)}>
+          <div className="modal-content max-w-md" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold">
+                {showCreateCustomer ? 'Create New Customer' : 'Add Customer'}
+              </h3>
+              <button
+                className="text-gray-400 hover:text-white"
+                onClick={() => setShowCustomerModal(false)}
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            {!showCreateCustomer ? (
+              <>
+                {/* Separate search fields */}
+                <div className="space-y-3 mb-4">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Customer ID</label>
+                    <input
+                      type="number"
+                      placeholder="Enter customer ID"
+                      className="input"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const val = (e.target as HTMLInputElement).value.trim();
+                          if (val) {
+                            setCustSearching(true);
+                            customersApi
+                              .getCustomers({ search: val, limit: 10 })
+                              .then((res) => {
+                                const all = res.data.data?.customers || [];
+                                setCustResults(all.filter((c: any) => c.id === parseInt(val)));
+                              })
+                              .catch(() => setCustResults([]))
+                              .finally(() => setCustSearching(false));
+                          }
+                        }
+                      }}
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Customer Name</label>
+                    <input
+                      type="text"
+                      placeholder="Search by name"
+                      className="input"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const val = (e.target as HTMLInputElement).value.trim();
+                          if (val.length >= 2) {
+                            setCustSearching(true);
+                            customersApi
+                              .getCustomers({ search: val, limit: 10 })
+                              .then((res) => setCustResults(res.data.data?.customers || []))
+                              .catch(() => setCustResults([]))
+                              .finally(() => setCustSearching(false));
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Phone Number</label>
+                    <input
+                      type="tel"
+                      placeholder="Search by phone"
+                      className="input"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const val = (e.target as HTMLInputElement).value.trim();
+                          if (val.length >= 3) {
+                            setCustSearching(true);
+                            customersApi
+                              .getCustomers({ search: val, limit: 10 })
+                              .then((res) => setCustResults(res.data.data?.customers || []))
+                              .catch(() => setCustResults([]))
+                              .finally(() => setCustSearching(false));
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <p className="text-xs text-gray-500 mb-3">Type in any field and press Enter to search</p>
+
+                {/* Results */}
+                <div className="space-y-1 mb-4 max-h-48 overflow-auto">
+                  {custSearching && (
+                    <p className="text-sm text-gray-400 text-center py-2">Searching...</p>
+                  )}
+                  {!custSearching && custResults.length > 0 && (
+                    <>
+                      <p className="text-xs text-gray-400 mb-1">{custResults.length} result(s)</p>
+                      {custResults.map((c: any) => (
+                        <button
+                          key={c.id}
+                          className="w-full text-left px-4 py-3 rounded-lg hover:bg-pos-accent border border-gray-700"
+                          onClick={() => {
+                            onSetCustomer({ id: c.id, name: `${c.firstName} ${c.lastName}` });
+                            setShowCustomerModal(false);
+                          }}
+                        >
+                          <p className="font-medium">{c.firstName} {c.lastName}</p>
+                          <p className="text-xs text-gray-400">
+                            ID: {c.id} {c.email ? `| ${c.email}` : ''} {c.phone ? `| ${c.phone}` : ''}
+                          </p>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </div>
+
+                {/* Create New button */}
+                <button
+                  className="btn-primary w-full"
+                  onClick={() => {
+                    setShowCreateCustomer(true);
+                    setNewCustFirstName('');
+                    setNewCustLastName('');
+                    setNewCustEmail('');
+                    setNewCustPhone('');
+                    setCreateCustError('');
+                  }}
+                >
+                  <PlusIcon className="h-5 w-5 mr-2 inline" />
+                  Create New Customer
+                </button>
+              </>
+            ) : (
+              <>
+                {/* Create Customer Form */}
+                <div className="space-y-3 mb-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">First Name *</label>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="First name"
+                        value={newCustFirstName}
+                        onChange={(e) => setNewCustFirstName(e.target.value)}
+                        autoFocus
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Last Name *</label>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="Last name"
+                        value={newCustLastName}
+                        onChange={(e) => setNewCustLastName(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Email</label>
+                    <input
+                      type="email"
+                      className="input"
+                      placeholder="email@example.com"
+                      value={newCustEmail}
+                      onChange={(e) => setNewCustEmail(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">Phone Number *</label>
+                    <input
+                      type="tel"
+                      className="input"
+                      placeholder="04XX XXX XXX"
+                      value={newCustPhone}
+                      onChange={(e) => setNewCustPhone(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {createCustError && (
+                  <div className="bg-red-500/20 text-red-400 p-2 rounded text-sm mb-3">
+                    {createCustError}
+                  </div>
+                )}
+
+                <div className="flex gap-3">
+                  <button
+                    className="btn-secondary flex-1"
+                    onClick={() => setShowCreateCustomer(false)}
+                  >
+                    Back
+                  </button>
+                  <button
+                    className="btn-primary flex-1"
+                    onClick={async () => {
+                      if (!newCustFirstName.trim() || !newCustLastName.trim()) {
+                        setCreateCustError('First and last name are required');
+                        return;
+                      }
+                      if (!newCustPhone.trim()) {
+                        setCreateCustError('Phone number is required');
+                        return;
+                      }
+                      try {
+                        const res = await customersApi.createCustomer({
+                          firstName: newCustFirstName.trim(),
+                          lastName: newCustLastName.trim(),
+                          email: newCustEmail.trim() || null,
+                          phone: newCustPhone.trim(),
+                        });
+                        const created = res.data.data?.customer || res.data.data;
+                        onSetCustomer({
+                          id: created.id,
+                          name: `${created.firstName} ${created.lastName}`,
+                        });
+                        setShowCustomerModal(false);
+                      } catch (err: any) {
+                        setCreateCustError(
+                          err.response?.data?.message || 'Failed to create customer'
+                        );
+                      }
+                    }}
+                  >
+                    Create & Add
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

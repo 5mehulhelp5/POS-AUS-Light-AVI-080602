@@ -233,7 +233,7 @@ export default function InvoiceModal({ invoice, onClose }: InvoiceModalProps) {
             )}
             {invoice.cartDiscount > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', color: '#dc2626' }}>
-                <span>Cart Discount:</span>
+                <span>Further Discount:</span>
                 <span>-${invoice.cartDiscount.toFixed(2)}</span>
               </div>
             )}

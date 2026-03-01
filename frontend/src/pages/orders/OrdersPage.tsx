@@ -30,12 +30,16 @@ export default function OrdersPage() {
 
   useEffect(() => {
     fetchOrders();
-  }, [pagination.page]);
+  }, [pagination.page, search]);
 
   const fetchOrders = async () => {
     try {
       setIsLoading(true);
-      const response = await ordersApi.getOrders({ page: pagination.page, limit: 20 });
+      const response = await ordersApi.getOrders({
+        search: search || undefined,
+        page: pagination.page,
+        limit: 20,
+      });
       setOrders(response.data.data.orders);
       setPagination(response.data.data.pagination);
     } catch (error) {
@@ -78,13 +82,6 @@ export default function OrdersPage() {
     );
   };
 
-  const filteredOrders = orders.filter(
-    (order) =>
-      order.orderNumber.toLowerCase().includes(search.toLowerCase()) ||
-      order.customer?.firstName?.toLowerCase().includes(search.toLowerCase()) ||
-      order.customer?.lastName?.toLowerCase().includes(search.toLowerCase())
-  );
-
   return (
     <div className="h-full p-6 overflow-auto">
       <div className="flex justify-between items-center mb-6">
@@ -99,7 +96,7 @@ export default function OrdersPage() {
         <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
         <input
           type="text"
-          placeholder="Search by order number or customer..."
+          placeholder="Search by order number, customer name, phone, or email..."
           className="input pl-12"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -110,7 +107,7 @@ export default function OrdersPage() {
       <div className="card overflow-hidden">
         {isLoading ? (
           <div className="p-8 text-center text-gray-400">Loading orders...</div>
-        ) : filteredOrders.length === 0 ? (
+        ) : orders.length === 0 ? (
           <div className="p-8 text-center text-gray-400">No orders found</div>
         ) : (
           <table className="w-full">
@@ -127,7 +124,7 @@ export default function OrdersPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-700">
-              {filteredOrders.map((order) => (
+              {orders.map((order) => (
                 <tr key={order.id} className="hover:bg-pos-accent/50">
                   <td className="px-4 py-3 font-medium">{order.orderNumber}</td>
                   <td className="px-4 py-3">

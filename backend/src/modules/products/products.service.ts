@@ -117,7 +117,7 @@ export class ProductsService {
   async getCategories(): Promise<Category[]> {
     return this.categoryRepository.find({
       where: { isActive: true },
-      order: { level: 'ASC', name: 'ASC' },
+      order: { level: 'ASC', sortOrder: 'ASC', name: 'ASC' },
     });
   }
 
@@ -128,7 +128,8 @@ export class ProductsService {
       .createQueryBuilder('cat')
       .where('cat.level = :level', { level: 2 })
       .andWhere('cat.isActive = :isActive', { isActive: true })
-      .orderBy('cat.name', 'ASC')
+      .orderBy('cat.sortOrder', 'ASC')
+      .addOrderBy('cat.name', 'ASC')
       .getMany();
 
     // Filter to only categories that have products (directly or in children)
@@ -154,7 +155,7 @@ export class ProductsService {
     // Get direct children of the given category that have products
     const children = await this.categoryRepository.find({
       where: { parentId, isActive: true },
-      order: { name: 'ASC' },
+      order: { sortOrder: 'ASC', name: 'ASC' },
     });
 
     // Filter to only subcategories that have products

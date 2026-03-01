@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { MagentoService, MagentoProduct } from './magento.service';
+import { MagentoService, MagentoProduct, MagentoCustomer } from './magento.service';
 import { Product, ProductType } from '../products/entities/product.entity';
 import { Category } from '../products/entities/category.entity';
+import { Customer, SyncStatus } from '../customers/entities/customer.entity';
 import { SyncLog, SyncType, SyncDirection, SyncLogStatus } from './entities/sync-log.entity';
 
 export interface SyncResult {
@@ -13,6 +14,8 @@ export interface SyncResult {
   productsUpdated?: number;
   categoriesCreated?: number;
   categoriesUpdated?: number;
+  customersCreated?: number;
+  customersUpdated?: number;
   errors?: string[];
 }
 
@@ -27,6 +30,8 @@ export class SyncService {
     private readonly productRepository: Repository<Product>,
     @InjectRepository(Category)
     private readonly categoryRepository: Repository<Category>,
+    @InjectRepository(Customer)
+    private readonly customerRepository: Repository<Customer>,
     @InjectRepository(SyncLog)
     private readonly syncLogRepository: Repository<SyncLog>,
   ) {}
@@ -103,6 +108,7 @@ export class SyncService {
             category.level = magentoCat.level;
             category.path = magentoCat.path;
             category.isActive = magentoCat.is_active;
+            category.sortOrder = magentoCat.position ?? 0;
             category.syncedAt = new Date();
             await this.categoryRepository.save(category);
             categoriesUpdated++;
@@ -115,6 +121,7 @@ export class SyncService {
               level: magentoCat.level,
               path: magentoCat.path,
               isActive: magentoCat.is_active,
+              sortOrder: magentoCat.position ?? 0,
               syncedAt: new Date(),
             });
             await this.categoryRepository.save(category);
@@ -124,6 +131,20 @@ export class SyncService {
           const errorMsg = `Failed to sync category ${magentoCat.id}: ${error}`;
           this.logger.error(errorMsg);
           errors.push(errorMsg);
+        }
+      }
+
+      // Mark categories not returned from Magento as inactive
+      const syncedMagentoIds = magentoCategories.map(c => c.id);
+      if (syncedMagentoIds.length > 0) {
+        const allLocalCategories = await this.categoryRepository.find();
+        for (const localCat of allLocalCategories) {
+          if (!syncedMagentoIds.includes(localCat.magentoId) && localCat.isActive) {
+            localCat.isActive = false;
+            localCat.syncedAt = new Date();
+            await this.categoryRepository.save(localCat);
+            this.logger.log(`Deactivated category "${localCat.name}" (magentoId: ${localCat.magentoId}) - no longer in Magento`);
+          }
         }
       }
 
@@ -360,6 +381,134 @@ export class SyncService {
     }
   }
 
+  async syncCustomers(): Promise<SyncResult> {
+    this.logger.log('Starting customer sync...');
+    const errors: string[] = [];
+    let customersCreated = 0;
+    let customersUpdated = 0;
+
+    try {
+      const magentoCustomers = await this.magentoService.fetchAllCustomers();
+
+      for (const magentoCust of magentoCustomers) {
+        try {
+          await this.syncSingleCustomer(magentoCust);
+
+          const existing = await this.customerRepository.findOne({
+            where: { magentoId: magentoCust.id },
+          });
+
+          if (existing && existing.createdAt.getTime() === existing.updatedAt.getTime()) {
+            customersCreated++;
+          } else {
+            customersUpdated++;
+          }
+        } catch (error) {
+          const errorMsg = `Failed to sync customer ${magentoCust.email}: ${error}`;
+          this.logger.error(errorMsg);
+          errors.push(errorMsg);
+        }
+      }
+
+      // Log the sync
+      await this.logSync('customers', customersCreated + customersUpdated, errors.length === 0);
+
+      return {
+        success: errors.length === 0,
+        message: `Customer sync completed: ${customersCreated} created, ${customersUpdated} updated`,
+        customersCreated,
+        customersUpdated,
+        errors: errors.length > 0 ? errors : undefined,
+      };
+    } catch (error) {
+      this.logger.error('Customer sync failed', error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        errors: [String(error)],
+      };
+    }
+  }
+
+  private async syncSingleCustomer(magentoCust: MagentoCustomer): Promise<Customer> {
+    let customer = await this.customerRepository.findOne({
+      where: { magentoId: magentoCust.id },
+    });
+
+    // Extract billing address
+    const billingAddr = magentoCust.addresses?.find(a => a.default_billing) || magentoCust.addresses?.[0];
+    // Extract shipping address
+    const shippingAddr = magentoCust.addresses?.find(a => a.default_shipping) || billingAddr;
+
+    // Get phone from addresses (Magento stores phone on addresses, not customer)
+    const phone = billingAddr?.telephone || shippingAddr?.telephone || null;
+
+    // Get company from billing address
+    const company = billingAddr?.company || null;
+
+    // Get custom attribute for taxvat (ABN)
+    const taxNumber = magentoCust.custom_attributes?.find(
+      a => a.attribute_code === 'taxvat',
+    )?.value || null;
+
+    if (customer) {
+      // Update existing customer
+      customer.email = magentoCust.email;
+      customer.firstName = magentoCust.firstname;
+      customer.lastName = magentoCust.lastname;
+      customer.phone = phone;
+      customer.company = company;
+      customer.taxNumber = taxNumber;
+
+      // Update billing address
+      if (billingAddr) {
+        customer.billingStreet = billingAddr.street?.join(', ') || null;
+        customer.billingCity = billingAddr.city || null;
+        customer.billingState = billingAddr.region?.region_code || billingAddr.region?.region || null;
+        customer.billingPostcode = billingAddr.postcode || null;
+        customer.billingCountry = billingAddr.country_id || 'AU';
+      }
+
+      // Update shipping address
+      if (shippingAddr) {
+        customer.shippingStreet = shippingAddr.street?.join(', ') || null;
+        customer.shippingCity = shippingAddr.city || null;
+        customer.shippingState = shippingAddr.region?.region_code || shippingAddr.region?.region || null;
+        customer.shippingPostcode = shippingAddr.postcode || null;
+        customer.shippingCountry = shippingAddr.country_id || 'AU';
+      }
+
+      customer.syncStatus = SyncStatus.SYNCED;
+      customer.syncedAt = new Date();
+    } else {
+      // Create new customer
+      customer = this.customerRepository.create({
+        magentoId: magentoCust.id,
+        email: magentoCust.email,
+        firstName: magentoCust.firstname,
+        lastName: magentoCust.lastname,
+        phone,
+        company,
+        taxNumber,
+        billingStreet: billingAddr?.street?.join(', ') || null,
+        billingCity: billingAddr?.city || null,
+        billingState: billingAddr?.region?.region_code || billingAddr?.region?.region || null,
+        billingPostcode: billingAddr?.postcode || null,
+        billingCountry: billingAddr?.country_id || 'AU',
+        shippingStreet: shippingAddr?.street?.join(', ') || null,
+        shippingCity: shippingAddr?.city || null,
+        shippingState: shippingAddr?.region?.region_code || shippingAddr?.region?.region || null,
+        shippingPostcode: shippingAddr?.postcode || null,
+        shippingCountry: shippingAddr?.country_id || 'AU',
+        isGuest: false,
+        syncStatus: SyncStatus.SYNCED,
+        syncedAt: new Date(),
+      });
+    }
+
+    return this.customerRepository.save(customer);
+  }
+
   async fullSync(): Promise<SyncResult> {
     this.logger.log('Starting full sync...');
 
@@ -376,14 +525,19 @@ export class SyncService {
     // Then sync products
     const productResult = await this.syncProducts();
 
+    // Then sync customers
+    const customerResult = await this.syncCustomers();
+
     return {
-      success: productResult.success,
-      message: `Full sync completed. Categories: ${categoryResult.categoriesCreated} created, ${categoryResult.categoriesUpdated} updated. Products: ${productResult.productsCreated} created, ${productResult.productsUpdated} updated.`,
+      success: productResult.success && customerResult.success,
+      message: `Full sync completed. Categories: ${categoryResult.categoriesCreated} created, ${categoryResult.categoriesUpdated} updated. Products: ${productResult.productsCreated} created, ${productResult.productsUpdated} updated. Customers: ${customerResult.customersCreated} created, ${customerResult.customersUpdated} updated.`,
       productsCreated: productResult.productsCreated,
       productsUpdated: productResult.productsUpdated,
       categoriesCreated: categoryResult.categoriesCreated,
       categoriesUpdated: categoryResult.categoriesUpdated,
-      errors: [...(categoryResult.errors || []), ...(productResult.errors || [])],
+      customersCreated: customerResult.customersCreated,
+      customersUpdated: customerResult.customersUpdated,
+      errors: [...(categoryResult.errors || []), ...(productResult.errors || []), ...(customerResult.errors || [])],
     };
   }
 
@@ -452,9 +606,14 @@ export class SyncService {
     return this.fullSync();
   }
 
-  private async logSync(entityType: 'products' | 'categories', recordsProcessed: number, success: boolean): Promise<void> {
+  private async logSync(entityType: 'products' | 'categories' | 'customers', recordsProcessed: number, success: boolean): Promise<void> {
     try {
-      const syncType = entityType === 'products' ? SyncType.PRODUCTS : SyncType.CATEGORIES;
+      const syncTypeMap: Record<string, SyncType> = {
+        products: SyncType.PRODUCTS,
+        categories: SyncType.CATEGORIES,
+        customers: SyncType.CUSTOMERS,
+      };
+      const syncType = syncTypeMap[entityType];
       const log = this.syncLogRepository.create({
         syncType,
         direction: SyncDirection.MAGENTO_TO_POS,
@@ -473,6 +632,7 @@ export class SyncService {
     lastSync: Date | null;
     productCount: number;
     categoryCount: number;
+    customerCount: number;
   }> {
     const lastLog = await this.syncLogRepository.findOne({
       where: { status: SyncLogStatus.COMPLETED },
@@ -481,11 +641,13 @@ export class SyncService {
 
     const productCount = await this.productRepository.count();
     const categoryCount = await this.categoryRepository.count();
+    const customerCount = await this.customerRepository.count();
 
     return {
       lastSync: lastLog?.completedAt || null,
       productCount,
       categoryCount,
+      customerCount,
     };
   }
 }

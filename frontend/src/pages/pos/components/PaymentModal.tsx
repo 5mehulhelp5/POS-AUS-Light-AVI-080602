@@ -23,7 +23,7 @@ export default function PaymentModal({
   const cart = useSelector((state: RootState) => state.cart);
 
   const [method, setMethod] = useState<PaymentMethod>('eftpos');
-  const [buyerType, setBuyerType] = useState<BuyerType>(cart.customerId ? 'customer' : 'retail');
+  const [buyerType, setBuyerType] = useState<BuyerType>('customer');
   const [cashTendered, setCashTendered] = useState('');
   const [eftposRef, setEftposRef] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -35,7 +35,10 @@ export default function PaymentModal({
   const [customerName, setCustomerName] = useState(cart.customerName || '');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
-  const [customerAddress, setCustomerAddress] = useState('');
+  const [customerStreet, setCustomerStreet] = useState('');
+  const [customerCity, setCustomerCity] = useState('');
+  const [customerState, setCustomerState] = useState('');
+  const [customerPostcode, setCustomerPostcode] = useState('');
   const [companyAbn, setCompanyAbn] = useState('');
 
   const cashAmount = parseFloat(cashTendered) || 0;
@@ -119,7 +122,7 @@ export default function PaymentModal({
         customerName: customerName.trim() || undefined,
         customerPhone: customerPhone.trim() || undefined,
         customerEmail: customerEmail.trim() || undefined,
-        customerAddress: customerAddress.trim() || undefined,
+        customerAddress: [customerStreet, customerCity, customerState, customerPostcode].filter(s => s.trim()).join(', ') || undefined,
         companyAbn: buyerType === 'retail' && companyAbn.trim() ? companyAbn.trim() : undefined,
         items: cart.items,
         subtotal: cart.subtotal,
@@ -287,13 +290,54 @@ export default function PaymentModal({
               />
             </div>
             <div>
-              <label className="block text-xs text-gray-400 mb-1">Address</label>
+              <label className="block text-xs text-gray-400 mb-1">Street Address</label>
               <input
                 type="text"
                 className="input text-sm"
-                placeholder="Street address"
-                value={customerAddress}
-                onChange={(e) => setCustomerAddress(e.target.value)}
+                placeholder="123 Main St"
+                value={customerStreet}
+                onChange={(e) => setCustomerStreet(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">City / Suburb</label>
+              <input
+                type="text"
+                className="input text-sm"
+                placeholder="Sydney"
+                value={customerCity}
+                onChange={(e) => setCustomerCity(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">State</label>
+              <select
+                className="input text-sm"
+                value={customerState}
+                onChange={(e) => setCustomerState(e.target.value)}
+              >
+                <option value="">Select</option>
+                <option value="NSW">NSW</option>
+                <option value="VIC">VIC</option>
+                <option value="QLD">QLD</option>
+                <option value="WA">WA</option>
+                <option value="SA">SA</option>
+                <option value="TAS">TAS</option>
+                <option value="ACT">ACT</option>
+                <option value="NT">NT</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Postcode</label>
+              <input
+                type="text"
+                className="input text-sm"
+                placeholder="2000"
+                value={customerPostcode}
+                onChange={(e) => setCustomerPostcode(e.target.value)}
+                maxLength={4}
               />
             </div>
           </div>

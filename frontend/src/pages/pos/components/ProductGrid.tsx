@@ -9,6 +9,7 @@ interface Product {
   stockQty: number;
   isInStock: boolean;
   thumbnailUrl: string | null;
+  productType?: string;
 }
 
 interface ProductGridProps {
@@ -40,16 +41,16 @@ export default function ProductGrid({
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin">
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 auto-rows-max">
         {products.map((product) => (
           <button
             key={product.id}
-            className="product-card text-left group"
+            className="product-card text-left group h-fit"
             onClick={() => onAddToCart(product)}
             disabled={!product.isInStock}
           >
             {/* Product Image */}
-            <div className="aspect-square bg-pos-accent rounded-lg mb-3 overflow-hidden relative">
+            <div className="aspect-square bg-pos-accent rounded-lg mb-3 overflow-hidden relative max-h-48">
               {product.thumbnailUrl ? (
                 <img
                   src={product.thumbnailUrl}
@@ -78,6 +79,13 @@ export default function ProductGrid({
               {product.specialPrice && (
                 <div className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded">
                   SALE
+                </div>
+              )}
+
+              {/* Configurable product badge */}
+              {product.productType === 'configurable' && (
+                <div className="absolute top-2 left-2 bg-purple-600 text-white text-xs font-bold px-2 py-1 rounded">
+                  OPTIONS
                 </div>
               )}
             </div>

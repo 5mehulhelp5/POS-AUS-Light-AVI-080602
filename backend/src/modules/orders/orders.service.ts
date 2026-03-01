@@ -246,6 +246,7 @@ export class OrdersService {
 
   async findAll(options?: {
     status?: OrderStatus;
+    search?: string;
     userId?: number;
     customerId?: number;
     dateFrom?: Date;
@@ -255,6 +256,7 @@ export class OrdersService {
   }): Promise<{ orders: Order[]; total: number }> {
     const {
       status,
+      search,
       userId,
       customerId,
       dateFrom,
@@ -268,6 +270,13 @@ export class OrdersService {
       .leftJoinAndSelect('order.customer', 'customer')
       .leftJoinAndSelect('order.user', 'user')
       .leftJoinAndSelect('order.items', 'items');
+
+    if (search) {
+      query.andWhere(
+        '(order.orderNumber LIKE :search OR customer.firstName LIKE :search OR customer.lastName LIKE :search OR customer.phone LIKE :search OR customer.email LIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
 
     if (status) {
       query.andWhere('order.status = :status', { status });

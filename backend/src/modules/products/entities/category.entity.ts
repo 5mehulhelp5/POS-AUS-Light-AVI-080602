@@ -33,6 +33,9 @@ export class Category {
   @Column({ type: 'int', unsigned: true, default: 0 })
   level: number;
 
+  @Column({ name: 'sort_order', type: 'int', unsigned: true, default: 0 })
+  sortOrder: number;
+
   @Index()
   @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;

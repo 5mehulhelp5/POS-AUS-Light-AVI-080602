@@ -1,14 +1,17 @@
 import {
   Controller,
   Get,
+  Post,
+  Body,
   Param,
   Query,
   UseGuards,
   ParseIntPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { QuotesService } from './quotes.service';
+import { QuotesService, CreateQuoteDto } from './quotes.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { QuoteStatus } from './entities';
 
 @ApiTags('quotes')
@@ -17,6 +20,16 @@ import { QuoteStatus } from './entities';
 @ApiBearerAuth()
 export class QuotesController {
   constructor(private readonly quotesService: QuotesService) {}
+
+  @Post()
+  @ApiOperation({ summary: 'Create a new quote' })
+  async create(@Body() dto: CreateQuoteDto, @CurrentUser() user: any) {
+    const quote = await this.quotesService.create(dto, user.id);
+    return {
+      success: true,
+      data: { quote },
+    };
+  }
 
   @Get()
   @ApiOperation({ summary: 'List quotes' })

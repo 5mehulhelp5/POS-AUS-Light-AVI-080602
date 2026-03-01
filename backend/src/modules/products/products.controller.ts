@@ -50,6 +50,7 @@ export class ProductsController {
           isInStock: p.isInStock,
           imageUrl: p.imageUrl,
           thumbnailUrl: p.thumbnailUrl,
+          productType: p.productType,
           barcode: p.barcode,
           categories: p.categories?.map((c) => ({
             id: c.id,

@@ -3,9 +3,23 @@ import { useDispatch, useSelector } from 'react-redux';
 import { login, pinLogin, clearError } from '../../store/slices/authSlice';
 import { RootState, AppDispatch } from '../../store';
 
+const roleColors: Record<string, string> = {
+  admin: 'text-red-400 bg-red-500/20 border-red-500',
+  manager: 'text-orange-400 bg-orange-500/20 border-orange-500',
+  sales_staff: 'text-blue-400 bg-blue-500/20 border-blue-500',
+  cashier: 'text-green-400 bg-green-500/20 border-green-500',
+};
+
+const roleLabels: Record<string, string> = {
+  admin: 'Admin - Full Access',
+  manager: 'Manager - Can approve discounts & refunds',
+  sales_staff: 'Sales Staff - Standard POS access',
+  cashier: 'Cashier - Basic POS access',
+};
+
 export default function LoginPage() {
   const dispatch = useDispatch<AppDispatch>();
-  const { isLoading, error } = useSelector((state: RootState) => state.auth);
+  const { isLoading, error, user } = useSelector((state: RootState) => state.auth);
 
   const [mode, setMode] = useState<'email' | 'pin'>('pin');
   const [email, setEmail] = useState('');
@@ -77,6 +91,14 @@ export default function LoginPage() {
       {error && (
         <div className="bg-red-500/20 border border-red-500 text-red-400 px-4 py-3 rounded-lg mb-4">
           {error}
+        </div>
+      )}
+
+      {/* Role indicator after login */}
+      {user && user.role && (
+        <div className={`border-2 rounded-lg px-4 py-3 mb-4 text-center ${roleColors[user.role.name] || 'text-gray-400 bg-gray-500/20 border-gray-500'}`}>
+          <p className="font-bold text-lg">Welcome, {user.firstName}!</p>
+          <p className="text-sm mt-1">{roleLabels[user.role.name] || user.role.displayName}</p>
         </div>
       )}
 

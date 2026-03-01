@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { quotesApi } from '../../services/api';
-import { MagnifyingGlassIcon, EyeIcon, ClockIcon } from '@heroicons/react/24/outline';
+import { quotesApi, customersApi, productsApi } from '../../services/api';
+import { MagnifyingGlassIcon, EyeIcon, ClockIcon, PlusIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline';
 
 interface Quote {
   id: number;
@@ -21,6 +21,15 @@ interface Pagination {
   totalPages: number;
 }
 
+interface QuoteLineItem {
+  productId: number;
+  name: string;
+  sku: string;
+  price: number;
+  quantity: number;
+  discountPercent: number;
+}
+
 export default function QuotesPage() {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
@@ -28,6 +37,18 @@ export default function QuotesPage() {
   const [search, setSearch] = useState('');
   const [selectedQuote, setSelectedQuote] = useState<any>(null);
   const [statusFilter, setStatusFilter] = useState<string>('');
+
+  // Create Quote modal state
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerResults, setCustomerResults] = useState<any[]>([]);
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  const [productSearch, setProductSearch] = useState('');
+  const [productResults, setProductResults] = useState<any[]>([]);
+  const [lineItems, setLineItems] = useState<QuoteLineItem[]>([]);
+  const [quoteNotes, setQuoteNotes] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [createError, setCreateError] = useState('');
 
   useEffect(() => {
     fetchQuotes();
@@ -57,6 +78,116 @@ export default function QuotesPage() {
     } catch (error) {
       console.error('Failed to fetch quote:', error);
     }
+  };
+
+  // Customer search for create modal
+  useEffect(() => {
+    if (customerSearch.length < 2) {
+      setCustomerResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const response = await customersApi.getCustomers({ search: customerSearch, limit: 5 });
+        setCustomerResults(response.data.data?.customers || []);
+      } catch {
+        setCustomerResults([]);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [customerSearch]);
+
+  // Product search for create modal
+  useEffect(() => {
+    if (productSearch.length < 2) {
+      setProductResults([]);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const response = await productsApi.getProducts({ search: productSearch, limit: 5 });
+        setProductResults(response.data.data?.products || []);
+      } catch {
+        setProductResults([]);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [productSearch]);
+
+  const addLineItem = (product: any) => {
+    // Don't add duplicate
+    if (lineItems.find((li) => li.productId === product.id)) return;
+    setLineItems([
+      ...lineItems,
+      {
+        productId: product.id,
+        name: product.name,
+        sku: product.sku,
+        price: product.specialPrice || product.price,
+        quantity: 1,
+        discountPercent: 0,
+      },
+    ]);
+    setProductSearch('');
+    setProductResults([]);
+  };
+
+  const updateLineItem = (index: number, field: keyof QuoteLineItem, value: number) => {
+    const updated = [...lineItems];
+    (updated[index] as any)[field] = value;
+    setLineItems(updated);
+  };
+
+  const removeLineItem = (index: number) => {
+    setLineItems(lineItems.filter((_, i) => i !== index));
+  };
+
+  const getLineTotal = (item: QuoteLineItem) => {
+    const sub = item.price * item.quantity;
+    const disc = sub * (item.discountPercent / 100);
+    return sub - disc;
+  };
+
+  const getQuoteSubtotal = () => lineItems.reduce((sum, li) => sum + li.price * li.quantity, 0);
+  const getQuoteDiscount = () => lineItems.reduce((sum, li) => sum + (li.price * li.quantity * (li.discountPercent / 100)), 0);
+  const getQuoteTax = () => (getQuoteSubtotal() - getQuoteDiscount()) * 0.1;
+  const getQuoteTotal = () => getQuoteSubtotal() - getQuoteDiscount() + getQuoteTax();
+
+  const handleCreateQuote = async () => {
+    if (lineItems.length === 0) {
+      setCreateError('Add at least one product');
+      return;
+    }
+    setCreateError('');
+    setIsSubmitting(true);
+    try {
+      await quotesApi.createQuote({
+        customerId: selectedCustomer?.id || undefined,
+        items: lineItems.map((li) => ({
+          productId: li.productId,
+          quantity: li.quantity,
+          discountPercent: li.discountPercent || 0,
+        })),
+        notes: quoteNotes || undefined,
+      });
+      // Reset and close
+      setShowCreateModal(false);
+      resetCreateForm();
+      fetchQuotes();
+    } catch (error: any) {
+      setCreateError(error.response?.data?.message || 'Failed to create quote');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const resetCreateForm = () => {
+    setSelectedCustomer(null);
+    setCustomerSearch('');
+    setProductSearch('');
+    setLineItems([]);
+    setQuoteNotes('');
+    setCreateError('');
   };
 
   const formatDate = (date: string) => {
@@ -94,8 +225,15 @@ export default function QuotesPage() {
     <div className="h-full p-6 overflow-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Quotes</h1>
-        <div className="text-sm text-gray-400">
-          Total: {pagination.total} quotes
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-gray-400">Total: {pagination.total} quotes</span>
+          <button
+            className="btn-primary flex items-center gap-2"
+            onClick={() => { resetCreateForm(); setShowCreateModal(true); }}
+          >
+            <PlusIcon className="h-5 w-5" />
+            Create Quote
+          </button>
         </div>
       </div>
 
@@ -282,6 +420,285 @@ export default function QuotesPage() {
                   <p className="text-sm">{selectedQuote.notes}</p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Quote Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-pos-card rounded-lg p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold">Create Quote</h2>
+              <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-white">
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Customer Section */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-300 mb-2">Customer</label>
+              {selectedCustomer ? (
+                <div className="flex items-center justify-between bg-pos-accent rounded-lg p-3">
+                  <div>
+                    <p className="font-medium">{selectedCustomer.firstName} {selectedCustomer.lastName}</p>
+                    <p className="text-sm text-gray-400">
+                      {selectedCustomer.email && <span>{selectedCustomer.email}</span>}
+                      {selectedCustomer.email && selectedCustomer.phone && <span> | </span>}
+                      {selectedCustomer.phone && <span>{selectedCustomer.phone}</span>}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { setSelectedCustomer(null); setCustomerSearch(''); }}
+                    className="text-gray-400 hover:text-red-400"
+                  >
+                    <XMarkIcon className="h-5 w-5" />
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div className="grid grid-cols-3 gap-3 mb-2">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Customer Name</label>
+                      <input
+                        type="text"
+                        placeholder="Search by name"
+                        className="input"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const val = (e.target as HTMLInputElement).value.trim();
+                            if (val.length >= 2) {
+                              setCustomerSearch(val);
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Email</label>
+                      <input
+                        type="email"
+                        placeholder="Search by email"
+                        className="input"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const val = (e.target as HTMLInputElement).value.trim();
+                            if (val.length >= 2) {
+                              setCustomerSearch(val);
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Phone Number</label>
+                      <input
+                        type="tel"
+                        placeholder="Search by phone"
+                        className="input"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const val = (e.target as HTMLInputElement).value.trim();
+                            if (val.length >= 3) {
+                              setCustomerSearch(val);
+                            }
+                          }
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500 mb-2">Type in any field and press Enter to search</p>
+                  {customerResults.length > 0 && (
+                    <div className="bg-pos-accent border border-gray-600 rounded-lg max-h-48 overflow-auto">
+                      {customerResults.map((c: any) => (
+                        <button
+                          key={c.id}
+                          className="w-full text-left px-4 py-3 hover:bg-pos-card border-b border-gray-700 last:border-0"
+                          onClick={() => {
+                            setSelectedCustomer(c);
+                            setCustomerSearch('');
+                            setCustomerResults([]);
+                          }}
+                        >
+                          <p className="font-medium">{c.firstName} {c.lastName}</p>
+                          <p className="text-xs text-gray-400">
+                            ID: {c.id} {c.email ? `| ${c.email}` : ''} {c.phone ? `| ${c.phone}` : ''}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Products Section */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-300 mb-2">Add Products</label>
+              <div className="grid grid-cols-2 gap-3 mb-2">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Product Name / SKU</label>
+                  <input
+                    type="text"
+                    placeholder="Search by name or SKU"
+                    className="input"
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Product ID</label>
+                  <input
+                    type="number"
+                    placeholder="Enter product ID"
+                    className="input"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        const val = (e.target as HTMLInputElement).value.trim();
+                        if (val) {
+                          setProductSearch(val);
+                        }
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+              {productResults.length > 0 && (
+                <div className="bg-pos-accent border border-gray-600 rounded-lg max-h-48 overflow-auto">
+                  {productResults.map((p: any) => (
+                    <button
+                      key={p.id}
+                      className="w-full text-left px-4 py-3 hover:bg-pos-card border-b border-gray-700 last:border-0"
+                      onClick={() => addLineItem(p)}
+                    >
+                      <div className="flex justify-between">
+                        <div>
+                          <p className="font-medium">{p.name}</p>
+                          <p className="text-xs text-gray-400">ID: {p.id} | {p.sku}</p>
+                        </div>
+                        <p className="text-primary-400 font-bold">
+                          ${(p.specialPrice || p.price).toFixed(2)}
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Line Items Table */}
+            {lineItems.length > 0 && (
+              <div className="mb-6">
+                <table className="w-full text-sm">
+                  <thead className="bg-pos-accent">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-gray-300">Product</th>
+                      <th className="px-3 py-2 text-center text-gray-300 w-20">Qty</th>
+                      <th className="px-3 py-2 text-right text-gray-300 w-24">Price</th>
+                      <th className="px-3 py-2 text-center text-gray-300 w-24">Disc %</th>
+                      <th className="px-3 py-2 text-right text-gray-300 w-24">Total</th>
+                      <th className="px-3 py-2 w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-700">
+                    {lineItems.map((item, idx) => (
+                      <tr key={item.productId}>
+                        <td className="px-3 py-2">
+                          <p className="font-medium">{item.name}</p>
+                          <p className="text-xs text-gray-400">{item.sku}</p>
+                        </td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="number"
+                            min={1}
+                            className="input text-center py-1 px-2 w-16 mx-auto block"
+                            value={item.quantity}
+                            onChange={(e) => updateLineItem(idx, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right">${item.price.toFixed(2)}</td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            className="input text-center py-1 px-2 w-16 mx-auto block"
+                            value={item.discountPercent}
+                            onChange={(e) => updateLineItem(idx, 'discountPercent', Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))}
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right font-medium">
+                          ${getLineTotal(item).toFixed(2)}
+                        </td>
+                        <td className="px-3 py-2">
+                          <button
+                            onClick={() => removeLineItem(idx)}
+                            className="text-gray-400 hover:text-red-400"
+                          >
+                            <TrashIcon className="h-4 w-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+
+                {/* Totals */}
+                <div className="border-t border-gray-600 mt-2 pt-3 space-y-1 text-sm">
+                  <div className="flex justify-between px-3">
+                    <span className="text-gray-400">Subtotal</span>
+                    <span>${getQuoteSubtotal().toFixed(2)}</span>
+                  </div>
+                  {getQuoteDiscount() > 0 && (
+                    <div className="flex justify-between px-3 text-green-400">
+                      <span>Discount</span>
+                      <span>-${getQuoteDiscount().toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between px-3">
+                    <span className="text-gray-400">GST (10%)</span>
+                    <span>${getQuoteTax().toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between px-3 font-bold text-lg pt-1 border-t border-gray-700">
+                    <span>Total</span>
+                    <span>${getQuoteTotal().toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Notes */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-300 mb-2">Notes (optional)</label>
+              <textarea
+                className="input min-h-[60px]"
+                placeholder="Add any notes for this quote..."
+                value={quoteNotes}
+                onChange={(e) => setQuoteNotes(e.target.value)}
+              />
+            </div>
+
+            {/* Error */}
+            {createError && (
+              <div className="bg-red-500/20 text-red-400 p-3 rounded mb-4 text-sm">{createError}</div>
+            )}
+
+            {/* Actions */}
+            <div className="flex justify-end gap-3">
+              <button
+                className="btn-secondary"
+                onClick={() => setShowCreateModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                onClick={handleCreateQuote}
+                disabled={isSubmitting || lineItems.length === 0}
+              >
+                {isSubmitting ? 'Creating...' : 'Create Quote'}
+              </button>
             </div>
           </div>
         </div>

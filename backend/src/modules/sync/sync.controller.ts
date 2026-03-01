@@ -72,9 +72,25 @@ export class SyncController {
     };
   }
 
+  @Post('customers')
+  @Roles(RoleNames.ADMIN)
+  @ApiOperation({ summary: 'Sync customers from Magento' })
+  async syncCustomers() {
+    const result = await this.syncService.syncCustomers();
+    return {
+      success: result.success,
+      message: result.message,
+      data: {
+        customersCreated: result.customersCreated,
+        customersUpdated: result.customersUpdated,
+      },
+      errors: result.errors,
+    };
+  }
+
   @Post('full')
   @Roles(RoleNames.ADMIN)
-  @ApiOperation({ summary: 'Full sync - categories then products' })
+  @ApiOperation({ summary: 'Full sync - categories, products, and customers' })
   async fullSync() {
     const result = await this.syncService.fullSync();
     return {
@@ -85,6 +101,8 @@ export class SyncController {
         productsUpdated: result.productsUpdated,
         categoriesCreated: result.categoriesCreated,
         categoriesUpdated: result.categoriesUpdated,
+        customersCreated: result.customersCreated,
+        customersUpdated: result.customersUpdated,
       },
       errors: result.errors,
     };

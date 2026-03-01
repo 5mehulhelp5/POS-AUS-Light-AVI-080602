@@ -11,6 +11,7 @@ export interface CartItem {
   taxAmount: number;
   rowTotal: number;
   imageUrl?: string;
+  isSaleItem?: boolean;
 }
 
 export interface CartDiscount {
@@ -45,10 +46,11 @@ const initialState: CartState = {
   notes: '',
 };
 
-const TAX_RATE = 0.10; // 10% GST
+// Australian prices are GST-inclusive. GST = price / 11 (i.e. 1/11th of the inclusive price).
+const GST_DIVISOR = 11;
 
 function recalculateTotals(state: CartState): void {
-  // Calculate item totals
+  // Calculate item totals (all prices are GST-inclusive)
   let subtotal = 0;
   let itemDiscounts = 0;
 
@@ -56,11 +58,13 @@ function recalculateTotals(state: CartState): void {
     const lineSubtotal = item.unitPrice * item.quantity;
     const discount = lineSubtotal * (item.discountPercent / 100);
     const afterDiscount = lineSubtotal - discount;
-    const tax = afterDiscount * TAX_RATE;
+    // GST is included in the price, extract it: GST = inclusive / 11
+    const tax = afterDiscount / GST_DIVISOR;
 
     item.discountAmount = Math.round(discount * 100) / 100;
     item.taxAmount = Math.round(tax * 100) / 100;
-    item.rowTotal = Math.round((afterDiscount + tax) * 100) / 100;
+    // rowTotal = afterDiscount (price already includes GST)
+    item.rowTotal = Math.round(afterDiscount * 100) / 100;
 
     subtotal += lineSubtotal;
     itemDiscounts += discount;
@@ -83,10 +87,11 @@ function recalculateTotals(state: CartState): void {
 
   state.cartDiscountAmount = Math.round(cartDiscountAmount * 100) / 100;
 
-  // Calculate tax and total
+  // Grand total = after all discounts (GST already included in prices)
   const afterAllDiscounts = afterItemDiscounts - cartDiscountAmount;
-  state.taxAmount = Math.round(afterAllDiscounts * TAX_RATE * 100) / 100;
-  state.grandTotal = Math.round((afterAllDiscounts + state.taxAmount) * 100) / 100;
+  // Extract GST component for display
+  state.taxAmount = Math.round(afterAllDiscounts / GST_DIVISOR * 100) / 100;
+  state.grandTotal = Math.round(afterAllDiscounts * 100) / 100;
 }
 
 const cartSlice = createSlice({
@@ -101,9 +106,10 @@ const cartSlice = createSlice({
         name: string;
         price: number;
         imageUrl?: string;
+        isSaleItem?: boolean;
       }>
     ) => {
-      const { productId, sku, name, price, imageUrl } = action.payload;
+      const { productId, sku, name, price, imageUrl, isSaleItem } = action.payload;
 
       const existingItem = state.items.find((i) => i.productId === productId);
 
@@ -121,6 +127,7 @@ const cartSlice = createSlice({
           taxAmount: 0,
           rowTotal: 0,
           imageUrl,
+          isSaleItem,
         });
       }
 

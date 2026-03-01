@@ -401,15 +401,15 @@ export default function UsersPage() {
               </div>
 
               <div>
-                <label className="block text-sm text-gray-400 mb-1">Email</label>
+                <label className="block text-sm text-gray-400 mb-1">Email (optional for PIN-only staff)</label>
                 <input
                   type="email"
                   className="input"
+                  placeholder="Optional - required for email login"
                   value={newUser.email}
                   onChange={(e) =>
                     setNewUser({ ...newUser, email: e.target.value })
                   }
-                  required
                 />
               </div>
 

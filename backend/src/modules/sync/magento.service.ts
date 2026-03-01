@@ -51,11 +51,62 @@ export interface MagentoCategory {
   level: number;
   path: string;
   is_active: boolean;
+  position: number;
   children?: MagentoCategory[];
 }
 
 export interface MagentoProductsResponse {
   items: MagentoProduct[];
+  total_count: number;
+  search_criteria: {
+    page_size: number;
+    current_page: number;
+  };
+}
+
+export interface MagentoCustomerAddress {
+  id: number;
+  customer_id: number;
+  region?: {
+    region_code: string;
+    region: string;
+    region_id: number;
+  };
+  country_id: string;
+  street: string[];
+  telephone?: string;
+  postcode?: string;
+  city?: string;
+  firstname?: string;
+  lastname?: string;
+  default_shipping?: boolean;
+  default_billing?: boolean;
+  company?: string;
+}
+
+export interface MagentoCustomer {
+  id: number;
+  email: string;
+  firstname: string;
+  lastname: string;
+  group_id: number;
+  store_id: number;
+  created_at: string;
+  updated_at: string;
+  addresses?: MagentoCustomerAddress[];
+  custom_attributes?: Array<{
+    attribute_code: string;
+    value: any;
+  }>;
+  extension_attributes?: {
+    company_attributes?: {
+      company_id: number;
+    };
+  };
+}
+
+export interface MagentoCustomersResponse {
+  items: MagentoCustomer[];
   total_count: number;
   search_criteria: {
     page_size: number;
@@ -170,74 +221,45 @@ export class MagentoService {
   }
 
   async fetchCategories(): Promise<MagentoCategory[]> {
-    const query = `
-      {
-        category(id: 1) {
-          id
-          name
-          children {
-            id
-            name
-            level
-            path
-            include_in_menu
-            children {
-              id
-              name
-              level
-              path
-              include_in_menu
-              children {
-                id
-                name
-                level
-                path
-                include_in_menu
-              }
-            }
-          }
-        }
-      }
-    `;
+    const token = await this.getAdminToken();
 
     try {
-      // Storefront GraphQL does not require admin token
-      const response = await this.httpClient.post(
-        '/graphql',
-        { query },
+      // Use REST API which returns the full category tree at any depth
+      const response = await this.httpClient.get(
+        '/rest/V1/categories',
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        },
       );
 
-      if (response.data.errors) {
-        this.logger.error('GraphQL errors:', response.data.errors);
-        throw new Error('GraphQL query failed');
-      }
-
-      // Flatten the category tree and derive parent_id from path
+      // Flatten the category tree recursively (unlimited depth)
       const categories: MagentoCategory[] = [];
-      const flattenCategories = (items: any[]) => {
-        for (const item of items) {
-          const pathParts = item.path ? item.path.split('/').map(Number) : [];
-          const parentId = pathParts.length >= 2 ? pathParts[pathParts.length - 2] : 0;
-
+      const flattenCategories = (node: any) => {
+        // Skip root category (level 0) and default category (level 1)
+        if (node.level >= 2) {
           categories.push({
-            id: item.id,
-            name: item.name,
-            parent_id: parentId,
-            level: item.level,
-            path: item.path,
-            is_active: !!item.include_in_menu,
+            id: node.id,
+            name: node.name,
+            parent_id: node.parent_id,
+            level: node.level,
+            path: node.path || '',
+            is_active: node.is_active && node.include_in_menu,
+            position: node.position ?? 0,
           });
-          if (item.children && item.children.length > 0) {
-            flattenCategories(item.children);
+        }
+
+        if (node.children_data && node.children_data.length > 0) {
+          for (const child of node.children_data) {
+            flattenCategories(child);
           }
         }
       };
 
-      if (response.data.data?.category?.children) {
-        flattenCategories(response.data.data.category.children);
-      }
+      flattenCategories(response.data);
 
-      this.logger.log(`Fetched ${categories.length} categories from Magento`);
+      this.logger.log(`Fetched ${categories.length} categories from Magento (REST API, unlimited depth)`);
       return categories;
     } catch (error) {
       this.logger.error('Failed to fetch categories from Magento', error);
@@ -339,6 +361,56 @@ export class MagentoService {
 
     this.logger.log(`Fetched stock for ${stockMap.size} products`);
     return stockMap;
+  }
+
+  async fetchCustomers(
+    pageSize: number = 50,
+    currentPage: number = 1,
+  ): Promise<MagentoCustomersResponse> {
+    const token = await this.getAdminToken();
+
+    try {
+      const response = await this.httpClient.get(
+        `/rest/V1/customers/search?searchCriteria[pageSize]=${pageSize}&searchCriteria[currentPage]=${currentPage}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          timeout: 60000,
+        },
+      );
+
+      return response.data;
+    } catch (error) {
+      this.logger.error('Failed to fetch customers from Magento', error);
+      throw error;
+    }
+  }
+
+  async fetchAllCustomers(): Promise<MagentoCustomer[]> {
+    const allCustomers: MagentoCustomer[] = [];
+    let currentPage = 1;
+    const pageSize = 50;
+    let totalCount = 0;
+
+    this.logger.log('Starting to fetch all customers from Magento via REST API...');
+
+    do {
+      const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : '?';
+      this.logger.log(`Fetching customer page ${currentPage} of ${totalPages}...`);
+      const response = await this.fetchCustomers(pageSize, currentPage);
+
+      allCustomers.push(...response.items);
+      totalCount = response.total_count;
+      this.logger.log(`Got ${response.items.length} customers (total so far: ${allCustomers.length}/${totalCount})`);
+      currentPage++;
+
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 300));
+    } while (allCustomers.length < totalCount);
+
+    this.logger.log(`Fetched ${allCustomers.length} customers from Magento`);
+    return allCustomers;
   }
 
   getBaseUrl(): string {

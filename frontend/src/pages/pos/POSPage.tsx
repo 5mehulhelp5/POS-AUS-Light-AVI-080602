@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { MagnifyingGlassIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon, PlusCircleIcon } from '@heroicons/react/24/outline';
 import { RootState, AppDispatch } from '../../store';
 import {
   fetchProducts,
@@ -12,7 +12,7 @@ import {
   navigateToBreadcrumb,
   clearSubcategories,
 } from '../../store/slices/productsSlice';
-import { addItem, removeItem, updateQuantity, clearCart, setItemDiscount, setCartDiscount } from '../../store/slices/cartSlice';
+import { addItem, removeItem, updateQuantity, clearCart, setItemDiscount, setCartDiscount, setCustomer } from '../../store/slices/cartSlice';
 import ProductGrid from './components/ProductGrid';
 import CartPanel from './components/CartPanel';
 import PaymentModal from './components/PaymentModal';
@@ -39,6 +39,10 @@ export default function POSPage() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showPayment, setShowPayment] = useState(false);
+  const [showCustomItem, setShowCustomItem] = useState(false);
+  const [customItemName, setCustomItemName] = useState('');
+  const [customItemPrice, setCustomItemPrice] = useState('');
+  const [customItemSku, setCustomItemSku] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 48; // Products per page (good for grid layout)
 
@@ -123,8 +127,26 @@ export default function POSPage() {
         name: product.name,
         price: product.specialPrice || product.price,
         imageUrl: product.thumbnailUrl,
+        isSaleItem: !!product.specialPrice,
       })
     );
+  };
+
+  const handleAddCustomItem = () => {
+    const price = parseFloat(customItemPrice);
+    if (!customItemName.trim() || isNaN(price) || price <= 0) return;
+    dispatch(
+      addItem({
+        productId: -Date.now(), // negative ID to distinguish custom items
+        sku: customItemSku.trim() || 'CUSTOM',
+        name: customItemName.trim(),
+        price,
+      })
+    );
+    setShowCustomItem(false);
+    setCustomItemName('');
+    setCustomItemPrice('');
+    setCustomItemSku('');
   };
 
   const handleCheckout = () => {
@@ -143,23 +165,32 @@ export default function POSPage() {
       {/* Products Panel */}
       <div className="flex-1 flex flex-col p-4">
         {/* Search Bar */}
-        <div className="relative mb-4">
-          <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Search products by name, SKU, or barcode..."
-            className="input pl-12 pr-10"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+        <div className="flex gap-2 mb-4">
+          <div className="relative flex-1">
+            <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search products by name, SKU, or barcode..."
+              className="input pl-12 pr-10"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
           />
-          {searchQuery && (
-            <button
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
-              onClick={() => setSearchQuery('')}
-            >
-              <XMarkIcon className="h-5 w-5" />
-            </button>
-          )}
+            {searchQuery && (
+              <button
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                onClick={() => setSearchQuery('')}
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            )}
+          </div>
+          <button
+            className="btn-sm bg-purple-600 text-white whitespace-nowrap flex items-center gap-1 px-4"
+            onClick={() => setShowCustomItem(true)}
+          >
+            <PlusCircleIcon className="h-5 w-5" />
+            Custom Item
+          </button>
         </div>
 
         {/* Category Tabs */}
@@ -314,6 +345,7 @@ export default function POSPage() {
           dispatch(setItemDiscount({ productId, discountPercent }))
         }
         onSetCartDiscount={(discount) => dispatch(setCartDiscount(discount))}
+        onSetCustomer={(customer) => dispatch(setCustomer(customer))}
         onClearCart={() => dispatch(clearCart())}
         onCheckout={handleCheckout}
       />
@@ -328,6 +360,62 @@ export default function POSPage() {
             dispatch(clearCart());
           }}
         />
+      )}
+
+      {/* Custom Item Modal */}
+      {showCustomItem && (
+        <div className="modal-backdrop" onClick={() => setShowCustomItem(false)}>
+          <div className="modal-content max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold">Add Custom Item</h3>
+              <button className="text-gray-400 hover:text-white" onClick={() => setShowCustomItem(false)}>
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-3 mb-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Item Name *</label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="e.g. Custom Light Fitting"
+                  value={customItemName}
+                  onChange={(e) => setCustomItemName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Price (incl. GST) *</label>
+                <input
+                  type="number"
+                  className="input"
+                  placeholder="0.00"
+                  min={0}
+                  step={0.01}
+                  value={customItemPrice}
+                  onChange={(e) => setCustomItemPrice(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">SKU (optional)</label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="CUSTOM-001"
+                  value={customItemSku}
+                  onChange={(e) => setCustomItemSku(e.target.value)}
+                />
+              </div>
+            </div>
+            <button
+              className="btn-primary w-full"
+              onClick={handleAddCustomItem}
+              disabled={!customItemName.trim() || !customItemPrice || parseFloat(customItemPrice) <= 0}
+            >
+              Add to Cart
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
