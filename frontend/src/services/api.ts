@@ -243,6 +243,18 @@ export const settingsApi = {
   }) => api.put('/settings/system', data),
 };
 
+// Sync API (Admin only)
+export const syncApi = {
+  getStatus: () => api.get('/sync/status'),
+  testConnection: () => api.get('/sync/test-connection'),
+  syncCategories: () => api.post('/sync/categories'),
+  syncProducts: () => api.post('/sync/products'),
+  syncCustomers: () => api.post('/sync/customers'),
+  syncStock: () => api.post('/sync/stock'),
+  fullSync: () => api.post('/sync/full'),
+  clearAndSync: () => api.post('/sync/clear-and-sync'),
+};
+
 // Competitor API
 export const competitorApi = {
   getPrice: (productName: string, sku?: string) =>

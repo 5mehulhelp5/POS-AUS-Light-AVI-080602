@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { settingsApi } from '../../services/api';
+import { settingsApi, syncApi } from '../../services/api';
 import {
   BuildingStorefrontIcon,
   CreditCardIcon,
   UserGroupIcon,
   Cog6ToothIcon,
   ClockIcon,
+  ArrowPathIcon,
 } from '@heroicons/react/24/outline';
 
 interface Role {
@@ -31,7 +32,7 @@ const defaultTradingHours: TradingHours = {
 };
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<'store' | 'payments' | 'roles' | 'system'>('store');
+  const [activeTab, setActiveTab] = useState<'store' | 'payments' | 'roles' | 'system' | 'sync'>('store');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
@@ -70,6 +71,16 @@ export default function SettingsPage() {
     offline_mode_enabled: false,
   });
 
+  // Sync state
+  const [syncStatus, setSyncStatus] = useState<{
+    lastSync: string | null;
+    productCount: number;
+    categoryCount: number;
+    customerCount: number;
+  } | null>(null);
+  const [syncRunning, setSyncRunning] = useState<string | null>(null);
+  const [syncResult, setSyncResult] = useState<{ success: boolean; message: string } | null>(null);
+
   useEffect(() => {
     fetchSettings();
   }, [activeTab]);
@@ -103,6 +114,10 @@ export default function SettingsPage() {
         case 'system':
           const sysRes = await settingsApi.getSystemSettings();
           setSystemSettings(sysRes.data.data);
+          break;
+        case 'sync':
+          const statusRes = await syncApi.getStatus();
+          setSyncStatus(statusRes.data.data);
           break;
       }
     } catch (error) {
@@ -175,6 +190,33 @@ export default function SettingsPage() {
     }
   };
 
+  const handleSync = async (type: 'categories' | 'products' | 'customers' | 'stock' | 'full' | 'clear-and-sync') => {
+    setSyncRunning(type);
+    setSyncResult(null);
+    try {
+      let res;
+      switch (type) {
+        case 'categories': res = await syncApi.syncCategories(); break;
+        case 'products': res = await syncApi.syncProducts(); break;
+        case 'customers': res = await syncApi.syncCustomers(); break;
+        case 'stock': res = await syncApi.syncStock(); break;
+        case 'full': res = await syncApi.fullSync(); break;
+        case 'clear-and-sync': res = await syncApi.clearAndSync(); break;
+      }
+      setSyncResult({ success: res.data.success, message: res.data.message });
+      // Refresh status
+      const statusRes = await syncApi.getStatus();
+      setSyncStatus(statusRes.data.data);
+    } catch (error: any) {
+      setSyncResult({
+        success: false,
+        message: error.response?.data?.message || error.message || 'Sync failed',
+      });
+    } finally {
+      setSyncRunning(null);
+    }
+  };
+
   const updateTradingHours = (
     day: string,
     field: 'open' | 'close' | 'closed',
@@ -197,6 +239,7 @@ export default function SettingsPage() {
     { id: 'payments', label: 'Payments', icon: CreditCardIcon },
     { id: 'roles', label: 'Roles', icon: UserGroupIcon },
     { id: 'system', label: 'System', icon: Cog6ToothIcon },
+    { id: 'sync', label: 'Magento Sync', icon: ArrowPathIcon },
   ];
 
   const dayLabels: Record<string, string> = {
@@ -582,6 +625,119 @@ export default function SettingsPage() {
                     <strong className="text-green-400">Admin:</strong> Unlimited discount authority,
                     full system access
                   </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Magento Sync */}
+          {activeTab === 'sync' && (
+            <div className="space-y-6">
+              {/* Sync Status */}
+              <div className="card p-6">
+                <h2 className="text-lg font-semibold mb-4">Sync Status</h2>
+                {syncStatus ? (
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="bg-pos-accent rounded-lg p-4 text-center">
+                      <div className="text-2xl font-bold text-primary-400">{syncStatus.categoryCount}</div>
+                      <div className="text-sm text-gray-400">Categories</div>
+                    </div>
+                    <div className="bg-pos-accent rounded-lg p-4 text-center">
+                      <div className="text-2xl font-bold text-primary-400">{syncStatus.productCount}</div>
+                      <div className="text-sm text-gray-400">Products</div>
+                    </div>
+                    <div className="bg-pos-accent rounded-lg p-4 text-center">
+                      <div className="text-2xl font-bold text-primary-400">{syncStatus.customerCount}</div>
+                      <div className="text-sm text-gray-400">Customers</div>
+                    </div>
+                    <div className="bg-pos-accent rounded-lg p-4 text-center">
+                      <div className="text-sm font-medium text-gray-300">
+                        {syncStatus.lastSync
+                          ? new Date(syncStatus.lastSync).toLocaleString()
+                          : 'Never'}
+                      </div>
+                      <div className="text-sm text-gray-400">Last Sync</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-gray-400">Loading status...</div>
+                )}
+              </div>
+
+              {/* Sync Result */}
+              {syncResult && (
+                <div
+                  className={`px-4 py-3 rounded ${
+                    syncResult.success
+                      ? 'bg-green-600/20 text-green-400 border border-green-600'
+                      : 'bg-red-600/20 text-red-400 border border-red-600'
+                  }`}
+                >
+                  {syncResult.message}
+                </div>
+              )}
+
+              {/* Sync Actions */}
+              <div className="card p-6">
+                <h2 className="text-lg font-semibold mb-4">Sync Actions</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <button
+                    className="flex items-center justify-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-4 py-3 rounded-lg disabled:opacity-50"
+                    onClick={() => handleSync('full')}
+                    disabled={syncRunning !== null}
+                  >
+                    <ArrowPathIcon className={`h-5 w-5 ${syncRunning === 'full' ? 'animate-spin' : ''}`} />
+                    {syncRunning === 'full' ? 'Running Full Sync...' : 'Full Sync (Categories + Products + Customers)'}
+                  </button>
+
+                  <button
+                    className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg disabled:opacity-50"
+                    onClick={() => handleSync('customers')}
+                    disabled={syncRunning !== null}
+                  >
+                    <ArrowPathIcon className={`h-5 w-5 ${syncRunning === 'customers' ? 'animate-spin' : ''}`} />
+                    {syncRunning === 'customers' ? 'Syncing Customers...' : 'Sync Customers Only'}
+                  </button>
+
+                  <button
+                    className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg disabled:opacity-50"
+                    onClick={() => handleSync('products')}
+                    disabled={syncRunning !== null}
+                  >
+                    <ArrowPathIcon className={`h-5 w-5 ${syncRunning === 'products' ? 'animate-spin' : ''}`} />
+                    {syncRunning === 'products' ? 'Syncing Products...' : 'Sync Products Only'}
+                  </button>
+
+                  <button
+                    className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-3 rounded-lg disabled:opacity-50"
+                    onClick={() => handleSync('categories')}
+                    disabled={syncRunning !== null}
+                  >
+                    <ArrowPathIcon className={`h-5 w-5 ${syncRunning === 'categories' ? 'animate-spin' : ''}`} />
+                    {syncRunning === 'categories' ? 'Syncing Categories...' : 'Sync Categories Only'}
+                  </button>
+
+                  <button
+                    className="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg disabled:opacity-50"
+                    onClick={() => handleSync('stock')}
+                    disabled={syncRunning !== null}
+                  >
+                    <ArrowPathIcon className={`h-5 w-5 ${syncRunning === 'stock' ? 'animate-spin' : ''}`} />
+                    {syncRunning === 'stock' ? 'Syncing Stock...' : 'Sync Stock Only (Fast)'}
+                  </button>
+
+                  <button
+                    className="flex items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-lg disabled:opacity-50"
+                    onClick={() => {
+                      if (window.confirm('This will DELETE all products and categories then re-sync from Magento. Are you sure?')) {
+                        handleSync('clear-and-sync');
+                      }
+                    }}
+                    disabled={syncRunning !== null}
+                  >
+                    <ArrowPathIcon className={`h-5 w-5 ${syncRunning === 'clear-and-sync' ? 'animate-spin' : ''}`} />
+                    {syncRunning === 'clear-and-sync' ? 'Clearing & Syncing...' : 'Clear All & Re-Sync (Destructive)'}
+                  </button>
                 </div>
               </div>
             </div>
