@@ -163,7 +163,7 @@ export default function POSPage() {
   return (
     <div className="flex h-full">
       {/* Products Panel */}
-      <div className="flex-1 flex flex-col p-4">
+      <div className="flex-1 min-w-0 flex flex-col p-4">
         {/* Search Bar */}
         <div className="flex gap-2 mb-4">
           <div className="relative flex-1">
