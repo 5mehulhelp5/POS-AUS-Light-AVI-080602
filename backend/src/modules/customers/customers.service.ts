@@ -21,7 +21,7 @@ export class CustomersService {
 
     if (search) {
       query.where(
-        '(customer.firstName LIKE :search OR customer.lastName LIKE :search OR customer.email LIKE :search OR customer.phone LIKE :search)',
+        '(customer.firstName LIKE :search OR customer.lastName LIKE :search OR customer.email LIKE :search OR customer.phone LIKE :search OR customer.company LIKE :search OR CONCAT(customer.firstName, \' \', customer.lastName) LIKE :search)',
         { search: `%${search}%` },
       );
     }

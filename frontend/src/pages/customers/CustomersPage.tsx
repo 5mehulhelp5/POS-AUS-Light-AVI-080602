@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { customersApi } from '../../services/api';
 import { MagnifyingGlassIcon, UserIcon, PhoneIcon, EnvelopeIcon } from '@heroicons/react/24/outline';
 
@@ -10,11 +10,15 @@ interface Customer {
   phone: string | null;
   mobile: string | null;
   company: string | null;
-  address: string | null;
-  suburb: string | null;
-  state: string | null;
-  postcode: string | null;
-  taxExempt: boolean;
+  billingStreet: string | null;
+  billingCity: string | null;
+  billingState: string | null;
+  billingPostcode: string | null;
+  shippingStreet: string | null;
+  shippingCity: string | null;
+  shippingState: string | null;
+  shippingPostcode: string | null;
+  taxNumber: string | null;
   notes: string | null;
   createdAt: string;
 }
@@ -31,28 +35,52 @@ export default function CustomersPage() {
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const fetchIdRef = useRef(0);
 
+  // Debounce search input
   useEffect(() => {
-    fetchCustomers();
-  }, [pagination.page, search]);
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+      setCurrentPage(1);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
-  const fetchCustomers = async () => {
-    try {
-      setIsLoading(true);
-      const response = await customersApi.getCustomers({
-        search: search || undefined,
-        page: pagination.page,
-        limit: 20,
-      });
-      setCustomers(response.data.data.customers);
-      setPagination(response.data.data.pagination);
-    } catch (error) {
-      console.error('Failed to fetch customers:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  // Fetch customers when debounced search or page changes
+  useEffect(() => {
+    const id = ++fetchIdRef.current;
+
+    const fetchCustomers = async () => {
+      try {
+        setIsLoading(true);
+        const response = await customersApi.getCustomers({
+          search: debouncedSearch || undefined,
+          page: currentPage,
+          limit: 20,
+        });
+
+        // Ignore stale responses
+        if (id !== fetchIdRef.current) return;
+
+        setCustomers(response.data.data.customers);
+        setPagination(response.data.data.pagination);
+      } catch (error) {
+        if (id !== fetchIdRef.current) return;
+        console.error('Failed to fetch customers:', error);
+        setCustomers([]);
+        setPagination({ page: currentPage, limit: 20, total: 0, totalPages: 0 });
+      } finally {
+        if (id === fetchIdRef.current) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchCustomers();
+  }, [debouncedSearch, currentPage]);
 
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString('en-AU', {
@@ -76,7 +104,7 @@ export default function CustomersPage() {
         <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
         <input
           type="text"
-          placeholder="Search by name, email, or phone..."
+          placeholder="Search by name, email, phone, or company..."
           className="input pl-12"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -133,18 +161,18 @@ export default function CustomersPage() {
         <div className="flex justify-center gap-2 mt-4">
           <button
             className="btn-sm"
-            disabled={pagination.page <= 1}
-            onClick={() => setPagination((p) => ({ ...p, page: p.page - 1 }))}
+            disabled={currentPage <= 1}
+            onClick={() => setCurrentPage((p) => p - 1)}
           >
             Previous
           </button>
           <span className="px-4 py-2 text-sm">
-            Page {pagination.page} of {pagination.totalPages}
+            Page {currentPage} of {pagination.totalPages}
           </span>
           <button
             className="btn-sm"
-            disabled={pagination.page >= pagination.totalPages}
-            onClick={() => setPagination((p) => ({ ...p, page: p.page + 1 }))}
+            disabled={currentPage >= pagination.totalPages}
+            onClick={() => setCurrentPage((p) => p + 1)}
           >
             Next
           </button>
@@ -192,19 +220,31 @@ export default function CustomersPage() {
                   <p>{selectedCustomer.mobile || '-'}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-400">Tax Exempt</p>
-                  <p>{selectedCustomer.taxExempt ? 'Yes' : 'No'}</p>
+                  <p className="text-sm text-gray-400">ABN / Tax Number</p>
+                  <p>{selectedCustomer.taxNumber || '-'}</p>
                 </div>
               </div>
 
-              {(selectedCustomer.address || selectedCustomer.suburb) && (
+              {(selectedCustomer.billingStreet || selectedCustomer.billingCity) && (
                 <div>
-                  <p className="text-sm text-gray-400">Address</p>
+                  <p className="text-sm text-gray-400">Billing Address</p>
                   <p>
-                    {selectedCustomer.address && <span>{selectedCustomer.address}<br /></span>}
-                    {selectedCustomer.suburb && <span>{selectedCustomer.suburb} </span>}
-                    {selectedCustomer.state && <span>{selectedCustomer.state} </span>}
-                    {selectedCustomer.postcode && <span>{selectedCustomer.postcode}</span>}
+                    {selectedCustomer.billingStreet && <span>{selectedCustomer.billingStreet}<br /></span>}
+                    {selectedCustomer.billingCity && <span>{selectedCustomer.billingCity} </span>}
+                    {selectedCustomer.billingState && <span>{selectedCustomer.billingState} </span>}
+                    {selectedCustomer.billingPostcode && <span>{selectedCustomer.billingPostcode}</span>}
+                  </p>
+                </div>
+              )}
+
+              {(selectedCustomer.shippingStreet || selectedCustomer.shippingCity) && (
+                <div>
+                  <p className="text-sm text-gray-400">Shipping Address</p>
+                  <p>
+                    {selectedCustomer.shippingStreet && <span>{selectedCustomer.shippingStreet}<br /></span>}
+                    {selectedCustomer.shippingCity && <span>{selectedCustomer.shippingCity} </span>}
+                    {selectedCustomer.shippingState && <span>{selectedCustomer.shippingState} </span>}
+                    {selectedCustomer.shippingPostcode && <span>{selectedCustomer.shippingPostcode}</span>}
                   </p>
                 </div>
               )}
