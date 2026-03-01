@@ -41,7 +41,7 @@ export default function ProductGrid({
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin">
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 auto-rows-max">
+      <div className="grid gap-3 auto-rows-max" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
         {products.map((product) => (
           <button
             key={product.id}
