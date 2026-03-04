@@ -41,7 +41,7 @@ export default function ProductGrid({
 
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin">
-      <div className="grid grid-cols-5 gap-3 auto-rows-max">
+      <div className="grid grid-cols-5 gap-2 auto-rows-max">
         {products.map((product) => (
           <button
             key={product.id}
@@ -50,7 +50,7 @@ export default function ProductGrid({
             disabled={!product.isInStock}
           >
             {/* Product Image */}
-            <div className="h-36 bg-pos-accent rounded-lg mb-3 overflow-hidden relative">
+            <div className="h-28 bg-pos-accent rounded-lg mb-2 overflow-hidden relative">
               {product.thumbnailUrl ? (
                 <img
                   src={product.thumbnailUrl}

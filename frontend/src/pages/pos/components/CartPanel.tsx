@@ -157,7 +157,7 @@ export default function CartPanel({
   };
 
   return (
-    <div className="w-96 bg-pos-card border-l border-gray-700 flex flex-col">
+    <div className="w-80 bg-pos-card border-l border-gray-700 flex flex-col">
       {/* Header */}
       <div className="p-4 border-b border-gray-700 flex items-center justify-between">
         <h2 className="text-lg font-semibold">Current Sale</h2>

@@ -45,46 +45,46 @@ export default function MainLayout() {
       {/* Sidebar */}
       <aside className="w-20 bg-pos-card border-r border-gray-700 flex flex-col">
         {/* Logo */}
-        <div className="h-16 flex items-center justify-center border-b border-gray-700">
-          <span className="text-2xl font-bold text-primary-500">ALF</span>
+        <div className="h-12 flex items-center justify-center border-b border-gray-700">
+          <span className="text-xl font-bold text-primary-500">ALF</span>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 py-4 space-y-2">
+        <nav className="flex-1 py-2 space-y-1 overflow-y-auto">
           {navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
               className={({ isActive }) =>
-                `flex flex-col items-center justify-center h-16 mx-2 rounded-lg transition-colors ${
+                `flex flex-col items-center justify-center h-12 mx-1 rounded-lg transition-colors ${
                   isActive
                     ? 'bg-primary-600 text-white'
                     : 'text-gray-400 hover:bg-pos-accent hover:text-white'
                 }`
               }
             >
-              <item.icon className="h-6 w-6" />
-              <span className="text-xs mt-1">{item.label}</span>
+              <item.icon className="h-5 w-5" />
+              <span className="text-[10px] mt-0.5">{item.label}</span>
             </NavLink>
           ))}
 
           {isAdmin && (
             <>
-              <div className="border-t border-gray-700 mx-4 my-2" />
+              <div className="border-t border-gray-700 mx-3 my-1" />
               {adminNavItems.map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}
                   className={({ isActive }) =>
-                    `flex flex-col items-center justify-center h-16 mx-2 rounded-lg transition-colors ${
+                    `flex flex-col items-center justify-center h-12 mx-1 rounded-lg transition-colors ${
                       isActive
                         ? 'bg-primary-600 text-white'
                         : 'text-gray-400 hover:bg-pos-accent hover:text-white'
                     }`
                   }
                 >
-                  <item.icon className="h-6 w-6" />
-                  <span className="text-xs mt-1">{item.label}</span>
+                  <item.icon className="h-5 w-5" />
+                  <span className="text-[10px] mt-0.5">{item.label}</span>
                 </NavLink>
               ))}
             </>
@@ -92,22 +92,22 @@ export default function MainLayout() {
         </nav>
 
         {/* User & Logout */}
-        <div className="border-t border-gray-700 p-2">
-          <div className="flex flex-col items-center text-center mb-2">
-            <div className="w-10 h-10 bg-primary-600 rounded-full flex items-center justify-center text-white font-medium">
+        <div className="border-t border-gray-700 p-1">
+          <div className="flex flex-col items-center text-center mb-1">
+            <div className="w-8 h-8 bg-primary-600 rounded-full flex items-center justify-center text-white text-sm font-medium">
               {user?.firstName[0]}
               {user?.lastName[0]}
             </div>
-            <span className="text-xs text-gray-400 mt-1 truncate w-full">
+            <span className="text-[10px] text-gray-400 mt-0.5 truncate w-full">
               {user?.firstName}
             </span>
           </div>
           <button
             onClick={handleLogout}
-            className="w-full flex flex-col items-center justify-center h-12 rounded-lg text-gray-400 hover:bg-red-600/20 hover:text-red-400 transition-colors"
+            className="w-full flex flex-col items-center justify-center h-10 rounded-lg text-gray-400 hover:bg-red-600/20 hover:text-red-400 transition-colors"
           >
-            <ArrowRightOnRectangleIcon className="h-5 w-5" />
-            <span className="text-xs mt-1">Logout</span>
+            <ArrowRightOnRectangleIcon className="h-4 w-4" />
+            <span className="text-[10px] mt-0.5">Logout</span>
           </button>
         </div>
       </aside>
