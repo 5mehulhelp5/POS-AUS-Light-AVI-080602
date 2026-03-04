@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { MagnifyingGlassIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon, PlusCircleIcon } from '@heroicons/react/24/outline';
 import { RootState, AppDispatch } from '../../store';
@@ -45,11 +45,32 @@ export default function POSPage() {
   const [customItemSku, setCustomItemSku] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 48; // Products per page (good for grid layout)
+  const catScrollRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkCatScroll = () => {
+    const el = catScrollRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 0);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  };
+
+  const scrollCats = (dir: 'left' | 'right') => {
+    const el = catScrollRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir === 'left' ? -200 : 200, behavior: 'smooth' });
+  };
 
   useEffect(() => {
     dispatch(fetchProducts({ limit: pageSize, page: 1 }));
     dispatch(fetchCategories());
   }, [dispatch]);
+
+  // Check scroll state when categories change
+  useEffect(() => {
+    setTimeout(checkCatScroll, 100);
+  }, [categories, subcategories]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -219,7 +240,21 @@ export default function POSPage() {
           )}
 
           {/* Category buttons */}
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-2">
+          <div className="flex items-center gap-1">
+            {canScrollLeft && (
+              <button
+                className="shrink-0 p-1 text-gray-400 hover:text-white"
+                onClick={() => scrollCats('left')}
+              >
+                <ChevronLeftIcon className="h-4 w-4" />
+              </button>
+            )}
+          <div
+            ref={catScrollRef}
+            className="flex gap-2 overflow-x-auto scrollbar-hide pb-2"
+            onScroll={checkCatScroll}
+            onLoad={checkCatScroll}
+          >
             {categoryPath.length > 0 || subcategories.length > 0 ? (
               <>
                 {/* Back button */}
@@ -285,6 +320,15 @@ export default function POSPage() {
                   </button>
                 ))}
               </>
+            )}
+          </div>
+            {canScrollRight && (
+              <button
+                className="shrink-0 p-1 text-gray-400 hover:text-white"
+                onClick={() => scrollCats('right')}
+              >
+                <ChevronRightIcon className="h-4 w-4" />
+              </button>
             )}
           </div>
         </div>
