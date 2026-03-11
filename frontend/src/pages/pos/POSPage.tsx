@@ -66,7 +66,8 @@ export default function POSPage() {
     setLoadingSearchSubcats(true);
     productsApi.getSubcategories(Number(searchCatId))
       .then(res => {
-        setSearchSubcats(res.data?.subcategories || res.data || []);
+        const data = res.data?.data || res.data;
+        setSearchSubcats(data?.subcategories || []);
       })
       .catch(() => setSearchSubcats([]))
       .finally(() => setLoadingSearchSubcats(false));
