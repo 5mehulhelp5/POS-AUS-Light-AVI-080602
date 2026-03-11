@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { quotesApi, customersApi, productsApi } from '../../services/api';
-import { MagnifyingGlassIcon, EyeIcon, ClockIcon, PlusIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, EyeIcon, ClockIcon, PlusIcon, PlusCircleIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline';
 
 interface Quote {
   id: number;
@@ -49,6 +49,10 @@ export default function QuotesPage() {
   const [quoteNotes, setQuoteNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [showCustomItem, setShowCustomItem] = useState(false);
+  const [customItemName, setCustomItemName] = useState('');
+  const [customItemPrice, setCustomItemPrice] = useState('');
+  const [customItemSku, setCustomItemSku] = useState('');
 
   useEffect(() => {
     fetchQuotes();
@@ -130,6 +134,26 @@ export default function QuotesPage() {
     ]);
     setProductSearch('');
     setProductResults([]);
+  };
+
+  const addCustomLineItem = () => {
+    const price = parseFloat(customItemPrice);
+    if (!customItemName.trim() || isNaN(price) || price <= 0) return;
+    setLineItems([
+      ...lineItems,
+      {
+        productId: -Date.now(),
+        name: customItemName.trim(),
+        sku: customItemSku.trim() || 'CUSTOM',
+        price,
+        quantity: 1,
+        discountPercent: 0,
+      },
+    ]);
+    setShowCustomItem(false);
+    setCustomItemName('');
+    setCustomItemPrice('');
+    setCustomItemSku('');
   };
 
   const updateLineItem = (index: number, field: keyof QuoteLineItem, value: number) => {
@@ -583,6 +607,70 @@ export default function QuotesPage() {
                       </div>
                     </button>
                   ))}
+                </div>
+              )}
+
+              {/* Custom Item */}
+              {!showCustomItem ? (
+                <button
+                  className="mt-2 btn-sm bg-purple-600 text-white flex items-center gap-1"
+                  onClick={() => setShowCustomItem(true)}
+                >
+                  <PlusCircleIcon className="h-4 w-4" />
+                  Custom Item
+                </button>
+              ) : (
+                <div className="mt-2 bg-pos-accent border border-gray-600 rounded-lg p-3">
+                  <div className="grid grid-cols-3 gap-2 mb-2">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Item Name *</label>
+                      <input
+                        type="text"
+                        className="input w-full"
+                        placeholder="e.g. Custom Fitting"
+                        value={customItemName}
+                        onChange={(e) => setCustomItemName(e.target.value)}
+                        autoFocus
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Price (incl. GST) *</label>
+                      <input
+                        type="number"
+                        className="input w-full"
+                        placeholder="0.00"
+                        min={0}
+                        step={0.01}
+                        value={customItemPrice}
+                        onChange={(e) => setCustomItemPrice(e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">SKU (optional)</label>
+                      <input
+                        type="text"
+                        className="input w-full"
+                        placeholder="CUSTOM-001"
+                        value={customItemSku}
+                        onChange={(e) => setCustomItemSku(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      className="btn-sm bg-gray-600 text-white"
+                      onClick={() => { setShowCustomItem(false); setCustomItemName(''); setCustomItemPrice(''); setCustomItemSku(''); }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="btn-sm bg-purple-600 text-white"
+                      onClick={addCustomLineItem}
+                      disabled={!customItemName.trim() || !customItemPrice || parseFloat(customItemPrice) <= 0}
+                    >
+                      Add to Quote
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
