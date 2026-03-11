@@ -374,8 +374,20 @@ export default function POSPage() {
           </div>
         )}
 
+        {/* Waiting for subcategory selection or loading subcats */}
+        {searchCatId && loadingSearchSubcats && (
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-gray-400 text-lg">Loading subcategories...</p>
+          </div>
+        )}
+        {searchCatId && !loadingSearchSubcats && searchSubcats.length > 0 && !searchSubcatId && (
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-gray-400 text-lg">Please select a subcategory to view products</p>
+          </div>
+        )}
+
         {/* PRODUCTS VIEW */}
-        {(viewMode === 'products' || searchCatId) && (
+        {(viewMode === 'products' || searchCatId) && !loadingSearchSubcats && !(searchCatId && searchSubcats.length > 0 && !searchSubcatId) && (
           <>
             <ProductGrid
               products={products}
