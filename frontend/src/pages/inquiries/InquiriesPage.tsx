@@ -6,6 +6,8 @@ import {
   EnvelopeIcon,
   UserGroupIcon,
   ChatBubbleLeftIcon,
+  PlusIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/outline';
 
 interface Inquiry {
@@ -38,6 +40,17 @@ export default function InquiriesPage() {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [selectedInquiry, setSelectedInquiry] = useState<Inquiry | null>(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [newInquiry, setNewInquiry] = useState({
+    type: 'phone_call',
+    subject: '',
+    description: '',
+    contactName: '',
+    contactPhone: '',
+    contactEmail: '',
+    followUpDate: '',
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     fetchInquiries();
@@ -58,6 +71,29 @@ export default function InquiriesPage() {
       console.error('Failed to fetch inquiries:', error);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleAddInquiry = async () => {
+    if (!newInquiry.subject.trim()) return;
+    try {
+      setIsSubmitting(true);
+      await inquiriesApi.createInquiry({
+        type: newInquiry.type,
+        subject: newInquiry.subject,
+        description: newInquiry.description || undefined,
+        contactName: newInquiry.contactName || undefined,
+        contactPhone: newInquiry.contactPhone || undefined,
+        contactEmail: newInquiry.contactEmail || undefined,
+        followUpDate: newInquiry.followUpDate || undefined,
+      });
+      setShowAddModal(false);
+      setNewInquiry({ type: 'phone_call', subject: '', description: '', contactName: '', contactPhone: '', contactEmail: '', followUpDate: '' });
+      fetchInquiries();
+    } catch (error) {
+      console.error('Failed to create inquiry:', error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -126,8 +162,17 @@ export default function InquiriesPage() {
     <div className="h-full p-6 overflow-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Inquiries & Calls</h1>
-        <div className="text-sm text-gray-400">
-          Total: {pagination.total} inquiries
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-gray-400">
+            Total: {pagination.total} inquiries
+          </span>
+          <button
+            className="btn-primary flex items-center gap-2"
+            onClick={() => setShowAddModal(true)}
+          >
+            <PlusIcon className="h-5 w-5" />
+            Add Enquiry
+          </button>
         </div>
       </div>
 
@@ -244,6 +289,114 @@ export default function InquiriesPage() {
           >
             Next
           </button>
+        </div>
+      )}
+
+      {/* Add Enquiry Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-pos-card rounded-lg p-6 max-w-lg w-full mx-4">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold">Add Enquiry</h2>
+              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-white">
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Type *</label>
+                <select
+                  className="input w-full"
+                  value={newInquiry.type}
+                  onChange={(e) => setNewInquiry({ ...newInquiry, type: e.target.value })}
+                >
+                  <option value="phone_call">Phone Call</option>
+                  <option value="walk_in">Walk-in</option>
+                  <option value="email">Email</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Subject *</label>
+                <input
+                  type="text"
+                  className="input w-full"
+                  placeholder="Brief subject..."
+                  value={newInquiry.subject}
+                  onChange={(e) => setNewInquiry({ ...newInquiry, subject: e.target.value })}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Description</label>
+                <textarea
+                  className="input w-full"
+                  rows={3}
+                  placeholder="Details about the enquiry..."
+                  value={newInquiry.description}
+                  onChange={(e) => setNewInquiry({ ...newInquiry, description: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Contact Name</label>
+                  <input
+                    type="text"
+                    className="input w-full"
+                    placeholder="Customer name"
+                    value={newInquiry.contactName}
+                    onChange={(e) => setNewInquiry({ ...newInquiry, contactName: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Contact Phone</label>
+                  <input
+                    type="text"
+                    className="input w-full"
+                    placeholder="04xx xxx xxx"
+                    value={newInquiry.contactPhone}
+                    onChange={(e) => setNewInquiry({ ...newInquiry, contactPhone: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Contact Email</label>
+                  <input
+                    type="email"
+                    className="input w-full"
+                    placeholder="email@example.com"
+                    value={newInquiry.contactEmail}
+                    onChange={(e) => setNewInquiry({ ...newInquiry, contactEmail: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Follow Up Date</label>
+                  <input
+                    type="date"
+                    className="input w-full"
+                    value={newInquiry.followUpDate}
+                    onChange={(e) => setNewInquiry({ ...newInquiry, followUpDate: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-4">
+              <button
+                className="btn-sm flex-1 bg-gray-600 text-white"
+                onClick={() => setShowAddModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary flex-1"
+                onClick={handleAddInquiry}
+                disabled={!newInquiry.subject.trim() || isSubmitting}
+              >
+                {isSubmitting ? 'Saving...' : 'Save Enquiry'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
