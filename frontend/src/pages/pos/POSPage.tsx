@@ -7,6 +7,7 @@ import {
   fetchCategories,
   fetchSubcategories,
 } from '../../store/slices/productsSlice';
+import { productsApi } from '../../services/api';
 import { addItem, removeItem, updateQuantity, clearCart, setItemDiscount, setCartDiscount, setCustomer } from '../../store/slices/cartSlice';
 import ProductGrid from './components/ProductGrid';
 import CartPanel from './components/CartPanel';
@@ -44,13 +45,55 @@ export default function POSPage() {
   const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null);
   const [activeCategoryName, setActiveCategoryName] = useState<string>('');
 
+  // Search bar dropdowns
+  const [searchCatId, setSearchCatId] = useState<string>('');
+  const [searchSubcatId, setSearchSubcatId] = useState<string>('');
+  const [searchSubcats, setSearchSubcats] = useState<any[]>([]);
+  const [loadingSearchSubcats, setLoadingSearchSubcats] = useState(false);
+
   useEffect(() => {
     dispatch(fetchCategories());
   }, [dispatch]);
 
-  // Fetch products only when in product view or searching
+  // Fetch subcategories for search dropdown when category changes
   useEffect(() => {
-    if (viewMode !== 'products' && !searchQuery) return;
+    if (!searchCatId) {
+      setSearchSubcats([]);
+      setSearchSubcatId('');
+      return;
+    }
+    setSearchSubcatId('');
+    setLoadingSearchSubcats(true);
+    productsApi.getSubcategories(Number(searchCatId))
+      .then(res => {
+        setSearchSubcats(res.data?.subcategories || res.data || []);
+      })
+      .catch(() => setSearchSubcats([]))
+      .finally(() => setLoadingSearchSubcats(false));
+  }, [searchCatId]);
+
+  // Fetch products only when in product view or searching via dropdowns
+  useEffect(() => {
+    // If searching via dropdowns, category is required
+    if (searchCatId) {
+      // If subcats exist but none selected, don't fetch yet
+      if (searchSubcats.length > 0 && !searchSubcatId) return;
+
+      const timer = setTimeout(() => {
+        dispatch(
+          fetchProducts({
+            search: searchQuery || undefined,
+            category: searchSubcatId ? Number(searchSubcatId) : Number(searchCatId),
+            limit: pageSize,
+            page: currentPage,
+          })
+        );
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+
+    // Normal tile navigation
+    if (viewMode !== 'products') return;
 
     const timer = setTimeout(() => {
       dispatch(
@@ -64,20 +107,20 @@ export default function POSPage() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, activeCategoryId, viewMode, currentPage, dispatch]);
+  }, [searchQuery, activeCategoryId, viewMode, currentPage, dispatch, searchCatId, searchSubcatId, searchSubcats.length]);
 
   // Reset page on filter change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, activeCategoryId]);
+  }, [searchQuery, activeCategoryId, searchCatId, searchSubcatId]);
 
-  // When user types in search, switch to products view
+  // When search dropdowns are used, switch to products view
   useEffect(() => {
-    if (searchQuery) {
+    if (searchCatId) {
       setViewMode('products');
       setActiveCategoryId(null);
     }
-  }, [searchQuery]);
+  }, [searchCatId, searchSubcatId]);
 
   const handleCategorySelect = (cat: { id: number; name: string }) => {
     setActiveCategoryId(cat.id);
@@ -172,13 +215,50 @@ export default function POSPage() {
     <div className="flex h-full">
       {/* Main Panel */}
       <div className="flex-1 min-w-0 flex flex-col p-4">
-        {/* Search Bar */}
+        {/* Search Bar with Category/Subcategory dropdowns */}
         <div className="flex gap-2 mb-4">
+          {/* Category dropdown (required) */}
+          <select
+            className="input w-48 shrink-0"
+            value={searchCatId}
+            onChange={(e) => {
+              setSearchCatId(e.target.value);
+              if (!e.target.value) {
+                setViewMode('categories');
+                setActiveCategoryId(null);
+                setSearchQuery('');
+              }
+            }}
+          >
+            <option value="">Select Category *</option>
+            {categories.map((cat) => (
+              <option key={cat.id} value={cat.id}>{cat.name}</option>
+            ))}
+          </select>
+
+          {/* Subcategory dropdown (required if subcats exist) */}
+          {searchCatId && (
+            <select
+              className="input w-48 shrink-0"
+              value={searchSubcatId}
+              onChange={(e) => setSearchSubcatId(e.target.value)}
+              disabled={loadingSearchSubcats}
+            >
+              <option value="">
+                {loadingSearchSubcats ? 'Loading...' : searchSubcats.length > 0 ? 'Select Subcategory *' : 'No subcategories'}
+              </option>
+              {searchSubcats.map((sc: any) => (
+                <option key={sc.id} value={sc.id}>{sc.name}</option>
+              ))}
+            </select>
+          )}
+
+          {/* Text search (optional) */}
           <div className="relative flex-1">
             <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search products by name, SKU, or barcode..."
+              placeholder="Search by name, SKU, or barcode (optional)..."
               className="input pl-12 pr-10"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -186,16 +266,29 @@ export default function POSPage() {
             {searchQuery && (
               <button
                 className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
-                onClick={() => {
-                  setSearchQuery('');
-                  setViewMode('categories');
-                  setActiveCategoryId(null);
-                }}
+                onClick={() => setSearchQuery('')}
               >
                 <XMarkIcon className="h-5 w-5" />
               </button>
             )}
           </div>
+
+          {/* Clear all filters */}
+          {searchCatId && (
+            <button
+              className="btn-sm bg-gray-700 text-gray-300 whitespace-nowrap px-3 hover:bg-gray-600"
+              onClick={() => {
+                setSearchCatId('');
+                setSearchSubcatId('');
+                setSearchQuery('');
+                setViewMode('categories');
+                setActiveCategoryId(null);
+              }}
+            >
+              <XMarkIcon className="h-4 w-4" />
+            </button>
+          )}
+
           <button
             className="btn-sm bg-purple-600 text-white whitespace-nowrap flex items-center gap-1 px-4"
             onClick={() => setShowCustomItem(true)}
@@ -206,7 +299,7 @@ export default function POSPage() {
         </div>
 
         {/* Navigation breadcrumb */}
-        {viewMode !== 'categories' && !searchQuery && (
+        {viewMode !== 'categories' && !searchCatId && (
           <div className="flex items-center gap-2 mb-4 text-sm">
             <button
               className="text-gray-400 hover:text-white flex items-center gap-1"
@@ -230,7 +323,7 @@ export default function POSPage() {
         )}
 
         {/* CATEGORIES VIEW */}
-        {viewMode === 'categories' && !searchQuery && (
+        {viewMode === 'categories' && !searchCatId && (
           <div className="flex-1 overflow-y-auto">
             <div className="grid grid-cols-4 gap-4">
               {/* All Products tile */}
@@ -254,7 +347,7 @@ export default function POSPage() {
         )}
 
         {/* SUBCATEGORIES VIEW */}
-        {viewMode === 'subcategories' && !searchQuery && (
+        {viewMode === 'subcategories' && !searchCatId && (
           <div className="flex-1 overflow-y-auto">
             <h2 className="text-lg font-bold text-white mb-4">{activeCategoryName}</h2>
             <div className="grid grid-cols-4 gap-4">
@@ -282,7 +375,7 @@ export default function POSPage() {
         )}
 
         {/* PRODUCTS VIEW */}
-        {(viewMode === 'products' || searchQuery) && (
+        {(viewMode === 'products' || searchCatId) && (
           <>
             <ProductGrid
               products={products}
