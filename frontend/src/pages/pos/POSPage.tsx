@@ -238,7 +238,6 @@ export default function POSPage() {
                 className="bg-gradient-to-br from-primary-600 to-primary-800 rounded-xl p-6 text-center hover:from-primary-500 hover:to-primary-700 transition-all shadow-lg"
                 onClick={handleViewAllProducts}
               >
-                <div className="text-3xl mb-2">🛒</div>
                 <div className="text-white font-semibold text-lg">All Products</div>
               </button>
               {categories.map((cat) => (
@@ -247,7 +246,6 @@ export default function POSPage() {
                   className="bg-gradient-to-br from-pos-accent to-gray-800 rounded-xl p-6 text-center hover:from-gray-600 hover:to-gray-700 transition-all shadow-lg border border-gray-700"
                   onClick={() => handleCategorySelect(cat)}
                 >
-                  <div className="text-3xl mb-2">💡</div>
                   <div className="text-white font-semibold text-lg">{cat.name}</div>
                 </button>
               ))}
@@ -268,7 +266,6 @@ export default function POSPage() {
                   dispatch(fetchProducts({ category: activeCategoryId!, limit: pageSize, page: 1 }));
                 }}
               >
-                <div className="text-3xl mb-2">📦</div>
                 <div className="text-white font-semibold text-lg">All {activeCategoryName}</div>
               </button>
               {subcategories.map((subcat) => (
@@ -277,7 +274,6 @@ export default function POSPage() {
                   className="bg-gradient-to-br from-pos-accent to-gray-800 rounded-xl p-6 text-center hover:from-gray-600 hover:to-gray-700 transition-all shadow-lg border border-gray-700"
                   onClick={() => handleSubcategorySelect(subcat)}
                 >
-                  <div className="text-3xl mb-2">💡</div>
                   <div className="text-white font-semibold text-lg">{subcat.name}</div>
                 </button>
               ))}
