@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { MagnifyingGlassIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon, PlusCircleIcon } from '@heroicons/react/24/outline';
 import { RootState, AppDispatch } from '../../store';
@@ -6,16 +6,14 @@ import {
   fetchProducts,
   fetchCategories,
   fetchSubcategories,
-  setSelectedCategory,
-  setSelectedSubcategory,
-  navigateToCategory,
-  navigateToBreadcrumb,
-  clearSubcategories,
 } from '../../store/slices/productsSlice';
 import { addItem, removeItem, updateQuantity, clearCart, setItemDiscount, setCartDiscount, setCustomer } from '../../store/slices/cartSlice';
 import ProductGrid from './components/ProductGrid';
 import CartPanel from './components/CartPanel';
 import PaymentModal from './components/PaymentModal';
+
+// View mode: categories → subcategories → products
+type ViewMode = 'categories' | 'subcategories' | 'products';
 
 export default function POSPage() {
   const dispatch = useDispatch<AppDispatch>();
@@ -24,10 +22,6 @@ export default function POSPage() {
     categories,
     subcategories,
     isLoading,
-    selectedCategory,
-    selectedSubcategory,
-    parentCategoryName,
-    categoryPath,
     pagination,
   } = useSelector((state: RootState) => state.products);
   const cart = useSelector((state: RootState) => state.cart);
@@ -44,48 +38,25 @@ export default function POSPage() {
   const [customItemPrice, setCustomItemPrice] = useState('');
   const [customItemSku, setCustomItemSku] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const pageSize = 48; // Products per page (good for grid layout)
-  const catScrollRef = useRef<HTMLDivElement>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
+  const pageSize = 48;
 
-  const checkCatScroll = () => {
-    const el = catScrollRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 0);
-    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
-  };
-
-  const scrollCats = (dir: 'left' | 'right') => {
-    const el = catScrollRef.current;
-    if (!el) return;
-    el.scrollBy({ left: dir === 'left' ? -200 : 200, behavior: 'smooth' });
-  };
+  const [viewMode, setViewMode] = useState<ViewMode>('categories');
+  const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null);
+  const [activeCategoryName, setActiveCategoryName] = useState<string>('');
 
   useEffect(() => {
-    dispatch(fetchProducts({ limit: pageSize, page: 1 }));
     dispatch(fetchCategories());
   }, [dispatch]);
 
-  // Check scroll state when categories change
+  // Fetch products only when in product view or searching
   useEffect(() => {
-    setTimeout(checkCatScroll, 100);
-  }, [categories, subcategories]);
+    if (viewMode !== 'products' && !searchQuery) return;
 
-  useEffect(() => {
     const timer = setTimeout(() => {
-      // Determine category filter: use deepest level of navigation
-      let categoryFilter: number | undefined;
-      if (categoryPath.length > 0) {
-        categoryFilter = categoryPath[categoryPath.length - 1].id;
-      } else if (selectedCategory) {
-        categoryFilter = selectedCategory;
-      }
-
       dispatch(
         fetchProducts({
           search: searchQuery || undefined,
-          category: categoryFilter,
+          category: activeCategoryId || undefined,
           limit: pageSize,
           page: currentPage,
         })
@@ -93,51 +64,68 @@ export default function POSPage() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, selectedCategory, categoryPath, currentPage, dispatch]);
+  }, [searchQuery, activeCategoryId, viewMode, currentPage, dispatch]);
 
-  // Reset to page 1 when filters change
+  // Reset page on filter change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, selectedCategory, categoryPath]);
+  }, [searchQuery, activeCategoryId]);
 
-  // Fetch subcategories when category path changes
+  // When user types in search, switch to products view
   useEffect(() => {
-    if (categoryPath.length > 0) {
-      // Fetch children of the last category in the path
-      const lastCategoryId = categoryPath[categoryPath.length - 1].id;
-      dispatch(fetchSubcategories(lastCategoryId));
-    } else if (selectedCategory) {
-      dispatch(fetchSubcategories(selectedCategory));
+    if (searchQuery) {
+      setViewMode('products');
+      setActiveCategoryId(null);
     }
-  }, [selectedCategory, categoryPath, dispatch]);
+  }, [searchQuery]);
 
-  const handleCategoryClick = (categoryId: number | null) => {
-    dispatch(setSelectedCategory(categoryId));
+  const handleCategorySelect = (cat: { id: number; name: string }) => {
+    setActiveCategoryId(cat.id);
+    setActiveCategoryName(cat.name);
+    dispatch(fetchSubcategories(cat.id));
+    setViewMode('subcategories');
   };
 
-  // Handle clicking a subcategory - drill down if it has children
-  const handleSubcategoryClick = (subcategory: { id: number; name: string } | null) => {
-    if (subcategory === null) {
-      dispatch(setSelectedSubcategory(null));
-    } else {
-      // Navigate into this category to see its children
-      dispatch(navigateToCategory(subcategory));
-    }
-  };
-
-  // Handle clicking "All [Category]" to just filter without drilling down
-  const handleFilterByCurrentCategory = () => {
-    dispatch(setSelectedSubcategory(null));
+  const handleSubcategorySelect = (subcat: { id: number; name: string }) => {
+    setActiveCategoryId(subcat.id);
+    setActiveCategoryName(subcat.name);
+    // Check if this subcategory has its own children
+    dispatch(fetchSubcategories(subcat.id));
+    setViewMode('products');
+    dispatch(
+      fetchProducts({
+        category: subcat.id,
+        limit: pageSize,
+        page: 1,
+      })
+    );
   };
 
   const handleBackToCategories = () => {
-    dispatch(clearSubcategories());
-    dispatch(setSelectedCategory(null));
+    setViewMode('categories');
+    setActiveCategoryId(null);
+    setActiveCategoryName('');
+    setSearchQuery('');
   };
 
-  // Handle breadcrumb navigation - go back to a specific level
-  const handleBreadcrumbClick = (index: number) => {
-    dispatch(navigateToBreadcrumb(index));
+  const handleBackToSubcategories = () => {
+    // Go back to the parent category's subcategories
+    const parentCat = categories.find(c =>
+      c.id === activeCategoryId || c.children?.some(sc => sc.id === activeCategoryId)
+    );
+    if (parentCat) {
+      setActiveCategoryId(parentCat.id);
+      setActiveCategoryName(parentCat.name);
+      dispatch(fetchSubcategories(parentCat.id));
+    }
+    setViewMode('subcategories');
+  };
+
+  const handleViewAllProducts = () => {
+    setActiveCategoryId(null);
+    setActiveCategoryName('');
+    setViewMode('products');
+    dispatch(fetchProducts({ limit: pageSize, page: 1 }));
   };
 
   const handleAddToCart = (product: any) => {
@@ -158,7 +146,7 @@ export default function POSPage() {
     if (!customItemName.trim() || isNaN(price) || price <= 0) return;
     dispatch(
       addItem({
-        productId: -Date.now(), // negative ID to distinguish custom items
+        productId: -Date.now(),
         sku: customItemSku.trim() || 'CUSTOM',
         name: customItemName.trim(),
         price,
@@ -175,7 +163,6 @@ export default function POSPage() {
     setShowPayment(true);
   };
 
-  // Create stock map from products for cart validation
   const stockMap = products.reduce((acc, product) => {
     acc[product.id] = product.stockQty;
     return acc;
@@ -183,7 +170,7 @@ export default function POSPage() {
 
   return (
     <div className="flex h-full">
-      {/* Products Panel */}
+      {/* Main Panel */}
       <div className="flex-1 min-w-0 flex flex-col p-4">
         {/* Search Bar */}
         <div className="flex gap-2 mb-4">
@@ -195,11 +182,15 @@ export default function POSPage() {
               className="input pl-12 pr-10"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-          />
+            />
             {searchQuery && (
               <button
                 className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
-                onClick={() => setSearchQuery('')}
+                onClick={() => {
+                  setSearchQuery('');
+                  setViewMode('categories');
+                  setActiveCategoryId(null);
+                }}
               >
                 <XMarkIcon className="h-5 w-5" />
               </button>
@@ -214,158 +205,122 @@ export default function POSPage() {
           </button>
         </div>
 
-        {/* Category Tabs */}
-        <div className="flex flex-col gap-2 mb-4">
-          {/* Breadcrumb trail when navigating deep */}
-          {categoryPath.length > 0 && (
-            <div className="flex items-center gap-1 text-sm text-gray-400 mb-1">
+        {/* Navigation breadcrumb */}
+        {viewMode !== 'categories' && !searchQuery && (
+          <div className="flex items-center gap-2 mb-4 text-sm">
+            <button
+              className="text-gray-400 hover:text-white flex items-center gap-1"
+              onClick={handleBackToCategories}
+            >
+              <ChevronLeftIcon className="h-4 w-4" />
+              Categories
+            </button>
+            {viewMode === 'products' && activeCategoryName && (
+              <>
+                <span className="text-gray-600">/</span>
+                <button
+                  className="text-gray-400 hover:text-white"
+                  onClick={handleBackToSubcategories}
+                >
+                  {activeCategoryName}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* CATEGORIES VIEW */}
+        {viewMode === 'categories' && !searchQuery && (
+          <div className="flex-1 overflow-y-auto">
+            <div className="grid grid-cols-4 gap-4">
+              {/* All Products tile */}
               <button
-                className="hover:text-white"
-                onClick={() => handleBreadcrumbClick(-1)}
+                className="bg-gradient-to-br from-primary-600 to-primary-800 rounded-xl p-6 text-center hover:from-primary-500 hover:to-primary-700 transition-all shadow-lg"
+                onClick={handleViewAllProducts}
               >
-                All
+                <div className="text-3xl mb-2">🛒</div>
+                <div className="text-white font-semibold text-lg">All Products</div>
               </button>
-              {categoryPath.map((crumb, index) => (
-                <span key={crumb.id} className="flex items-center gap-1">
-                  <span>/</span>
-                  <button
-                    className="hover:text-white"
-                    onClick={() => handleBreadcrumbClick(index)}
-                  >
-                    {crumb.name}
-                  </button>
-                </span>
+              {categories.map((cat) => (
+                <button
+                  key={cat.id}
+                  className="bg-gradient-to-br from-pos-accent to-gray-800 rounded-xl p-6 text-center hover:from-gray-600 hover:to-gray-700 transition-all shadow-lg border border-gray-700"
+                  onClick={() => handleCategorySelect(cat)}
+                >
+                  <div className="text-3xl mb-2">💡</div>
+                  <div className="text-white font-semibold text-lg">{cat.name}</div>
+                </button>
               ))}
             </div>
-          )}
-
-          {/* Category buttons */}
-          <div className="flex items-center gap-1">
-            {canScrollLeft && (
-              <button
-                className="shrink-0 p-1 text-gray-400 hover:text-white"
-                onClick={() => scrollCats('left')}
-              >
-                <ChevronLeftIcon className="h-4 w-4" />
-              </button>
-            )}
-          <div
-            ref={catScrollRef}
-            className="flex gap-2 overflow-x-auto scrollbar-hide pb-2"
-            onScroll={checkCatScroll}
-            onLoad={checkCatScroll}
-          >
-            {categoryPath.length > 0 || subcategories.length > 0 ? (
-              <>
-                {/* Back button */}
-                <button
-                  className="btn-sm whitespace-nowrap bg-gray-600 text-white flex items-center gap-1"
-                  onClick={() => {
-                    if (categoryPath.length > 1) {
-                      handleBreadcrumbClick(categoryPath.length - 2);
-                    } else {
-                      handleBackToCategories();
-                    }
-                  }}
-                >
-                  <ChevronLeftIcon className="h-4 w-4" />
-                  Back
-                </button>
-                {/* Show current level name - clicking shows all in this category */}
-                <button
-                  className={`btn-sm whitespace-nowrap ${
-                    subcategories.length === 0 || !selectedSubcategory
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-pos-accent text-gray-300'
-                  }`}
-                  onClick={handleFilterByCurrentCategory}
-                >
-                  All {categoryPath.length > 0 ? categoryPath[categoryPath.length - 1].name : parentCategoryName}
-                </button>
-                {/* Subcategories - click to drill down */}
-                {subcategories.map((subcat) => (
-                  <button
-                    key={subcat.id}
-                    className="btn-sm whitespace-nowrap bg-pos-accent text-gray-300 hover:bg-primary-600 hover:text-white"
-                    onClick={() => handleSubcategoryClick({ id: subcat.id, name: subcat.name })}
-                  >
-                    {subcat.name}
-                  </button>
-                ))}
-              </>
-            ) : (
-              <>
-                {/* Main categories */}
-                <button
-                  className={`btn-sm whitespace-nowrap ${
-                    !selectedCategory
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-pos-accent text-gray-300'
-                  }`}
-                  onClick={() => handleCategoryClick(null)}
-                >
-                  All Products
-                </button>
-                {categories.map((cat) => (
-                  <button
-                    key={cat.id}
-                    className={`btn-sm whitespace-nowrap ${
-                      selectedCategory === cat.id
-                        ? 'bg-primary-600 text-white'
-                        : 'bg-pos-accent text-gray-300'
-                    }`}
-                    onClick={() => handleCategoryClick(cat.id)}
-                  >
-                    {cat.name}
-                  </button>
-                ))}
-              </>
-            )}
           </div>
-            {canScrollRight && (
-              <button
-                className="shrink-0 p-1 text-gray-400 hover:text-white"
-                onClick={() => scrollCats('right')}
-              >
-                <ChevronRightIcon className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-        </div>
+        )}
 
-        {/* Products Grid */}
-        <ProductGrid
-          products={products}
-          isLoading={isLoading}
-          onAddToCart={handleAddToCart}
-        />
-
-        {/* Pagination Controls */}
-        {pagination.totalPages > 1 && (
-          <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-700">
-            <div className="text-sm text-gray-400">
-              Showing {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, pagination.total)} of {pagination.total} products
-            </div>
-            <div className="flex items-center gap-2">
+        {/* SUBCATEGORIES VIEW */}
+        {viewMode === 'subcategories' && !searchQuery && (
+          <div className="flex-1 overflow-y-auto">
+            <h2 className="text-lg font-bold text-white mb-4">{activeCategoryName}</h2>
+            <div className="grid grid-cols-4 gap-4">
+              {/* All in this category tile */}
               <button
-                className="btn-sm bg-pos-accent text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
+                className="bg-gradient-to-br from-primary-600 to-primary-800 rounded-xl p-6 text-center hover:from-primary-500 hover:to-primary-700 transition-all shadow-lg"
+                onClick={() => {
+                  setViewMode('products');
+                  dispatch(fetchProducts({ category: activeCategoryId!, limit: pageSize, page: 1 }));
+                }}
               >
-                <ChevronLeftIcon className="h-4 w-4" />
+                <div className="text-3xl mb-2">📦</div>
+                <div className="text-white font-semibold text-lg">All {activeCategoryName}</div>
               </button>
-              <span className="text-sm text-gray-300 px-2">
-                Page {currentPage} of {pagination.totalPages}
-              </span>
-              <button
-                className="btn-sm bg-pos-accent text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                onClick={() => setCurrentPage(p => Math.min(pagination.totalPages, p + 1))}
-                disabled={currentPage === pagination.totalPages}
-              >
-                <ChevronRightIcon className="h-4 w-4" />
-              </button>
+              {subcategories.map((subcat) => (
+                <button
+                  key={subcat.id}
+                  className="bg-gradient-to-br from-pos-accent to-gray-800 rounded-xl p-6 text-center hover:from-gray-600 hover:to-gray-700 transition-all shadow-lg border border-gray-700"
+                  onClick={() => handleSubcategorySelect(subcat)}
+                >
+                  <div className="text-3xl mb-2">💡</div>
+                  <div className="text-white font-semibold text-lg">{subcat.name}</div>
+                </button>
+              ))}
             </div>
           </div>
+        )}
+
+        {/* PRODUCTS VIEW */}
+        {(viewMode === 'products' || searchQuery) && (
+          <>
+            <ProductGrid
+              products={products}
+              isLoading={isLoading}
+              onAddToCart={handleAddToCart}
+            />
+
+            {pagination.totalPages > 1 && (
+              <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-700">
+                <div className="text-sm text-gray-400">
+                  Showing {((currentPage - 1) * pageSize) + 1}-{Math.min(currentPage * pageSize, pagination.total)} of {pagination.total} products
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="btn-sm bg-pos-accent text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    <ChevronLeftIcon className="h-4 w-4" />
+                  </button>
+                  <span className="text-sm text-gray-300 px-2">
+                    Page {currentPage} of {pagination.totalPages}
+                  </span>
+                  <button
+                    className="btn-sm bg-pos-accent text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => setCurrentPage(p => Math.min(pagination.totalPages, p + 1))}
+                    disabled={currentPage === pagination.totalPages}
+                  >
+                    <ChevronRightIcon className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
