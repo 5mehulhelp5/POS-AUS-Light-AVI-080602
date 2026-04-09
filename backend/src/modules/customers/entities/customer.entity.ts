@@ -129,6 +129,10 @@ export class Customer {
   isGuest: boolean;
 
   @Index()
+  @Column({ name: 'is_trade', type: 'boolean', default: false })
+  isTrade: boolean;
+
+  @Index()
   @Column({
     name: 'sync_status',
     type: 'enum',

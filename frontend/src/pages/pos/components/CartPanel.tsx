@@ -194,7 +194,7 @@ export default function CartPanel({
             onClick={() => { setShowCustomerModal(true); setCustResults([]); setShowCreateCustomer(false); }}
           >
             <UserIcon className="h-5 w-5" />
-            Add Customer
+            Create / Search Customer
           </button>
         )}
       </div>
@@ -584,7 +584,7 @@ export default function CartPanel({
           <div className="modal-content max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold">
-                {showCreateCustomer ? 'Create New Customer' : 'Add Customer'}
+                {showCreateCustomer ? 'Create New Customer' : 'Create / Search Customer'}
               </h3>
               <button
                 className="text-gray-400 hover:text-white"

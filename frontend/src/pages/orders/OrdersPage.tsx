@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { ordersApi } from '../../services/api';
-import { MagnifyingGlassIcon, EyeIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, EyeIcon, PlusIcon } from '@heroicons/react/24/outline';
 
 interface Order {
   id: number;
@@ -12,6 +13,7 @@ interface Order {
   user: { id: number; firstName: string; lastName: string };
   itemCount: number;
   createdAt: string;
+  source?: 'pos' | 'magento';
 }
 
 interface Pagination {
@@ -86,8 +88,15 @@ export default function OrdersPage() {
     <div className="h-full p-6 overflow-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Orders</h1>
-        <div className="text-sm text-gray-400">
-          Total: {pagination.total} orders
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-gray-400">Total: {pagination.total} orders</span>
+          <Link
+            to="/pos"
+            className="btn-primary flex items-center gap-2"
+          >
+            <PlusIcon className="h-5 w-5" />
+            Create Order
+          </Link>
         </div>
       </div>
 
@@ -126,7 +135,20 @@ export default function OrdersPage() {
             <tbody className="divide-y divide-gray-700">
               {orders.map((order) => (
                 <tr key={order.id} className="hover:bg-pos-accent/50">
-                  <td className="px-4 py-3 font-medium">{order.orderNumber}</td>
+                  <td className="px-4 py-3 font-medium">
+                    <div className="flex items-center gap-2">
+                      <span>{order.orderNumber}</span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                          order.source === 'magento'
+                            ? 'bg-purple-600/30 text-purple-300'
+                            : 'bg-blue-600/30 text-blue-300'
+                        }`}
+                      >
+                        {order.source === 'magento' ? 'M2' : 'POS'}
+                      </span>
+                    </div>
+                  </td>
                   <td className="px-4 py-3">
                     {order.customer
                       ? `${order.customer.firstName} ${order.customer.lastName}`

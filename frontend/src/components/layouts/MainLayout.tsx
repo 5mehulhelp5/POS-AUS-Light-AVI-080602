@@ -20,8 +20,11 @@ const navItems = [
   { to: '/customers', label: 'Customers', icon: UsersIcon },
   { to: '/quotes', label: 'Quotes', icon: DocumentTextIcon },
   { to: '/inquiries', label: 'Inquiries', icon: PhoneIcon },
-  { to: '/reports', label: 'Reports', icon: ChartBarIcon },
   { to: '/users', label: 'Users', icon: UserGroupIcon },
+];
+
+const managerNavItems = [
+  { to: '/reports', label: 'Reports', icon: ChartBarIcon },
 ];
 
 const adminNavItems = [
@@ -39,6 +42,7 @@ export default function MainLayout() {
   };
 
   const isAdmin = user?.role.name === 'admin';
+  const isManagerOrAdmin = user?.role.name === 'admin' || user?.role.name === 'manager';
 
   return (
     <div className="flex h-screen bg-pos-bg">
@@ -52,6 +56,23 @@ export default function MainLayout() {
         {/* Navigation */}
         <nav className="flex-1 py-2 space-y-1 overflow-y-auto">
           {navItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `flex flex-col items-center justify-center h-12 mx-1 rounded-lg transition-colors ${
+                  isActive
+                    ? 'bg-primary-600 text-white'
+                    : 'text-gray-400 hover:bg-pos-accent hover:text-white'
+                }`
+              }
+            >
+              <item.icon className="h-5 w-5" />
+              <span className="text-[10px] mt-0.5">{item.label}</span>
+            </NavLink>
+          ))}
+
+          {isManagerOrAdmin && managerNavItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { XMarkIcon, BanknotesIcon, CreditCardIcon, UserIcon, BuildingStorefrontIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, BanknotesIcon, CreditCardIcon, UserIcon, BuildingStorefrontIcon, BuildingLibraryIcon } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../../store';
@@ -12,7 +12,7 @@ interface PaymentModalProps {
   onComplete: () => void;
 }
 
-type PaymentMethod = 'cash' | 'eftpos';
+type PaymentMethod = 'cash' | 'eftpos' | 'bank_transfer';
 type BuyerType = 'retail' | 'customer';
 
 export default function PaymentModal({
@@ -40,6 +40,8 @@ export default function PaymentModal({
   const [customerState, setCustomerState] = useState('');
   const [customerPostcode, setCustomerPostcode] = useState('');
   const [companyAbn, setCompanyAbn] = useState('');
+  const [orderNotes, setOrderNotes] = useState('');
+  const [walkIn, setWalkIn] = useState(false);
 
   const cashAmount = parseFloat(cashTendered) || 0;
   const change = cashAmount - total;
@@ -61,8 +63,8 @@ export default function PaymentModal({
       return;
     }
 
-    // Validate customer details if customer type
-    if (buyerType === 'customer') {
+    // Validate customer details if customer type (skip when walk-in)
+    if (buyerType === 'customer' && !walkIn) {
       if (!customerName.trim()) {
         toast.error('Please enter customer name');
         return;
@@ -97,11 +99,11 @@ export default function PaymentModal({
             {
               method,
               amount: total,
-              reference: method === 'eftpos' ? eftposRef : undefined,
+              reference: method !== 'cash' ? eftposRef : undefined,
               amountTendered: method === 'cash' ? cashAmount : undefined,
             },
           ],
-          notes: cart.notes || undefined,
+          notes: orderNotes.trim() || cart.notes || undefined,
         };
 
         const response = await ordersApi.createOrder(orderData);
@@ -119,7 +121,7 @@ export default function PaymentModal({
         orderNumber,
         date: new Date().toISOString(),
         buyerType,
-        customerName: customerName.trim() || undefined,
+        customerName: walkIn ? 'Walk-in Customer' : (customerName.trim() || undefined),
         customerPhone: customerPhone.trim() || undefined,
         customerEmail: customerEmail.trim() || undefined,
         customerAddress: [customerStreet, customerCity, customerState, customerPostcode].filter(s => s.trim()).join(', ') || undefined,
@@ -239,9 +241,21 @@ export default function PaymentModal({
               ? 'Walk-in customer - standard trade invoice'
               : 'Registered customer - invoice with account details'}
           </p>
+          {buyerType === 'customer' && (
+            <label className="flex items-center gap-2 mt-3 text-sm">
+              <input
+                type="checkbox"
+                checked={walkIn}
+                onChange={(e) => setWalkIn(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-600 bg-gray-700"
+              />
+              <span className="text-gray-300">Walk-in (skip customer details)</span>
+            </label>
+          )}
         </div>
 
         {/* Customer/Company Details (for Invoice) */}
+        {!walkIn && (
         <div className={`mb-6 p-4 rounded-lg space-y-3 ${
           buyerType === 'retail'
             ? 'bg-orange-500/10 border border-orange-500/30'
@@ -354,9 +368,10 @@ export default function PaymentModal({
             </div>
           )}
         </div>
+        )}
 
         {/* Payment Method */}
-        <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="grid grid-cols-3 gap-3 mb-6">
           <button
             className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-colors ${
               method === 'eftpos'
@@ -365,8 +380,8 @@ export default function PaymentModal({
             }`}
             onClick={() => setMethod('eftpos')}
           >
-            <CreditCardIcon className="h-8 w-8" />
-            <span className="font-medium">EFTPOS</span>
+            <CreditCardIcon className="h-7 w-7" />
+            <span className="font-medium text-sm">EFTPOS</span>
           </button>
           <button
             className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-colors ${
@@ -376,8 +391,19 @@ export default function PaymentModal({
             }`}
             onClick={() => setMethod('cash')}
           >
-            <BanknotesIcon className="h-8 w-8" />
-            <span className="font-medium">Cash</span>
+            <BanknotesIcon className="h-7 w-7" />
+            <span className="font-medium text-sm">Cash</span>
+          </button>
+          <button
+            className={`p-4 rounded-lg border-2 flex flex-col items-center gap-2 transition-colors ${
+              method === 'bank_transfer'
+                ? 'border-primary-500 bg-primary-500/20'
+                : 'border-gray-600 hover:border-gray-500'
+            }`}
+            onClick={() => setMethod('bank_transfer')}
+          >
+            <BuildingLibraryIcon className="h-7 w-7" />
+            <span className="font-medium text-sm">Bank Transfer</span>
           </button>
         </div>
 
@@ -449,6 +475,39 @@ export default function PaymentModal({
             </p>
           </div>
         )}
+
+        {/* Bank Transfer Payment */}
+        {method === 'bank_transfer' && (
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-400 mb-2">
+              Transfer Reference
+            </label>
+            <input
+              type="text"
+              className="input"
+              placeholder="Bank transfer reference / receipt no."
+              value={eftposRef}
+              onChange={(e) => setEftposRef(e.target.value)}
+            />
+            <p className="text-sm text-gray-500 mt-2">
+              Confirm funds received before clicking Complete Payment.
+            </p>
+          </div>
+        )}
+
+        {/* Order Notes */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-400 mb-2">
+            Order Notes (optional)
+          </label>
+          <textarea
+            className="input"
+            rows={2}
+            placeholder="Internal notes for this order..."
+            value={orderNotes}
+            onChange={(e) => setOrderNotes(e.target.value)}
+          />
+        </div>
 
         {/* Complete Button */}
         <button

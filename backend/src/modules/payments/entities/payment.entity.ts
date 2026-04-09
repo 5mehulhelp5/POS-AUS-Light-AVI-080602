@@ -14,6 +14,7 @@ export enum PaymentMethod {
   CASH = 'cash',
   EFTPOS = 'eftpos',
   CREDIT_CARD = 'credit_card',
+  BANK_TRANSFER = 'bank_transfer',
   STORE_CREDIT = 'store_credit',
   OTHER = 'other',
 }

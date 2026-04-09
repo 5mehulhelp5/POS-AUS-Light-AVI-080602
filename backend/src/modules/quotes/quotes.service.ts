@@ -12,6 +12,7 @@ export interface CreateQuoteDto {
     productId: number;
     quantity: number;
     discountPercent?: number;
+    unitPrice?: number;
   }>;
   notes?: string;
   expiryDays?: number;
@@ -83,9 +84,14 @@ export class QuotesService {
         throw new NotFoundException(`Product with ID ${item.productId} not found`);
       }
 
-      const unitPrice = product.specialPrice
+      const defaultPrice = product.specialPrice
         ? parseFloat(product.specialPrice.toString())
         : parseFloat(product.price.toString());
+      // Allow caller to override unit price (e.g. trade pricing on quotes)
+      const unitPrice =
+        item.unitPrice != null && item.unitPrice >= 0
+          ? Number(item.unitPrice)
+          : defaultPrice;
       const quantity = item.quantity;
       const lineSubtotal = unitPrice * quantity;
 

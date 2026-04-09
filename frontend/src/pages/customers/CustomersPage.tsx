@@ -21,6 +21,7 @@ interface Customer {
   taxNumber: string | null;
   notes: string | null;
   createdAt: string;
+  isTrade?: boolean;
 }
 
 interface Pagination {
@@ -129,9 +130,16 @@ export default function CustomersPage() {
                   <UserIcon className="h-6 w-6" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-medium truncate">
-                    {customer.firstName} {customer.lastName}
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-medium truncate">
+                      {customer.firstName} {customer.lastName}
+                    </h3>
+                    {customer.isTrade && (
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-orange-600/30 text-orange-300">
+                        Trade
+                      </span>
+                    )}
+                  </div>
                   {customer.company && (
                     <p className="text-sm text-gray-400 truncate">{customer.company}</p>
                   )}

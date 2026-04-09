@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import toast from 'react-hot-toast';
 import { MagnifyingGlassIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon, PlusCircleIcon } from '@heroicons/react/24/outline';
 import { RootState, AppDispatch } from '../../store';
 import {
@@ -173,6 +174,10 @@ export default function POSPage() {
   };
 
   const handleAddToCart = (product: any) => {
+    const alreadyInCart = cart.items.some((i) => i.productId === product.id);
+    if (alreadyInCart) {
+      toast(`"${product.name}" is already in the cart — quantity increased`, { icon: 'ℹ️' });
+    }
     dispatch(
       addItem({
         productId: product.id,

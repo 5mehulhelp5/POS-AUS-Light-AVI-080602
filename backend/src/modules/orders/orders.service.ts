@@ -214,6 +214,7 @@ export class OrdersService {
           cash: PaymentMethod.CASH,
           eftpos: PaymentMethod.EFTPOS,
           credit_card: PaymentMethod.CREDIT_CARD,
+          bank_transfer: PaymentMethod.BANK_TRANSFER,
           store_credit: PaymentMethod.STORE_CREDIT,
           other: PaymentMethod.OTHER,
         };

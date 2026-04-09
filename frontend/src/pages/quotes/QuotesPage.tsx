@@ -53,6 +53,7 @@ export default function QuotesPage() {
   const [customItemName, setCustomItemName] = useState('');
   const [customItemPrice, setCustomItemPrice] = useState('');
   const [customItemSku, setCustomItemSku] = useState('');
+  const [quoteBuyerType, setQuoteBuyerType] = useState<'trade' | 'customer'>('customer');
 
   useEffect(() => {
     fetchQuotes();
@@ -185,14 +186,18 @@ export default function QuotesPage() {
     setCreateError('');
     setIsSubmitting(true);
     try {
+      const expiryDays = quoteBuyerType === 'trade' ? 90 : 30;
+      const notesPrefix = `[${quoteBuyerType === 'trade' ? 'TRADE' : 'CUSTOMER'}]`;
       await quotesApi.createQuote({
         customerId: selectedCustomer?.id || undefined,
         items: lineItems.map((li) => ({
           productId: li.productId,
           quantity: li.quantity,
+          unitPrice: li.price,
           discountPercent: li.discountPercent || 0,
         })),
-        notes: quoteNotes || undefined,
+        notes: `${notesPrefix} ${quoteNotes || ''}`.trim(),
+        expiryDays,
       });
       // Reset and close
       setShowCreateModal(false);
@@ -212,6 +217,7 @@ export default function QuotesPage() {
     setLineItems([]);
     setQuoteNotes('');
     setCreateError('');
+    setQuoteBuyerType('customer');
   };
 
   const formatDate = (date: string) => {
@@ -460,6 +466,35 @@ export default function QuotesPage() {
               </button>
             </div>
 
+            {/* Buyer Type Toggle */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-300 mb-2">Quote Type</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  className={`p-3 rounded-lg border-2 font-medium transition-colors ${
+                    quoteBuyerType === 'trade'
+                      ? 'border-orange-500 bg-orange-500/20 text-orange-300'
+                      : 'border-gray-600 text-gray-400 hover:border-gray-500'
+                  }`}
+                  onClick={() => setQuoteBuyerType('trade')}
+                >
+                  Trade (90 day expiry)
+                </button>
+                <button
+                  type="button"
+                  className={`p-3 rounded-lg border-2 font-medium transition-colors ${
+                    quoteBuyerType === 'customer'
+                      ? 'border-blue-500 bg-blue-500/20 text-blue-300'
+                      : 'border-gray-600 text-gray-400 hover:border-gray-500'
+                  }`}
+                  onClick={() => setQuoteBuyerType('customer')}
+                >
+                  Customer (30 day expiry)
+                </button>
+              </div>
+            </div>
+
             {/* Customer Section */}
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-300 mb-2">Customer</label>
@@ -705,7 +740,16 @@ export default function QuotesPage() {
                             onChange={(e) => updateLineItem(idx, 'quantity', Math.max(1, parseInt(e.target.value) || 1))}
                           />
                         </td>
-                        <td className="px-3 py-2 text-right">${item.price.toFixed(2)}</td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            className="input text-right py-1 px-2 w-20 mx-auto block"
+                            value={item.price}
+                            onChange={(e) => updateLineItem(idx, 'price', Math.max(0, parseFloat(e.target.value) || 0))}
+                          />
+                        </td>
                         <td className="px-3 py-2">
                           <input
                             type="number"

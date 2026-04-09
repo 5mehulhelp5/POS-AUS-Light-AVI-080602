@@ -35,6 +35,11 @@ export enum OrderSyncStatus {
   FAILED = 'failed',
 }
 
+export enum OrderSource {
+  POS = 'pos',
+  MAGENTO = 'magento',
+}
+
 @Entity('orders')
 export class Order {
   @PrimaryGeneratedColumn({ unsigned: true })
@@ -134,6 +139,14 @@ export class Order {
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;
+
+  @Index()
+  @Column({
+    type: 'enum',
+    enum: OrderSource,
+    default: OrderSource.POS,
+  })
+  source: OrderSource;
 
   @Index()
   @CreateDateColumn({ name: 'created_at' })
