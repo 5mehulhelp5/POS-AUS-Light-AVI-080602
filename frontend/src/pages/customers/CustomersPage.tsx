@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
+import toast from 'react-hot-toast';
 import { customersApi } from '../../services/api';
-import { MagnifyingGlassIcon, UserIcon, PhoneIcon, EnvelopeIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, UserIcon, PhoneIcon, EnvelopeIcon, PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
 
 interface Customer {
   id: number;
@@ -40,6 +41,70 @@ export default function CustomersPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const fetchIdRef = useRef(0);
+
+  // Create Customer modal state
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [newCustomer, setNewCustomer] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    mobile: '',
+    company: '',
+    taxNumber: '',
+    isTrade: false,
+    notes: '',
+  });
+
+  const resetNewCustomer = () => {
+    setNewCustomer({
+      firstName: '',
+      lastName: '',
+      email: '',
+      phone: '',
+      mobile: '',
+      company: '',
+      taxNumber: '',
+      isTrade: false,
+      notes: '',
+    });
+  };
+
+  const handleCreateCustomer = async () => {
+    if (!newCustomer.firstName.trim() || !newCustomer.lastName.trim()) {
+      toast.error('First and last name are required');
+      return;
+    }
+    setIsCreating(true);
+    try {
+      await customersApi.createCustomer({
+        firstName: newCustomer.firstName.trim(),
+        lastName: newCustomer.lastName.trim(),
+        email: newCustomer.email.trim() || null,
+        phone: newCustomer.phone.trim() || null,
+        mobile: newCustomer.mobile.trim() || null,
+        company: newCustomer.company.trim() || null,
+        taxNumber: newCustomer.taxNumber.trim() || null,
+        isTrade: newCustomer.isTrade,
+        notes: newCustomer.notes.trim() || null,
+      });
+      toast.success('Customer created');
+      setShowCreateModal(false);
+      resetNewCustomer();
+      // refresh list
+      setDebouncedSearch((s) => s);
+      setCurrentPage(1);
+      fetchIdRef.current++;
+      const response = await customersApi.getCustomers({ page: 1, limit: 20 });
+      setCustomers(response.data.data.customers);
+      setPagination(response.data.data.pagination);
+    } catch (e: any) {
+      toast.error(e.response?.data?.error?.message || 'Failed to create customer');
+    } finally {
+      setIsCreating(false);
+    }
+  };
 
   // Debounce search input
   useEffect(() => {
@@ -95,8 +160,15 @@ export default function CustomersPage() {
     <div className="h-full p-6 overflow-auto">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">Customers</h1>
-        <div className="text-sm text-gray-400">
-          Total: {pagination.total} customers
+        <div className="flex items-center gap-4">
+          <span className="text-sm text-gray-400">Total: {pagination.total} customers</span>
+          <button
+            className="btn-primary flex items-center gap-2"
+            onClick={() => { resetNewCustomer(); setShowCreateModal(true); }}
+          >
+            <PlusIcon className="h-5 w-5" />
+            Create Customer
+          </button>
         </div>
       </div>
 
@@ -269,6 +341,122 @@ export default function CustomersPage() {
                   Customer since {formatDate(selectedCustomer.createdAt)}
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create Customer Modal */}
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-pos-card rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-xl font-bold">Create Customer</h2>
+              <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-white">
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">First Name *</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={newCustomer.firstName}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, firstName: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Last Name *</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={newCustomer.lastName}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, lastName: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Email</label>
+                <input
+                  type="email"
+                  className="input"
+                  value={newCustomer.email}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, email: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Phone</label>
+                <input
+                  type="tel"
+                  className="input"
+                  value={newCustomer.phone}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Mobile</label>
+                <input
+                  type="tel"
+                  className="input"
+                  value={newCustomer.mobile}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, mobile: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Company</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={newCustomer.company}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, company: e.target.value })}
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs text-gray-400 mb-1">ABN / Tax Number</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={newCustomer.taxNumber}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, taxNumber: e.target.value })}
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={newCustomer.isTrade}
+                    onChange={(e) => setNewCustomer({ ...newCustomer, isTrade: e.target.checked })}
+                    className="w-4 h-4 rounded border-gray-600 bg-gray-700"
+                  />
+                  <span className="text-gray-300">Trade Customer</span>
+                </label>
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs text-gray-400 mb-1">Notes</label>
+                <textarea
+                  className="input min-h-[60px]"
+                  value={newCustomer.notes}
+                  onChange={(e) => setNewCustomer({ ...newCustomer, notes: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                className="btn-secondary"
+                onClick={() => setShowCreateModal(false)}
+                disabled={isCreating}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                onClick={handleCreateCustomer}
+                disabled={isCreating}
+              >
+                {isCreating ? 'Creating...' : 'Create Customer'}
+              </button>
             </div>
           </div>
         </div>
