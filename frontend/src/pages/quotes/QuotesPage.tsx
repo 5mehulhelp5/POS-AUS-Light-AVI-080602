@@ -118,17 +118,29 @@ export default function QuotesPage() {
   };
 
   // Customer search for create modal
+  const [customerSearchLoading, setCustomerSearchLoading] = useState(false);
+  const [customerSearchError, setCustomerSearchError] = useState<string | null>(null);
+
   useEffect(() => {
     if (customerSearch.length < 2) {
       setCustomerResults([]);
+      setCustomerSearchLoading(false);
+      setCustomerSearchError(null);
       return;
     }
+    setCustomerSearchLoading(true);
+    setCustomerSearchError(null);
     const timer = setTimeout(async () => {
       try {
-        const response = await customersApi.getCustomers({ search: customerSearch, limit: 5 });
+        const response = await customersApi.getCustomers({ search: customerSearch, limit: 10 });
         setCustomerResults(response.data.data?.customers || []);
-      } catch {
+      } catch (err: any) {
         setCustomerResults([]);
+        setCustomerSearchError(
+          err?.response?.data?.message || err?.message || 'Search failed',
+        );
+      } finally {
+        setCustomerSearchLoading(false);
       }
     }, 300);
     return () => clearTimeout(timer);
@@ -730,6 +742,7 @@ export default function QuotesPage() {
                         type="text"
                         placeholder="Search by name"
                         className="input"
+                        autoComplete="off"
                         value={custSearchName}
                         onChange={(e) => {
                           setCustSearchName(e.target.value);
@@ -745,6 +758,7 @@ export default function QuotesPage() {
                         type="email"
                         placeholder="Search by email"
                         className="input"
+                        autoComplete="off"
                         value={custSearchEmail}
                         onChange={(e) => {
                           setCustSearchEmail(e.target.value);
@@ -760,6 +774,7 @@ export default function QuotesPage() {
                         type="tel"
                         placeholder="Search by phone"
                         className="input"
+                        autoComplete="off"
                         value={custSearchPhone}
                         onChange={(e) => {
                           setCustSearchPhone(e.target.value);
@@ -771,8 +786,23 @@ export default function QuotesPage() {
                     </div>
                   </div>
                   <p className="text-xs text-gray-500 mb-2">Start typing in any field — results appear below</p>
-                  {customerResults.length > 0 && (
+                  {customerSearch.length >= 2 && (
                     <div className="bg-pos-accent border border-gray-600 rounded-lg max-h-48 overflow-auto">
+                      {customerSearchLoading && (
+                        <div className="px-4 py-3 text-sm text-gray-400">Searching…</div>
+                      )}
+                      {customerSearchError && !customerSearchLoading && (
+                        <div className="px-4 py-3 text-sm text-red-400">
+                          Error: {customerSearchError}
+                        </div>
+                      )}
+                      {!customerSearchLoading &&
+                        !customerSearchError &&
+                        customerResults.length === 0 && (
+                          <div className="px-4 py-3 text-sm text-gray-400">
+                            No customers matched “{customerSearch}”
+                          </div>
+                        )}
                       {customerResults.map((c: any) => (
                         <button
                           key={c.id}
