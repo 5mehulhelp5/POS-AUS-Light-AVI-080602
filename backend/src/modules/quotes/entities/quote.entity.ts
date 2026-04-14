@@ -21,6 +21,11 @@ export enum QuoteStatus {
   CANCELLED = 'cancelled',
 }
 
+export enum QuoteBuyerType {
+  TRADE = 'trade',
+  CUSTOMER = 'customer',
+}
+
 @Entity('quotes')
 export class Quote {
   @PrimaryGeneratedColumn({ unsigned: true })
@@ -73,6 +78,21 @@ export class Quote {
 
   @Column({ name: 'hold_stock', type: 'boolean', default: false })
   holdStock: boolean;
+
+  @Index()
+  @Column({
+    name: 'buyer_type',
+    type: 'enum',
+    enum: QuoteBuyerType,
+    default: QuoteBuyerType.CUSTOMER,
+  })
+  buyerType: QuoteBuyerType;
+
+  @Column({ name: 'cancelled_at', type: 'timestamp', nullable: true })
+  cancelledAt: Date | null;
+
+  @Column({ name: 'cancelled_by', type: 'int', unsigned: true, nullable: true })
+  cancelledBy: number | null;
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;

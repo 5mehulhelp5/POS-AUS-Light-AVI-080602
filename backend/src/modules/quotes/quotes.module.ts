@@ -5,9 +5,13 @@ import { Product } from '../products/entities/product.entity';
 import { Customer } from '../customers/entities/customer.entity';
 import { QuotesService } from './quotes.service';
 import { QuotesController } from './quotes.controller';
+import { OrdersModule } from '../orders/orders.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Quote, QuoteItem, Product, Customer])],
+  imports: [
+    TypeOrmModule.forFeature([Quote, QuoteItem, Product, Customer]),
+    OrdersModule,
+  ],
   controllers: [QuotesController],
   providers: [QuotesService],
   exports: [QuotesService],

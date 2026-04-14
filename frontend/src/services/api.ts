@@ -146,10 +146,21 @@ export const quotesApi = {
 
   createQuote: (data: any) => api.post('/quotes', data),
 
-  updateQuote: (id: number, data: any) => api.put(`/quotes/${id}`, data),
+  updateQuote: (id: number, data: any) => api.patch(`/quotes/${id}`, data),
 
-  convertToOrder: (id: number, payments: any[]) =>
-    api.post(`/quotes/${id}/convert`, { payments }),
+  cancelQuote: (id: number) => api.post(`/quotes/${id}/cancel`),
+
+  convertCheck: (id: number) => api.get(`/quotes/${id}/convert-check`),
+
+  convertToOrder: (
+    id: number,
+    data: {
+      payments: any[];
+      customerId?: number;
+      notes?: string;
+      allowBackorder?: boolean;
+    },
+  ) => api.post(`/quotes/${id}/convert`, data),
 };
 
 // Users API (Admin only)

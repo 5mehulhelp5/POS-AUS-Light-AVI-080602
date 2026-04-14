@@ -1,6 +1,19 @@
 import { useState, useEffect } from 'react';
-import { quotesApi, customersApi, productsApi } from '../../services/api';
-import { MagnifyingGlassIcon, EyeIcon, ClockIcon, PlusIcon, PlusCircleIcon, TrashIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import toast from 'react-hot-toast';
+import { quotesApi, customersApi, productsApi, settingsApi } from '../../services/api';
+import {
+  MagnifyingGlassIcon,
+  EyeIcon,
+  ClockIcon,
+  PlusIcon,
+  PlusCircleIcon,
+  TrashIcon,
+  XMarkIcon,
+  PencilIcon,
+  ArrowRightCircleIcon,
+  PrinterIcon,
+  NoSymbolIcon,
+} from '@heroicons/react/24/outline';
 
 interface Quote {
   id: number;
@@ -54,10 +67,25 @@ export default function QuotesPage() {
   const [customItemPrice, setCustomItemPrice] = useState('');
   const [customItemSku, setCustomItemSku] = useState('');
   const [quoteBuyerType, setQuoteBuyerType] = useState<'trade' | 'customer'>('customer');
+  const [editingQuoteId, setEditingQuoteId] = useState<number | null>(null);
+
+  // Convert / cancel / print state
+  const [convertData, setConvertData] = useState<any>(null); // { quote, check }
+  const [isConverting, setIsConverting] = useState(false);
+  const [convertPaymentMethod, setConvertPaymentMethod] = useState<'cash' | 'eftpos' | 'bank_transfer'>('eftpos');
+  const [convertPaymentRef, setConvertPaymentRef] = useState('');
+  const [allowBackorder, setAllowBackorder] = useState(false);
+  const [cancelConfirm, setCancelConfirm] = useState<any>(null);
+  const [printingQuote, setPrintingQuote] = useState<any>(null);
+  const [storeSettings, setStoreSettings] = useState<any>({});
 
   useEffect(() => {
     fetchQuotes();
   }, [pagination.page, statusFilter]);
+
+  useEffect(() => {
+    settingsApi.getStoreSettings().then((r) => setStoreSettings(r.data.data || {})).catch(() => {});
+  }, []);
 
   const fetchQuotes = async () => {
     try {
@@ -186,9 +214,7 @@ export default function QuotesPage() {
     setCreateError('');
     setIsSubmitting(true);
     try {
-      const expiryDays = quoteBuyerType === 'trade' ? 90 : 30;
-      const notesPrefix = `[${quoteBuyerType === 'trade' ? 'TRADE' : 'CUSTOMER'}]`;
-      await quotesApi.createQuote({
+      const payload = {
         customerId: selectedCustomer?.id || undefined,
         items: lineItems.map((li) => ({
           productId: li.productId,
@@ -196,15 +222,26 @@ export default function QuotesPage() {
           unitPrice: li.price,
           discountPercent: li.discountPercent || 0,
         })),
-        notes: `${notesPrefix} ${quoteNotes || ''}`.trim(),
-        expiryDays,
-      });
+        notes: quoteNotes || undefined,
+        buyerType: quoteBuyerType,
+      };
+      if (editingQuoteId) {
+        await quotesApi.updateQuote(editingQuoteId, payload);
+        toast.success('Quote updated');
+      } else {
+        await quotesApi.createQuote(payload);
+        toast.success('Quote created');
+      }
       // Reset and close
       setShowCreateModal(false);
       resetCreateForm();
       fetchQuotes();
+      if (editingQuoteId && selectedQuote && editingQuoteId === selectedQuote.id) {
+        // Refresh the detail view
+        viewQuote(editingQuoteId);
+      }
     } catch (error: any) {
-      setCreateError(error.response?.data?.message || 'Failed to create quote');
+      setCreateError(error.response?.data?.message || 'Failed to save quote');
     } finally {
       setIsSubmitting(false);
     }
@@ -218,6 +255,95 @@ export default function QuotesPage() {
     setQuoteNotes('');
     setCreateError('');
     setQuoteBuyerType('customer');
+    setEditingQuoteId(null);
+  };
+
+  const openEditQuote = (quote: any) => {
+    setEditingQuoteId(quote.id);
+    setSelectedCustomer(quote.customer || null);
+    setLineItems(
+      (quote.items || []).map((item: any) => ({
+        productId: item.productId,
+        name: item.name,
+        sku: item.sku,
+        price: parseFloat(item.unitPrice),
+        quantity: item.quantity,
+        discountPercent: parseFloat(item.discountPercent),
+      })),
+    );
+    setQuoteNotes(quote.notes || '');
+    setQuoteBuyerType(quote.buyerType || 'customer');
+    setCreateError('');
+    setSelectedQuote(null);
+    setShowCreateModal(true);
+  };
+
+  const openConvertFlow = async (quote: any) => {
+    try {
+      const res = await quotesApi.convertCheck(quote.id);
+      const check = res.data.data;
+      setConvertData({ quote, check });
+      setConvertPaymentMethod('eftpos');
+      setConvertPaymentRef('');
+      setAllowBackorder(false);
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to check quote');
+    }
+  };
+
+  const handleConvertSubmit = async () => {
+    if (!convertData) return;
+    const { quote, check } = convertData;
+    const grandTotal = parseFloat(quote.grandTotal);
+
+    setIsConverting(true);
+    try {
+      const res = await quotesApi.convertToOrder(quote.id, {
+        payments: [
+          {
+            method: convertPaymentMethod,
+            amount: grandTotal,
+            reference: convertPaymentRef || undefined,
+            amountTendered:
+              convertPaymentMethod === 'cash' ? grandTotal : undefined,
+          },
+        ],
+        allowBackorder: allowBackorder && !!check.blockers.outOfStock,
+      });
+      toast.success(`Converted to order ${res.data.data.order.orderNumber}`);
+      setConvertData(null);
+      setSelectedQuote(null);
+      fetchQuotes();
+    } catch (error: any) {
+      const msg = error.response?.data?.message;
+      toast.error(typeof msg === 'string' ? msg : 'Failed to convert quote');
+    } finally {
+      setIsConverting(false);
+    }
+  };
+
+  const handleCancelQuote = async () => {
+    if (!cancelConfirm) return;
+    try {
+      await quotesApi.cancelQuote(cancelConfirm.id);
+      toast.success('Quote cancelled');
+      setCancelConfirm(null);
+      setSelectedQuote(null);
+      fetchQuotes();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Failed to cancel quote');
+    }
+  };
+
+  // Grace period helper used by the view modal
+  const getExpiryState = (quote: any): 'valid' | 'within_grace' | 'past_grace' => {
+    const now = new Date();
+    const expires = new Date(quote.expiresAt);
+    if (now <= expires) return 'valid';
+    const graceDays = quote.buyerType === 'trade' ? 30 : 15;
+    const graceEnd = new Date(expires);
+    graceEnd.setDate(graceEnd.getDate() + graceDays);
+    return now > graceEnd ? 'past_grace' : 'within_grace';
   };
 
   const formatDate = (date: string) => {
@@ -375,93 +501,165 @@ export default function QuotesPage() {
       )}
 
       {/* Quote Detail Modal */}
-      {selectedQuote && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-pos-card rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-auto">
-            <div className="flex justify-between items-start mb-4">
-              <div>
-                <h2 className="text-xl font-bold">{selectedQuote.quoteNumber}</h2>
-                <div className="flex items-center gap-2 mt-1">
-                  {getStatusBadge(selectedQuote.status)}
-                  <span className="text-sm text-gray-400">
-                    Created {formatDate(selectedQuote.createdAt)}
-                  </span>
-                </div>
-              </div>
-              <button onClick={() => setSelectedQuote(null)} className="text-gray-400 hover:text-white">
-                Close
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+      {selectedQuote && (() => {
+        const expiryState = getExpiryState(selectedQuote);
+        const status = selectedQuote.status;
+        const canEdit = status === 'open' && expiryState !== 'past_grace';
+        const canConvert = (status === 'open' || status === 'expired') && expiryState !== 'past_grace';
+        const canCancel = status === 'open';
+        return (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+            <div className="bg-pos-card rounded-lg p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-auto">
+              <div className="flex justify-between items-start mb-4">
                 <div>
-                  <p className="text-sm text-gray-400">Customer</p>
-                  <p>{selectedQuote.customer ? `${selectedQuote.customer.firstName} ${selectedQuote.customer.lastName}` : 'Walk-in'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-400">Created By</p>
-                  <p>{selectedQuote.user?.firstName} {selectedQuote.user?.lastName}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-400">Expires</p>
-                  <p className={isExpired(selectedQuote.expiresAt) ? 'text-red-400' : ''}>
-                    {formatDate(selectedQuote.expiresAt)}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-sm text-gray-400 mb-2">Items</p>
-                <div className="bg-pos-dark rounded p-3 space-y-2">
-                  {selectedQuote.items?.map((item: any) => (
-                    <div key={item.id} className="flex justify-between">
-                      <span>{item.quantity}x {item.name}</span>
-                      <span>${parseFloat(item.rowTotal).toFixed(2)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="border-t border-gray-700 pt-4">
-                <div className="flex justify-between text-sm">
-                  <span>Subtotal</span>
-                  <span>${parseFloat(selectedQuote.subtotal).toFixed(2)}</span>
-                </div>
-                {parseFloat(selectedQuote.discountAmount) > 0 && (
-                  <div className="flex justify-between text-sm text-green-400">
-                    <span>Discount</span>
-                    <span>-${parseFloat(selectedQuote.discountAmount).toFixed(2)}</span>
+                  <h2 className="text-xl font-bold">{selectedQuote.quoteNumber}</h2>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    {getStatusBadge(status)}
+                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-700 uppercase">
+                      {selectedQuote.buyerType || 'customer'}
+                    </span>
+                    <span className="text-sm text-gray-400">
+                      Created {formatDate(selectedQuote.createdAt)}
+                    </span>
                   </div>
-                )}
-                <div className="flex justify-between text-sm">
-                  <span>Tax</span>
-                  <span>${parseFloat(selectedQuote.taxAmount).toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between font-bold text-lg mt-2">
-                  <span>Total</span>
-                  <span>${parseFloat(selectedQuote.grandTotal).toFixed(2)}</span>
-                </div>
+                <button onClick={() => setSelectedQuote(null)} className="text-gray-400 hover:text-white">
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
               </div>
 
-              {selectedQuote.notes && (
-                <div>
-                  <p className="text-sm text-gray-400">Notes</p>
-                  <p className="text-sm">{selectedQuote.notes}</p>
+              {/* Status banner */}
+              {status === 'converted' && (
+                <div className="bg-green-500/10 border border-green-500/40 text-green-300 rounded-lg p-3 mb-4 text-sm">
+                  ✓ This quote was converted to Order #{selectedQuote.convertedOrderId}
                 </div>
               )}
+              {status === 'cancelled' && (
+                <div className="bg-red-500/10 border border-red-500/40 text-red-300 rounded-lg p-3 mb-4 text-sm">
+                  This quote has been cancelled.
+                </div>
+              )}
+              {status === 'open' && expiryState === 'within_grace' && (
+                <div className="bg-orange-500/10 border border-orange-500/40 text-orange-300 rounded-lg p-3 mb-4 text-sm">
+                  ⚠ Quote expired on {formatDate(selectedQuote.expiresAt)}. Within grace period — can still convert at quoted prices.
+                </div>
+              )}
+              {status === 'open' && expiryState === 'past_grace' && (
+                <div className="bg-red-500/10 border border-red-500/40 text-red-300 rounded-lg p-3 mb-4 text-sm">
+                  Quote expired beyond grace period. Create a new quote at current prices.
+                </div>
+              )}
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-sm text-gray-400">Customer</p>
+                    <p>{selectedQuote.customer ? `${selectedQuote.customer.firstName} ${selectedQuote.customer.lastName}` : 'Walk-in'}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-400">Created By</p>
+                    <p>{selectedQuote.user?.firstName} {selectedQuote.user?.lastName}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-400">Expires</p>
+                    <p className={isExpired(selectedQuote.expiresAt) ? 'text-red-400' : ''}>
+                      {formatDate(selectedQuote.expiresAt)}
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-sm text-gray-400 mb-2">Items</p>
+                  <div className="bg-pos-dark rounded p-3 space-y-2">
+                    {selectedQuote.items?.map((item: any) => (
+                      <div key={item.id} className="flex justify-between text-sm">
+                        <span>{item.quantity}x {item.name}</span>
+                        <span>${parseFloat(item.rowTotal).toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-700 pt-4">
+                  <div className="flex justify-between text-sm">
+                    <span>Subtotal</span>
+                    <span>${parseFloat(selectedQuote.subtotal).toFixed(2)}</span>
+                  </div>
+                  {parseFloat(selectedQuote.discountAmount) > 0 && (
+                    <div className="flex justify-between text-sm text-green-400">
+                      <span>Discount</span>
+                      <span>-${parseFloat(selectedQuote.discountAmount).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between text-sm">
+                    <span>GST (10%)</span>
+                    <span>${parseFloat(selectedQuote.taxAmount).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between font-bold text-lg mt-2">
+                    <span>Total</span>
+                    <span>${parseFloat(selectedQuote.grandTotal).toFixed(2)}</span>
+                  </div>
+                </div>
+
+                {selectedQuote.notes && (
+                  <div>
+                    <p className="text-sm text-gray-400">Notes</p>
+                    <p className="text-sm">{selectedQuote.notes}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Action bar */}
+              <div className="flex flex-wrap gap-2 justify-end mt-6 pt-4 border-t border-gray-700">
+                <button
+                  className="btn-secondary flex items-center gap-2"
+                  onClick={() => setPrintingQuote(selectedQuote)}
+                >
+                  <PrinterIcon className="h-4 w-4" />
+                  Print
+                </button>
+                {canEdit && (
+                  <button
+                    className="btn-secondary flex items-center gap-2"
+                    onClick={() => openEditQuote(selectedQuote)}
+                  >
+                    <PencilIcon className="h-4 w-4" />
+                    Edit
+                  </button>
+                )}
+                {canCancel && (
+                  <button
+                    className="bg-red-600/80 hover:bg-red-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm"
+                    onClick={() => setCancelConfirm(selectedQuote)}
+                  >
+                    <NoSymbolIcon className="h-4 w-4" />
+                    Cancel Quote
+                  </button>
+                )}
+                {canConvert && (
+                  <button
+                    className="btn-primary flex items-center gap-2"
+                    onClick={() => openConvertFlow(selectedQuote)}
+                  >
+                    <ArrowRightCircleIcon className="h-4 w-4" />
+                    Convert to Order
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Create Quote Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-pos-card rounded-lg p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-auto">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold">Create Quote</h2>
-              <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-white">
+              <h2 className="text-xl font-bold">
+                {editingQuoteId ? `Edit Quote #${editingQuoteId}` : 'Create Quote'}
+              </h2>
+              <button onClick={() => { setShowCreateModal(false); resetCreateForm(); }} className="text-gray-400 hover:text-white">
                 <XMarkIcon className="h-6 w-6" />
               </button>
             </div>
@@ -820,7 +1018,7 @@ export default function QuotesPage() {
             <div className="flex justify-end gap-3">
               <button
                 className="btn-secondary"
-                onClick={() => setShowCreateModal(false)}
+                onClick={() => { setShowCreateModal(false); resetCreateForm(); }}
               >
                 Cancel
               </button>
@@ -829,7 +1027,303 @@ export default function QuotesPage() {
                 onClick={handleCreateQuote}
                 disabled={isSubmitting || lineItems.length === 0}
               >
-                {isSubmitting ? 'Creating...' : 'Create Quote'}
+                {isSubmitting
+                  ? editingQuoteId ? 'Saving...' : 'Creating...'
+                  : editingQuoteId ? 'Save Changes' : 'Create Quote'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Convert to Order Modal */}
+      {convertData && (() => {
+        const { quote, check } = convertData;
+        const grandTotal = parseFloat(quote.grandTotal);
+        const hasOutOfStock = !!check.blockers?.outOfStock;
+        const pastGrace = !!check.blockers?.expiredPastGrace;
+        const expiredWithinGrace = !!check.expiredWithinGrace;
+        const priceDropped = (check.prices || []).some((p: any) => p.priceDropped);
+        return (
+          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60]">
+            <div className="bg-pos-card rounded-lg p-6 max-w-xl w-full mx-4 max-h-[90vh] overflow-auto">
+              <div className="flex justify-between items-start mb-4">
+                <h2 className="text-xl font-bold">Convert Quote {quote.quoteNumber}</h2>
+                <button onClick={() => setConvertData(null)} className="text-gray-400 hover:text-white">
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
+
+              {pastGrace && (
+                <div className="bg-red-500/15 border border-red-500/50 text-red-300 p-3 rounded mb-4 text-sm">
+                  Quote expired beyond the grace period. Cannot convert — create a new quote instead.
+                </div>
+              )}
+              {expiredWithinGrace && !pastGrace && (
+                <div className="bg-orange-500/15 border border-orange-500/50 text-orange-300 p-3 rounded mb-4 text-sm">
+                  ⚠ This quote has expired but is still within the grace period. Proceeding will honour the quoted prices.
+                </div>
+              )}
+              {priceDropped && (
+                <div className="bg-blue-500/15 border border-blue-500/50 text-blue-300 p-3 rounded mb-4 text-sm">
+                  ℹ Some products are now cheaper than when quoted. The lower price will be used.
+                </div>
+              )}
+              {hasOutOfStock && (
+                <div className="bg-red-500/15 border border-red-500/50 text-red-300 p-3 rounded mb-4 text-sm">
+                  <p className="font-semibold mb-1">Out of stock:</p>
+                  <ul className="list-disc list-inside space-y-0.5">
+                    {check.blockers.outOfStock.map((oos: any) => (
+                      <li key={oos.sku}>
+                        {oos.name} ({oos.sku}) — requested {oos.requested}, available {oos.available}
+                      </li>
+                    ))}
+                  </ul>
+                  <label className="flex items-center gap-2 mt-3 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={allowBackorder}
+                      onChange={(e) => setAllowBackorder(e.target.checked)}
+                      className="w-4 h-4"
+                    />
+                    <span>Override (admin/manager only — creates a back-order)</span>
+                  </label>
+                </div>
+              )}
+
+              <div className="bg-pos-dark rounded p-3 mb-4 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Customer</span>
+                  <span>
+                    {quote.customer
+                      ? `${quote.customer.firstName} ${quote.customer.lastName}`
+                      : 'Walk-in'}
+                  </span>
+                </div>
+                <div className="flex justify-between mt-1">
+                  <span className="text-gray-400">Items</span>
+                  <span>{quote.items?.length || 0}</span>
+                </div>
+                <div className="flex justify-between mt-1 font-bold text-base">
+                  <span>Amount Due</span>
+                  <span>${grandTotal.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm text-gray-400 mb-2">Payment Method</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['eftpos', 'cash', 'bank_transfer'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      className={`p-3 rounded-lg border-2 text-sm font-medium ${
+                        convertPaymentMethod === m
+                          ? 'border-primary-500 bg-primary-500/20'
+                          : 'border-gray-600'
+                      }`}
+                      onClick={() => setConvertPaymentMethod(m)}
+                    >
+                      {m === 'eftpos' ? 'EFTPOS' : m === 'cash' ? 'Cash' : 'Bank Transfer'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {convertPaymentMethod !== 'cash' && (
+                <div className="mb-4">
+                  <label className="block text-sm text-gray-400 mb-1">Reference (optional)</label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={convertPaymentRef}
+                    onChange={(e) => setConvertPaymentRef(e.target.value)}
+                  />
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
+                <button
+                  className="btn-secondary"
+                  onClick={() => setConvertData(null)}
+                  disabled={isConverting}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn-primary"
+                  onClick={handleConvertSubmit}
+                  disabled={
+                    isConverting ||
+                    pastGrace ||
+                    (hasOutOfStock && !allowBackorder)
+                  }
+                >
+                  {isConverting ? 'Processing...' : `Convert & Pay $${grandTotal.toFixed(2)}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Cancel confirm */}
+      {cancelConfirm && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60]">
+          <div className="bg-pos-card rounded-lg p-6 max-w-sm w-full mx-4">
+            <h3 className="text-lg font-bold mb-2">Cancel Quote?</h3>
+            <p className="text-sm text-gray-400 mb-6">
+              Are you sure you want to cancel quote {cancelConfirm.quoteNumber}? This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button className="btn-secondary" onClick={() => setCancelConfirm(null)}>
+                Keep Quote
+              </button>
+              <button
+                className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg"
+                onClick={handleCancelQuote}
+              >
+                Yes, Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Print view (full invoice-style) */}
+      {printingQuote && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[70] print:bg-white print:static">
+          <div className="bg-white text-black rounded-lg max-w-2xl w-full mx-4 max-h-[95vh] overflow-auto print:shadow-none print:max-w-none print:rounded-none">
+            <div className="p-8">
+              {/* Store header */}
+              <div className="flex justify-between items-start mb-6 border-b-2 border-gray-800 pb-4">
+                <div>
+                  <h1 className="text-2xl font-bold">
+                    {storeSettings.store_name || 'Australian Lighting & Fans'}
+                  </h1>
+                  {storeSettings.store_address && (
+                    <p className="text-sm text-gray-600">{storeSettings.store_address}</p>
+                  )}
+                  {storeSettings.store_phone && (
+                    <p className="text-sm text-gray-600">Phone: {storeSettings.store_phone}</p>
+                  )}
+                  {storeSettings.store_email && (
+                    <p className="text-sm text-gray-600">{storeSettings.store_email}</p>
+                  )}
+                  {storeSettings.store_abn && (
+                    <p className="text-sm text-gray-600">ABN: {storeSettings.store_abn}</p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <h2 className="text-xl font-bold uppercase">Quotation</h2>
+                  <p className="text-sm mt-1">#{printingQuote.quoteNumber}</p>
+                </div>
+              </div>
+
+              {/* Quote meta */}
+              <div className="grid grid-cols-2 gap-6 mb-6 text-sm">
+                <div>
+                  <p className="text-gray-600 uppercase text-xs font-bold mb-1">Quote To</p>
+                  {printingQuote.customer ? (
+                    <>
+                      <p className="font-medium">
+                        {printingQuote.customer.firstName} {printingQuote.customer.lastName}
+                      </p>
+                      {printingQuote.customer.email && (
+                        <p className="text-gray-600">{printingQuote.customer.email}</p>
+                      )}
+                      {printingQuote.customer.phone && (
+                        <p className="text-gray-600">{printingQuote.customer.phone}</p>
+                      )}
+                    </>
+                  ) : (
+                    <p>Walk-in Customer</p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <p><span className="text-gray-600">Quote Date:</span> {formatDate(printingQuote.createdAt)}</p>
+                  <p><span className="text-gray-600">Valid Until:</span> {formatDate(printingQuote.expiresAt)}</p>
+                  <p><span className="text-gray-600">Type:</span> {(printingQuote.buyerType || 'customer').toUpperCase()}</p>
+                </div>
+              </div>
+
+              {/* Line items */}
+              <table className="w-full mb-6 text-sm">
+                <thead>
+                  <tr className="border-b-2 border-gray-800">
+                    <th className="text-left py-2">Item</th>
+                    <th className="text-center py-2 w-16">Qty</th>
+                    <th className="text-right py-2 w-24">Unit Price</th>
+                    <th className="text-center py-2 w-16">Disc %</th>
+                    <th className="text-right py-2 w-24">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {printingQuote.items?.map((item: any) => (
+                    <tr key={item.id} className="border-b border-gray-200">
+                      <td className="py-2">
+                        <p className="font-medium">{item.name}</p>
+                        <p className="text-xs text-gray-600">SKU: {item.sku}</p>
+                      </td>
+                      <td className="text-center py-2">{item.quantity}</td>
+                      <td className="text-right py-2">${parseFloat(item.unitPrice).toFixed(2)}</td>
+                      <td className="text-center py-2">{parseFloat(item.discountPercent)}%</td>
+                      <td className="text-right py-2 font-medium">
+                        ${parseFloat(item.rowTotal).toFixed(2)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Totals */}
+              <div className="flex justify-end mb-6">
+                <div className="w-64 text-sm">
+                  <div className="flex justify-between py-1">
+                    <span>Subtotal</span>
+                    <span>${parseFloat(printingQuote.subtotal).toFixed(2)}</span>
+                  </div>
+                  {parseFloat(printingQuote.discountAmount) > 0 && (
+                    <div className="flex justify-between py-1">
+                      <span>Discount</span>
+                      <span>-${parseFloat(printingQuote.discountAmount).toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between py-1">
+                    <span>GST (10%)</span>
+                    <span>${parseFloat(printingQuote.taxAmount).toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-t-2 border-gray-800 font-bold text-lg">
+                    <span>Total</span>
+                    <span>${parseFloat(printingQuote.grandTotal).toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {printingQuote.notes && (
+                <div className="mb-6 text-sm">
+                  <p className="font-bold">Notes</p>
+                  <p className="text-gray-700 whitespace-pre-wrap">{printingQuote.notes}</p>
+                </div>
+              )}
+
+              {/* T&Cs */}
+              <div className="border-t border-gray-300 pt-4 text-xs text-gray-600">
+                <p className="font-bold mb-1">Terms &amp; Conditions</p>
+                <p>All prices include GST. This quote is valid until {formatDate(printingQuote.expiresAt)}. Subject to product availability at the time of order. Prices may be adjusted downward to match current promotions.</p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 p-4 border-t border-gray-200 print:hidden">
+              <button className="btn-secondary flex-1" onClick={() => setPrintingQuote(null)}>
+                Close
+              </button>
+              <button
+                className="btn-primary flex-1 flex items-center justify-center gap-2"
+                onClick={() => window.print()}
+              >
+                <PrinterIcon className="h-5 w-5" />
+                Print
               </button>
             </div>
           </div>
