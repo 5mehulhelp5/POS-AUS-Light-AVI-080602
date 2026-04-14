@@ -56,6 +56,10 @@ export default function QuotesPage() {
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerResults, setCustomerResults] = useState<any[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+  // Individual controlled inputs for the create-quote customer search
+  const [custSearchName, setCustSearchName] = useState('');
+  const [custSearchEmail, setCustSearchEmail] = useState('');
+  const [custSearchPhone, setCustSearchPhone] = useState('');
   const [productSearch, setProductSearch] = useState('');
   const [productResults, setProductResults] = useState<any[]>([]);
   const [lineItems, setLineItems] = useState<QuoteLineItem[]>([]);
@@ -250,6 +254,10 @@ export default function QuotesPage() {
   const resetCreateForm = () => {
     setSelectedCustomer(null);
     setCustomerSearch('');
+    setCustSearchName('');
+    setCustSearchEmail('');
+    setCustSearchPhone('');
+    setCustomerResults([]);
     setProductSearch('');
     setLineItems([]);
     setQuoteNotes('');
@@ -722,13 +730,12 @@ export default function QuotesPage() {
                         type="text"
                         placeholder="Search by name"
                         className="input"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            const val = (e.target as HTMLInputElement).value.trim();
-                            if (val.length >= 2) {
-                              setCustomerSearch(val);
-                            }
-                          }
+                        value={custSearchName}
+                        onChange={(e) => {
+                          setCustSearchName(e.target.value);
+                          setCustSearchEmail('');
+                          setCustSearchPhone('');
+                          setCustomerSearch(e.target.value);
                         }}
                       />
                     </div>
@@ -738,13 +745,12 @@ export default function QuotesPage() {
                         type="email"
                         placeholder="Search by email"
                         className="input"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            const val = (e.target as HTMLInputElement).value.trim();
-                            if (val.length >= 2) {
-                              setCustomerSearch(val);
-                            }
-                          }
+                        value={custSearchEmail}
+                        onChange={(e) => {
+                          setCustSearchEmail(e.target.value);
+                          setCustSearchName('');
+                          setCustSearchPhone('');
+                          setCustomerSearch(e.target.value);
                         }}
                       />
                     </div>
@@ -754,18 +760,17 @@ export default function QuotesPage() {
                         type="tel"
                         placeholder="Search by phone"
                         className="input"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            const val = (e.target as HTMLInputElement).value.trim();
-                            if (val.length >= 3) {
-                              setCustomerSearch(val);
-                            }
-                          }
+                        value={custSearchPhone}
+                        onChange={(e) => {
+                          setCustSearchPhone(e.target.value);
+                          setCustSearchName('');
+                          setCustSearchEmail('');
+                          setCustomerSearch(e.target.value);
                         }}
                       />
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500 mb-2">Type in any field and press Enter to search</p>
+                  <p className="text-xs text-gray-500 mb-2">Start typing in any field — results appear below</p>
                   {customerResults.length > 0 && (
                     <div className="bg-pos-accent border border-gray-600 rounded-lg max-h-48 overflow-auto">
                       {customerResults.map((c: any) => (
@@ -775,6 +780,9 @@ export default function QuotesPage() {
                           onClick={() => {
                             setSelectedCustomer(c);
                             setCustomerSearch('');
+                            setCustSearchName('');
+                            setCustSearchEmail('');
+                            setCustSearchPhone('');
                             setCustomerResults([]);
                           }}
                         >
