@@ -74,14 +74,35 @@ export class SyncController {
 
   @Post('orders')
   @Roles(RoleNames.ADMIN)
-  @ApiOperation({ summary: 'Sync orders from Magento' })
+  @ApiOperation({ summary: 'Sync orders from Magento (runs in background)' })
   async syncOrders() {
-    const result = await this.syncService.syncOrders();
+    // Fire-and-forget so nginx doesn't time out on long syncs.
+    // Progress/results are written to sync_logs; poll /sync/orders-status for progress.
+    this.syncService
+      .syncOrders()
+      .then((result) => {
+        if (!result.success) {
+          // eslint-disable-next-line no-console
+          console.error('[syncOrders] failed:', result.message, result.errors);
+        }
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('[syncOrders] threw:', err);
+      });
+
     return {
-      success: result.success,
-      message: result.message,
-      errors: result.errors,
+      success: true,
+      message: 'Order sync started in background. Check Orders page / sync status for progress.',
     };
+  }
+
+  @Get('orders-status')
+  @Roles(RoleNames.ADMIN, RoleNames.MANAGER)
+  @ApiOperation({ summary: 'Get order sync progress' })
+  async getOrderSyncStatus() {
+    const progress = this.syncService.getOrderSyncProgress();
+    return { success: true, data: progress };
   }
 
   @Post('customers')

@@ -21,9 +21,39 @@ export interface SyncResult {
   errors?: string[];
 }
 
+interface OrderSyncProgress {
+  running: boolean;
+  startedAt: Date | null;
+  finishedAt: Date | null;
+  fetched: number;
+  processed: number;
+  created: number;
+  updated: number;
+  errors: number;
+  lastError: string | null;
+  message: string;
+}
+
 @Injectable()
 export class SyncService {
   private readonly logger = new Logger(SyncService.name);
+
+  private orderSyncProgress: OrderSyncProgress = {
+    running: false,
+    startedAt: null,
+    finishedAt: null,
+    fetched: 0,
+    processed: 0,
+    created: 0,
+    updated: 0,
+    errors: 0,
+    lastError: null,
+    message: 'Idle',
+  };
+
+  getOrderSyncProgress(): OrderSyncProgress {
+    return this.orderSyncProgress;
+  }
 
   constructor(
     private readonly magentoService: MagentoService,
@@ -597,27 +627,61 @@ export class SyncService {
   }
 
   async syncOrders(): Promise<SyncResult> {
+    if (this.orderSyncProgress.running) {
+      return {
+        success: false,
+        message: 'An order sync is already in progress',
+      };
+    }
+
     this.logger.log('Starting order sync...');
+    this.orderSyncProgress = {
+      running: true,
+      startedAt: new Date(),
+      finishedAt: null,
+      fetched: 0,
+      processed: 0,
+      created: 0,
+      updated: 0,
+      errors: 0,
+      lastError: null,
+      message: 'Fetching orders from Magento...',
+    };
+
     const errors: string[] = [];
     let ordersCreated = 0;
     let ordersUpdated = 0;
 
     try {
       const magentoOrders = await this.magentoService.fetchAllOrders();
+      this.orderSyncProgress.fetched = magentoOrders.length;
+      this.orderSyncProgress.message = `Saving ${magentoOrders.length} orders to POS...`;
 
       for (const magentoOrder of magentoOrders) {
         try {
           const result = await this.syncSingleOrder(magentoOrder);
-          if (result === 'created') ordersCreated++;
-          else if (result === 'updated') ordersUpdated++;
+          if (result === 'created') {
+            ordersCreated++;
+            this.orderSyncProgress.created = ordersCreated;
+          } else if (result === 'updated') {
+            ordersUpdated++;
+            this.orderSyncProgress.updated = ordersUpdated;
+          }
         } catch (error) {
           const msg = `Failed to sync order ${magentoOrder.increment_id}: ${error}`;
           this.logger.error(msg);
           errors.push(msg);
+          this.orderSyncProgress.errors++;
+          this.orderSyncProgress.lastError = msg;
         }
+        this.orderSyncProgress.processed++;
       }
 
       await this.logSync('orders', ordersCreated + ordersUpdated, errors.length === 0);
+
+      this.orderSyncProgress.running = false;
+      this.orderSyncProgress.finishedAt = new Date();
+      this.orderSyncProgress.message = `Done: ${ordersCreated} created, ${ordersUpdated} updated, ${errors.length} errors`;
 
       return {
         success: errors.length === 0,
@@ -626,6 +690,10 @@ export class SyncService {
       };
     } catch (error) {
       this.logger.error('Order sync failed', error);
+      this.orderSyncProgress.running = false;
+      this.orderSyncProgress.finishedAt = new Date();
+      this.orderSyncProgress.lastError = String(error);
+      this.orderSyncProgress.message = `Failed: ${error instanceof Error ? error.message : 'Unknown error'}`;
       return {
         success: false,
         message: error instanceof Error ? error.message : 'Unknown error',

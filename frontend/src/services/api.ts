@@ -251,6 +251,7 @@ export const syncApi = {
   syncProducts: () => api.post('/sync/products'),
   syncCustomers: () => api.post('/sync/customers'),
   syncOrders: () => api.post('/sync/orders'),
+  getOrderSyncStatus: () => api.get('/sync/orders-status'),
   syncStock: () => api.post('/sync/stock'),
   fullSync: () => api.post('/sync/full'),
   clearAndSync: () => api.post('/sync/clear-and-sync'),

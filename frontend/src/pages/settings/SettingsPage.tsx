@@ -193,18 +193,54 @@ export default function SettingsPage() {
   const handleSync = async (type: 'categories' | 'products' | 'customers' | 'orders' | 'stock' | 'full' | 'clear-and-sync') => {
     setSyncRunning(type);
     setSyncResult(null);
+
+    // Orders sync runs in background on the server — poll for progress.
+    if (type === 'orders') {
+      try {
+        await syncApi.syncOrders();
+        setSyncResult({ success: true, message: 'Order sync started in background...' });
+
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await syncApi.getOrderSyncStatus();
+            const progress = statusRes.data.data;
+            setSyncResult({
+              success: true,
+              message: progress.running
+                ? `${progress.message} (${progress.processed}/${progress.fetched} processed, ${progress.created} created, ${progress.updated} updated, ${progress.errors} errors)`
+                : progress.message,
+            });
+            if (!progress.running) {
+              clearInterval(pollInterval);
+              setSyncRunning(null);
+              const s = await syncApi.getStatus();
+              setSyncStatus(s.data.data);
+            }
+          } catch {
+            // ignore transient poll errors
+          }
+        }, 3000);
+      } catch (error: any) {
+        setSyncResult({
+          success: false,
+          message: error.response?.data?.message || error.message || 'Sync failed',
+        });
+        setSyncRunning(null);
+      }
+      return;
+    }
+
     try {
       let res;
       switch (type) {
         case 'categories': res = await syncApi.syncCategories(); break;
         case 'products': res = await syncApi.syncProducts(); break;
         case 'customers': res = await syncApi.syncCustomers(); break;
-        case 'orders': res = await syncApi.syncOrders(); break;
         case 'stock': res = await syncApi.syncStock(); break;
         case 'full': res = await syncApi.fullSync(); break;
         case 'clear-and-sync': res = await syncApi.clearAndSync(); break;
       }
-      setSyncResult({ success: res.data.success, message: res.data.message });
+      setSyncResult({ success: res?.data.success, message: res?.data.message });
       // Refresh status
       const statusRes = await syncApi.getStatus();
       setSyncStatus(statusRes.data.data);
