@@ -5,6 +5,8 @@ import { SyncLog, SyncQueue } from './entities';
 import { Product } from '../products/entities/product.entity';
 import { Category } from '../products/entities/category.entity';
 import { Customer } from '../customers/entities/customer.entity';
+import { Order } from '../orders/entities/order.entity';
+import { OrderItem } from '../orders/entities/order-item.entity';
 import { MagentoService } from './magento.service';
 import { SyncService } from './sync.service';
 import { SyncController } from './sync.controller';
@@ -12,7 +14,7 @@ import { SyncController } from './sync.controller';
 @Module({
   imports: [
     ConfigModule,
-    TypeOrmModule.forFeature([SyncLog, SyncQueue, Product, Category, Customer]),
+    TypeOrmModule.forFeature([SyncLog, SyncQueue, Product, Category, Customer, Order, OrderItem]),
   ],
   controllers: [SyncController],
   providers: [MagentoService, SyncService],

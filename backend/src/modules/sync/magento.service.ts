@@ -114,6 +114,60 @@ export interface MagentoCustomersResponse {
   };
 }
 
+export interface MagentoOrderItem {
+  item_id: number;
+  product_id: number;
+  sku: string;
+  name: string;
+  qty_ordered: number;
+  price: number;
+  price_incl_tax?: number;
+  row_total: number;
+  row_total_incl_tax?: number;
+  discount_amount?: number;
+  tax_amount?: number;
+}
+
+export interface MagentoOrder {
+  entity_id: number;
+  increment_id: string;
+  status: string;
+  state: string;
+  customer_id?: number | null;
+  customer_email?: string;
+  customer_firstname?: string;
+  customer_lastname?: string;
+  customer_is_guest?: number;
+  subtotal: number;
+  subtotal_incl_tax?: number;
+  tax_amount: number;
+  discount_amount: number;
+  grand_total: number;
+  total_paid?: number;
+  created_at: string;
+  updated_at: string;
+  items: MagentoOrderItem[];
+  billing_address?: {
+    firstname?: string;
+    lastname?: string;
+    telephone?: string;
+    email?: string;
+    street?: string[];
+    city?: string;
+    postcode?: string;
+    region?: string;
+    country_id?: string;
+  };
+  payment?: {
+    method: string;
+  };
+}
+
+export interface MagentoOrdersResponse {
+  items: MagentoOrder[];
+  total_count: number;
+}
+
 @Injectable()
 export class MagentoService {
   private readonly logger = new Logger(MagentoService.name);
@@ -411,6 +465,57 @@ export class MagentoService {
 
     this.logger.log(`Fetched ${allCustomers.length} customers from Magento`);
     return allCustomers;
+  }
+
+  async fetchOrders(
+    pageSize: number = 50,
+    currentPage: number = 1,
+  ): Promise<MagentoOrdersResponse> {
+    const token = await this.getAdminToken();
+
+    try {
+      const response = await this.httpClient.get(
+        `/rest/V1/orders?searchCriteria[pageSize]=${pageSize}&searchCriteria[currentPage]=${currentPage}&searchCriteria[sortOrders][0][field]=created_at&searchCriteria[sortOrders][0][direction]=DESC`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 60000,
+        },
+      );
+      return response.data;
+    } catch (error) {
+      this.logger.error('Failed to fetch orders from Magento', error);
+      throw error;
+    }
+  }
+
+  async fetchAllOrders(maxPages: number = 20): Promise<MagentoOrder[]> {
+    const allOrders: MagentoOrder[] = [];
+    let currentPage = 1;
+    const pageSize = 50;
+    let totalCount = 0;
+
+    this.logger.log('Starting to fetch orders from Magento via REST API...');
+
+    do {
+      this.logger.log(`Fetching orders page ${currentPage}...`);
+      const response = await this.fetchOrders(pageSize, currentPage);
+      allOrders.push(...response.items);
+      totalCount = response.total_count;
+      this.logger.log(
+        `Got ${response.items.length} orders (total so far: ${allOrders.length}/${totalCount})`,
+      );
+      currentPage++;
+
+      // Safety cap + rate limit backoff
+      if (currentPage > maxPages) {
+        this.logger.warn(`Reached max pages cap (${maxPages}); stopping order fetch`);
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 300));
+    } while (allOrders.length < totalCount);
+
+    this.logger.log(`Fetched ${allOrders.length} orders from Magento`);
+    return allOrders;
   }
 
   getBaseUrl(): string {

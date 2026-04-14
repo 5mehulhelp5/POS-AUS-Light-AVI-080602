@@ -72,6 +72,18 @@ export class SyncController {
     };
   }
 
+  @Post('orders')
+  @Roles(RoleNames.ADMIN)
+  @ApiOperation({ summary: 'Sync orders from Magento' })
+  async syncOrders() {
+    const result = await this.syncService.syncOrders();
+    return {
+      success: result.success,
+      message: result.message,
+      errors: result.errors,
+    };
+  }
+
   @Post('customers')
   @Roles(RoleNames.ADMIN)
   @ApiOperation({ summary: 'Sync customers from Magento' })

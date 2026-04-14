@@ -250,6 +250,7 @@ export const syncApi = {
   syncCategories: () => api.post('/sync/categories'),
   syncProducts: () => api.post('/sync/products'),
   syncCustomers: () => api.post('/sync/customers'),
+  syncOrders: () => api.post('/sync/orders'),
   syncStock: () => api.post('/sync/stock'),
   fullSync: () => api.post('/sync/full'),
   clearAndSync: () => api.post('/sync/clear-and-sync'),

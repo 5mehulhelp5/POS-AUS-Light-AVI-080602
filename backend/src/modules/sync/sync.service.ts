@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
-import { MagentoService, MagentoProduct, MagentoCustomer } from './magento.service';
+import { MagentoService, MagentoProduct, MagentoCustomer, MagentoOrder } from './magento.service';
 import { Product, ProductType } from '../products/entities/product.entity';
 import { Category } from '../products/entities/category.entity';
 import { Customer, SyncStatus } from '../customers/entities/customer.entity';
+import { Order, OrderStatus, PaymentStatus, OrderSyncStatus, OrderSource } from '../orders/entities/order.entity';
+import { OrderItem } from '../orders/entities/order-item.entity';
 import { SyncLog, SyncType, SyncDirection, SyncLogStatus } from './entities/sync-log.entity';
 
 export interface SyncResult {
@@ -32,6 +34,10 @@ export class SyncService {
     private readonly categoryRepository: Repository<Category>,
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
+    @InjectRepository(Order)
+    private readonly orderRepository: Repository<Order>,
+    @InjectRepository(OrderItem)
+    private readonly orderItemRepository: Repository<OrderItem>,
     @InjectRepository(SyncLog)
     private readonly syncLogRepository: Repository<SyncLog>,
   ) {}
@@ -590,6 +596,149 @@ export class SyncService {
     }
   }
 
+  async syncOrders(): Promise<SyncResult> {
+    this.logger.log('Starting order sync...');
+    const errors: string[] = [];
+    let ordersCreated = 0;
+    let ordersUpdated = 0;
+
+    try {
+      const magentoOrders = await this.magentoService.fetchAllOrders();
+
+      for (const magentoOrder of magentoOrders) {
+        try {
+          const result = await this.syncSingleOrder(magentoOrder);
+          if (result === 'created') ordersCreated++;
+          else if (result === 'updated') ordersUpdated++;
+        } catch (error) {
+          const msg = `Failed to sync order ${magentoOrder.increment_id}: ${error}`;
+          this.logger.error(msg);
+          errors.push(msg);
+        }
+      }
+
+      await this.logSync('orders', ordersCreated + ordersUpdated, errors.length === 0);
+
+      return {
+        success: errors.length === 0,
+        message: `Order sync completed: ${ordersCreated} created, ${ordersUpdated} updated`,
+        errors: errors.length > 0 ? errors : undefined,
+      };
+    } catch (error) {
+      this.logger.error('Order sync failed', error);
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Unknown error',
+        errors: [String(error)],
+      };
+    }
+  }
+
+  private async syncSingleOrder(
+    magentoOrder: MagentoOrder,
+  ): Promise<'created' | 'updated'> {
+    // Map Magento status → POS OrderStatus
+    const statusMap: Record<string, OrderStatus> = {
+      pending: OrderStatus.PENDING,
+      processing: OrderStatus.PROCESSING,
+      complete: OrderStatus.COMPLETE,
+      closed: OrderStatus.COMPLETE,
+      canceled: OrderStatus.CANCELLED,
+      holded: OrderStatus.PENDING,
+    };
+    const status = statusMap[magentoOrder.status] || OrderStatus.PENDING;
+
+    // Map payment status
+    const paid = (magentoOrder.total_paid || 0) >= magentoOrder.grand_total;
+    const paymentStatus = paid
+      ? PaymentStatus.PAID
+      : (magentoOrder.total_paid || 0) > 0
+        ? PaymentStatus.PARTIAL
+        : PaymentStatus.PENDING;
+
+    // Link to existing POS customer via magentoId (if not guest)
+    let customerId: number | null = null;
+    if (magentoOrder.customer_id && !magentoOrder.customer_is_guest) {
+      const customer = await this.customerRepository.findOne({
+        where: { magentoId: magentoOrder.customer_id },
+      });
+      customerId = customer?.id || null;
+    }
+
+    // Find existing POS order by magentoOrderId
+    let order = await this.orderRepository.findOne({
+      where: { magentoOrderId: String(magentoOrder.entity_id) },
+      relations: ['items'],
+    });
+
+    const isNew = !order;
+
+    if (!order) {
+      order = this.orderRepository.create({
+        orderNumber: `M2-${magentoOrder.increment_id}`,
+        magentoOrderId: String(magentoOrder.entity_id),
+        magentoIncrementId: magentoOrder.increment_id,
+        customerId,
+        userId: 1, // system user — seeded admin
+        subtotal: Number(magentoOrder.subtotal_incl_tax || magentoOrder.subtotal),
+        discountAmount: Math.abs(Number(magentoOrder.discount_amount || 0)),
+        taxAmount: Number(magentoOrder.tax_amount || 0),
+        grandTotal: Number(magentoOrder.grand_total),
+        taxRate: 0.1,
+        status,
+        paymentStatus,
+        syncStatus: OrderSyncStatus.SYNCED,
+        syncAttempts: 1,
+        syncedAt: new Date(),
+        source: OrderSource.MAGENTO,
+        notes: magentoOrder.payment?.method ? `Magento payment: ${magentoOrder.payment.method}` : null,
+      });
+    } else {
+      // Update status + totals (don't rewrite items — M2 is source of truth for existing orders)
+      order.status = status;
+      order.paymentStatus = paymentStatus;
+      order.grandTotal = Number(magentoOrder.grand_total);
+      order.customerId = customerId;
+      order.syncStatus = OrderSyncStatus.SYNCED;
+      order.syncedAt = new Date();
+    }
+
+    const savedOrder = await this.orderRepository.save(order);
+
+    // Build line items only for new orders
+    if (isNew && Array.isArray(magentoOrder.items)) {
+      // Match local products by SKU when possible (Magento product_id ≠ POS product.id)
+      for (const mItem of magentoOrder.items) {
+        // Skip configurable parent rows — Magento returns both parent + child; keep the priced ones
+        if (!mItem.price && !mItem.row_total) continue;
+
+        const localProduct = await this.productRepository.findOne({
+          where: { sku: mItem.sku },
+        });
+
+        const unitPrice = Number(mItem.price_incl_tax || mItem.price || 0);
+        const quantity = Number(mItem.qty_ordered || 0);
+        if (quantity <= 0) continue;
+
+        const orderItem = this.orderItemRepository.create({
+          orderId: savedOrder.id,
+          productId: localProduct?.id ?? undefined,
+          sku: mItem.sku,
+          name: mItem.name,
+          quantity,
+          unitPrice,
+          discountPercent: 0,
+          discountAmount: Math.abs(Number(mItem.discount_amount || 0)),
+          taxAmount: Number(mItem.tax_amount || 0),
+          rowTotal: Number(mItem.row_total_incl_tax || mItem.row_total || 0),
+        } as Partial<OrderItem>);
+        await this.orderItemRepository.save(orderItem);
+      }
+    }
+
+    return isNew ? 'created' : 'updated';
+  }
+
   async clearAndSync(): Promise<SyncResult> {
     this.logger.log('Starting clear and sync...');
 
@@ -606,12 +755,13 @@ export class SyncService {
     return this.fullSync();
   }
 
-  private async logSync(entityType: 'products' | 'categories' | 'customers', recordsProcessed: number, success: boolean): Promise<void> {
+  private async logSync(entityType: 'products' | 'categories' | 'customers' | 'orders', recordsProcessed: number, success: boolean): Promise<void> {
     try {
       const syncTypeMap: Record<string, SyncType> = {
         products: SyncType.PRODUCTS,
         categories: SyncType.CATEGORIES,
         customers: SyncType.CUSTOMERS,
+        orders: SyncType.ORDERS,
       };
       const syncType = syncTypeMap[entityType];
       const log = this.syncLogRepository.create({

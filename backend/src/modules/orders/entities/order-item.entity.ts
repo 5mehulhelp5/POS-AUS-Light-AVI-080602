@@ -20,8 +20,8 @@ export class OrderItem {
   orderId: number;
 
   @Index()
-  @Column({ name: 'product_id', type: 'int', unsigned: true })
-  productId: number;
+  @Column({ name: 'product_id', type: 'int', unsigned: true, nullable: true })
+  productId: number | null;
 
   @Column({ type: 'varchar', length: 100 })
   sku: string;
