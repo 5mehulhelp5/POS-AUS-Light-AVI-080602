@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { login, pinLogin, clearError } from '../../store/slices/authSlice';
 import { RootState, AppDispatch } from '../../store';
@@ -25,10 +25,31 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
+  const submitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up any pending debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (submitTimerRef.current) clearTimeout(submitTimerRef.current);
+    };
+  }, []);
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     dispatch(login({ email, password }));
+  };
+
+  const scheduleSubmit = (pinToSubmit: string) => {
+    if (submitTimerRef.current) clearTimeout(submitTimerRef.current);
+    // Immediate submit when they've typed the max (6 digits)
+    if (pinToSubmit.length === 6) {
+      dispatch(pinLogin(pinToSubmit));
+      return;
+    }
+    // Otherwise wait 800ms so longer PINs aren't eaten by a 4-digit prefix
+    submitTimerRef.current = setTimeout(() => {
+      dispatch(pinLogin(pinToSubmit));
+    }, 800);
   };
 
   const handlePinChange = (digit: string) => {
@@ -36,19 +57,19 @@ export default function LoginPage() {
       const newPin = pin + digit;
       setPin(newPin);
       if (newPin.length >= 4) {
-        setTimeout(() => {
-          dispatch(pinLogin(newPin));
-        }, 100);
+        scheduleSubmit(newPin);
       }
     }
   };
 
   const handlePinClear = () => {
+    if (submitTimerRef.current) clearTimeout(submitTimerRef.current);
     setPin('');
     dispatch(clearError());
   };
 
   const handlePinBackspace = () => {
+    if (submitTimerRef.current) clearTimeout(submitTimerRef.current);
     setPin(pin.slice(0, -1));
     dispatch(clearError());
   };
