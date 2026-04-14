@@ -1,7 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useSelector } from 'react-redux';
+import toast from 'react-hot-toast';
 import { ordersApi } from '../../services/api';
-import { MagnifyingGlassIcon, EyeIcon, PlusIcon } from '@heroicons/react/24/outline';
+import { RootState } from '../../store';
+import {
+  MagnifyingGlassIcon,
+  EyeIcon,
+  PlusIcon,
+  ArrowUturnLeftIcon,
+  XMarkIcon,
+  PrinterIcon,
+} from '@heroicons/react/24/outline';
 
 interface Order {
   id: number;
@@ -23,25 +33,91 @@ interface Pagination {
   totalPages: number;
 }
 
+// Combined filter options for the Orders filter dropdown
+type FilterOption =
+  | 'all'
+  | 'pos'
+  | 'magento'
+  | 'complete'
+  | 'pending'
+  | 'refund_in_process'
+  | 'refunded'
+  | 'cancelled';
+
+const FILTER_OPTIONS: { value: FilterOption; label: string }[] = [
+  { value: 'all', label: 'All Orders' },
+  { value: 'pos', label: 'POS Orders' },
+  { value: 'magento', label: 'Magento Orders' },
+  { value: 'complete', label: 'Completed' },
+  { value: 'pending', label: 'Pending' },
+  { value: 'refund_in_process', label: 'Refund In Process' },
+  { value: 'refunded', label: 'Refunded' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
+
+const REFUND_REASONS: { value: string; label: string }[] = [
+  { value: 'damaged', label: 'Damaged' },
+  { value: 'faulty_product', label: 'Faulty Product' },
+  { value: 'wrong_item', label: 'Wrong Item' },
+  { value: 'customer_changed_mind', label: 'Customer Changed Mind' },
+  { value: 'pricing_error', label: 'Pricing Error' },
+  { value: 'other', label: 'Other' },
+];
+
+const NON_RESTOCKABLE_REASONS = new Set(['damaged', 'faulty_product']);
+
+interface RefundSelection {
+  orderItemId: number;
+  name: string;
+  sku: string;
+  unitPrice: number;
+  originalQty: number;
+  remainingQty: number;
+  selected: boolean;
+  quantity: number;
+  restock: boolean;
+}
+
 export default function OrdersPage() {
+  const { user } = useSelector((state: RootState) => state.auth);
+  const canRefund = user?.role.name === 'admin' || user?.role.name === 'manager';
+
   const [orders, setOrders] = useState<Order[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<FilterOption>('all');
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
+
+  // Refund modal state
+  const [refundOrder, setRefundOrder] = useState<any>(null);
+  const [refundItems, setRefundItems] = useState<RefundSelection[]>([]);
+  const [refundReason, setRefundReason] = useState<string>('damaged');
+  const [refundReasonText, setRefundReasonText] = useState('');
+  const [isProcessingRefund, setIsProcessingRefund] = useState(false);
+  const [completedRefund, setCompletedRefund] = useState<any>(null);
 
   useEffect(() => {
     fetchOrders();
-  }, [pagination.page, search]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pagination.page, search, filter]);
 
   const fetchOrders = async () => {
     try {
       setIsLoading(true);
-      const response = await ordersApi.getOrders({
+      // Map the combined filter to the actual query params
+      const params: any = {
         search: search || undefined,
         page: pagination.page,
         limit: 20,
-      });
+      };
+      if (filter === 'pos' || filter === 'magento') {
+        params.source = filter;
+      } else if (filter !== 'all') {
+        params.status = filter;
+      }
+
+      const response = await ordersApi.getOrders(params);
       setOrders(response.data.data.orders);
       setPagination(response.data.data.pagination);
     } catch (error) {
@@ -53,10 +129,131 @@ export default function OrdersPage() {
 
   const viewOrder = async (id: number) => {
     try {
-      const response = await ordersApi.getOrder(id);
-      setSelectedOrder(response.data.data.order);
+      const [orderRes, refundsRes] = await Promise.all([
+        ordersApi.getOrder(id),
+        ordersApi.getRefunds(id),
+      ]);
+      setSelectedOrder({
+        ...orderRes.data.data.order,
+        refunds: refundsRes.data.data.refunds,
+      });
     } catch (error) {
       console.error('Failed to fetch order:', error);
+    }
+  };
+
+  const openRefundModal = async (order: Order) => {
+    try {
+      const [orderRes, refundsRes] = await Promise.all([
+        ordersApi.getOrder(order.id),
+        ordersApi.getRefunds(order.id),
+      ]);
+      const fullOrder = orderRes.data.data.order;
+      const existingRefunds = refundsRes.data.data.refunds || [];
+
+      // Map of already-refunded qty per order_item
+      const refundedMap = new Map<number, number>();
+      for (const r of existingRefunds) {
+        for (const ri of r.items) {
+          refundedMap.set(
+            ri.orderItemId,
+            (refundedMap.get(ri.orderItemId) || 0) + ri.quantity,
+          );
+        }
+      }
+
+      const selections: RefundSelection[] = (fullOrder.items || []).map((item: any) => {
+        const refundedQty = refundedMap.get(item.id) || 0;
+        const remaining = item.quantity - refundedQty;
+        return {
+          orderItemId: item.id,
+          name: item.name,
+          sku: item.sku,
+          unitPrice:
+            item.quantity > 0
+              ? parseFloat(item.rowTotal) / item.quantity
+              : parseFloat(item.unitPrice),
+          originalQty: item.quantity,
+          remainingQty: remaining,
+          selected: false,
+          quantity: remaining > 0 ? 1 : 0,
+          restock: true,
+        };
+      });
+
+      setRefundOrder(fullOrder);
+      setRefundItems(selections);
+      setRefundReason('damaged');
+      setRefundReasonText('');
+      // Default restock off for damaged/faulty on open
+      setRefundItems((prev) =>
+        prev.map((it) => ({ ...it, restock: !NON_RESTOCKABLE_REASONS.has('damaged') })),
+      );
+    } catch (error) {
+      toast.error('Failed to load order for refund');
+    }
+  };
+
+  const updateRefundItem = (idx: number, patch: Partial<RefundSelection>) => {
+    setRefundItems((prev) =>
+      prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)),
+    );
+  };
+
+  // When reason changes, flip restock defaults (but allow manual override to persist only if user touched it)
+  const handleReasonChange = (newReason: string) => {
+    setRefundReason(newReason);
+    const defaultRestock = !NON_RESTOCKABLE_REASONS.has(newReason);
+    setRefundItems((prev) => prev.map((it) => ({ ...it, restock: defaultRestock })));
+  };
+
+  const refundTotal = refundItems
+    .filter((i) => i.selected && i.quantity > 0)
+    .reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
+
+  const processRefund = async () => {
+    const items = refundItems
+      .filter((i) => i.selected && i.quantity > 0)
+      .map((i) => ({
+        orderItemId: i.orderItemId,
+        quantity: i.quantity,
+        restock: i.restock,
+      }));
+
+    if (items.length === 0) {
+      toast.error('Select at least one item to refund');
+      return;
+    }
+    if (refundReason === 'other' && !refundReasonText.trim()) {
+      toast.error('Please enter a reason');
+      return;
+    }
+    if (refundReasonText.length > 500) {
+      toast.error('Reason text must be 500 characters or fewer');
+      return;
+    }
+
+    setIsProcessingRefund(true);
+    try {
+      const res = await ordersApi.createRefund(refundOrder.id, {
+        reason: refundReason,
+        reasonText: refundReasonText.trim() || undefined,
+        items,
+      });
+      toast.success('Refund processed successfully');
+      setCompletedRefund({
+        refund: res.data.data.refund,
+        order: refundOrder,
+        itemsByOrderItemId: Object.fromEntries(
+          refundItems.map((i) => [i.orderItemId, i]),
+        ),
+      });
+      setRefundOrder(null);
+      fetchOrders();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || 'Refund failed');
+    } finally {
+      setIsProcessingRefund(false);
     }
   };
 
@@ -76,13 +273,20 @@ export default function OrdersPage() {
       pending: 'bg-yellow-600',
       cancelled: 'bg-red-600',
       refunded: 'bg-purple-600',
+      refund_in_process: 'bg-orange-600',
+    };
+    const labels: Record<string, string> = {
+      refund_in_process: 'REFUND IN PROCESS',
     };
     return (
-      <span className={`px-2 py-1 rounded text-xs font-medium ${colors[status] || 'bg-gray-600'}`}>
-        {status.toUpperCase()}
+      <span className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${colors[status] || 'bg-gray-600'}`}>
+        {labels[status] || status.toUpperCase()}
       </span>
     );
   };
+
+  const isRefundable = (status: string) =>
+    status !== 'refunded' && status !== 'cancelled';
 
   return (
     <div className="h-full p-6 overflow-auto">
@@ -90,26 +294,39 @@ export default function OrdersPage() {
         <h1 className="text-2xl font-bold">Orders</h1>
         <div className="flex items-center gap-4">
           <span className="text-sm text-gray-400">Total: {pagination.total} orders</span>
-          <Link
-            to="/pos"
-            className="btn-primary flex items-center gap-2"
-          >
+          <Link to="/pos" className="btn-primary flex items-center gap-2">
             <PlusIcon className="h-5 w-5" />
             Create Order
           </Link>
         </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="relative mb-4">
-        <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-        <input
-          type="text"
-          placeholder="Search by order number, customer name, phone, or email..."
-          className="input pl-12"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+      {/* Search + Filter */}
+      <div className="flex gap-3 mb-4">
+        <div className="relative flex-1">
+          <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search by order number, customer name, phone, or email..."
+            className="input pl-12"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <select
+          className="input w-56"
+          value={filter}
+          onChange={(e) => {
+            setFilter(e.target.value as FilterOption);
+            setPagination((p) => ({ ...p, page: 1 }));
+          }}
+        >
+          {FILTER_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Orders Table */}
@@ -159,14 +376,25 @@ export default function OrdersPage() {
                   <td className="px-4 py-3">{getStatusBadge(order.status)}</td>
                   <td className="px-4 py-3 text-sm text-gray-400">{formatDate(order.createdAt)}</td>
                   <td className="px-4 py-3">{order.user.firstName}</td>
-                  <td className="px-4 py-3 text-center">
-                    <button
-                      onClick={() => viewOrder(order.id)}
-                      className="p-2 hover:bg-pos-accent rounded"
-                      title="View Order"
-                    >
-                      <EyeIcon className="h-5 w-5" />
-                    </button>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-center gap-1">
+                      <button
+                        onClick={() => viewOrder(order.id)}
+                        className="p-2 hover:bg-pos-accent rounded"
+                        title="View Order"
+                      >
+                        <EyeIcon className="h-5 w-5" />
+                      </button>
+                      {canRefund && isRefundable(order.status) && (
+                        <button
+                          onClick={() => openRefundModal(order)}
+                          className="p-2 hover:bg-orange-500/20 text-orange-400 rounded"
+                          title="Refund"
+                        >
+                          <ArrowUturnLeftIcon className="h-5 w-5" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -201,14 +429,14 @@ export default function OrdersPage() {
       {/* Order Detail Modal */}
       {selectedOrder && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-pos-card rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[80vh] overflow-auto">
+          <div className="bg-pos-card rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[85vh] overflow-auto">
             <div className="flex justify-between items-start mb-4">
               <div>
                 <h2 className="text-xl font-bold">{selectedOrder.orderNumber}</h2>
                 <p className="text-sm text-gray-400">{formatDate(selectedOrder.createdAt)}</p>
               </div>
               <button onClick={() => setSelectedOrder(null)} className="text-gray-400 hover:text-white">
-                Close
+                <XMarkIcon className="h-5 w-5" />
               </button>
             </div>
 
@@ -216,11 +444,17 @@ export default function OrdersPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <p className="text-sm text-gray-400">Customer</p>
-                  <p>{selectedOrder.customer ? `${selectedOrder.customer.firstName} ${selectedOrder.customer.lastName}` : 'Walk-in'}</p>
+                  <p>
+                    {selectedOrder.customer
+                      ? `${selectedOrder.customer.firstName} ${selectedOrder.customer.lastName}`
+                      : 'Walk-in'}
+                  </p>
                 </div>
                 <div>
                   <p className="text-sm text-gray-400">Cashier</p>
-                  <p>{selectedOrder.user?.firstName} {selectedOrder.user?.lastName}</p>
+                  <p>
+                    {selectedOrder.user?.firstName} {selectedOrder.user?.lastName}
+                  </p>
                 </div>
               </div>
 
@@ -229,7 +463,9 @@ export default function OrdersPage() {
                 <div className="bg-pos-dark rounded p-3 space-y-2">
                   {selectedOrder.items?.map((item: any) => (
                     <div key={item.id} className="flex justify-between">
-                      <span>{item.quantity}x {item.name}</span>
+                      <span>
+                        {item.quantity}x {item.name}
+                      </span>
                       <span>${parseFloat(item.rowTotal).toFixed(2)}</span>
                     </div>
                   ))}
@@ -256,6 +492,285 @@ export default function OrdersPage() {
                   <span>${parseFloat(selectedOrder.grandTotal).toFixed(2)}</span>
                 </div>
               </div>
+
+              {/* Refund history */}
+              {selectedOrder.refunds && selectedOrder.refunds.length > 0 && (
+                <div className="border-t border-gray-700 pt-4">
+                  <p className="text-sm text-gray-400 mb-2">Refund History</p>
+                  <div className="space-y-2">
+                    {selectedOrder.refunds.map((r: any) => (
+                      <div key={r.id} className="bg-orange-500/10 border border-orange-500/30 rounded p-3 text-sm">
+                        <div className="flex justify-between mb-1">
+                          <span className="font-medium text-orange-300">
+                            {r.isFullRefund ? 'Full Refund' : 'Partial Refund'} — ${r.refundAmount.toFixed(2)}
+                          </span>
+                          <span className="text-gray-400">{formatDate(r.createdAt)}</span>
+                        </div>
+                        <div className="text-xs text-gray-400">
+                          Reason: {REFUND_REASONS.find((x) => x.value === r.reason)?.label || r.reason}
+                          {r.reasonText ? ` — "${r.reasonText}"` : ''}
+                        </div>
+                        {r.user && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            Processed by {r.user.firstName} {r.user.lastName}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Refund Modal */}
+      {refundOrder && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-pos-card rounded-lg p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-auto">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h2 className="text-xl font-bold">Refund Order {refundOrder.orderNumber}</h2>
+                <p className="text-sm text-gray-400">Select items and quantities to refund</p>
+              </div>
+              <button
+                onClick={() => setRefundOrder(null)}
+                className="text-gray-400 hover:text-white"
+                disabled={isProcessingRefund}
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Items */}
+            <div className="mb-6">
+              <table className="w-full text-sm">
+                <thead className="bg-pos-accent">
+                  <tr>
+                    <th className="px-3 py-2 w-10"></th>
+                    <th className="px-3 py-2 text-left">Item</th>
+                    <th className="px-3 py-2 text-center w-20">Remaining</th>
+                    <th className="px-3 py-2 text-center w-24">Refund Qty</th>
+                    <th className="px-3 py-2 text-right w-24">Unit</th>
+                    <th className="px-3 py-2 text-right w-24">Line Total</th>
+                    <th className="px-3 py-2 text-center w-20">Restock?</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-700">
+                  {refundItems.map((item, idx) => (
+                    <tr
+                      key={item.orderItemId}
+                      className={item.remainingQty === 0 ? 'opacity-40' : ''}
+                    >
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={item.selected}
+                          disabled={item.remainingQty === 0}
+                          onChange={(e) =>
+                            updateRefundItem(idx, { selected: e.target.checked })
+                          }
+                          className="w-4 h-4"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <p className="font-medium">{item.name}</p>
+                        <p className="text-xs text-gray-400">{item.sku}</p>
+                      </td>
+                      <td className="px-3 py-2 text-center">{item.remainingQty}</td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number"
+                          min={1}
+                          max={item.remainingQty}
+                          value={item.quantity}
+                          disabled={!item.selected || item.remainingQty === 0}
+                          onChange={(e) => {
+                            const val = Math.max(
+                              1,
+                              Math.min(item.remainingQty, parseInt(e.target.value) || 1),
+                            );
+                            updateRefundItem(idx, { quantity: val });
+                          }}
+                          className="input text-center py-1 px-2 w-16 mx-auto block"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right">${item.unitPrice.toFixed(2)}</td>
+                      <td className="px-3 py-2 text-right font-medium">
+                        {item.selected ? `$${(item.unitPrice * item.quantity).toFixed(2)}` : '—'}
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={item.restock}
+                          disabled={!item.selected}
+                          onChange={(e) => updateRefundItem(idx, { restock: e.target.checked })}
+                          className="w-4 h-4"
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Reason */}
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Reason *</label>
+                <select
+                  className="input"
+                  value={refundReason}
+                  onChange={(e) => handleReasonChange(e.target.value)}
+                >
+                  {REFUND_REASONS.map((r) => (
+                    <option key={r.value} value={r.value}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-end">
+                <div className="text-sm text-gray-400">
+                  {NON_RESTOCKABLE_REASONS.has(refundReason)
+                    ? 'Default: do NOT restock (override per item if needed)'
+                    : 'Default: add items back to stock'}
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-xs text-gray-400 mb-1">
+                Reason notes {refundReason === 'other' ? '*' : '(optional)'}
+              </label>
+              <textarea
+                className="input min-h-[80px]"
+                placeholder={
+                  refundReason === 'other'
+                    ? 'Explain the reason (required)'
+                    : 'Additional notes (optional)'
+                }
+                value={refundReasonText}
+                maxLength={500}
+                onChange={(e) => setRefundReasonText(e.target.value)}
+              />
+              <p className="text-xs text-gray-500 text-right mt-1">
+                {refundReasonText.length}/500
+              </p>
+            </div>
+
+            {/* Total + Actions */}
+            <div className="flex justify-between items-center border-t border-gray-700 pt-4">
+              <div>
+                <p className="text-sm text-gray-400">Refund total</p>
+                <p className="text-2xl font-bold text-orange-400">${refundTotal.toFixed(2)}</p>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  className="btn-secondary"
+                  onClick={() => setRefundOrder(null)}
+                  disabled={isProcessingRefund}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="btn-primary bg-orange-600 hover:bg-orange-700"
+                  onClick={processRefund}
+                  disabled={isProcessingRefund || refundTotal === 0}
+                >
+                  {isProcessingRefund ? 'Processing...' : 'Process Refund'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Refund Receipt (print view) */}
+      {completedRefund && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 print:bg-white print:static">
+          <div className="bg-white text-black rounded-lg p-8 max-w-md w-full mx-4 max-h-[90vh] overflow-auto print:shadow-none print:max-w-none">
+            <div className="text-center mb-4">
+              <h2 className="text-2xl font-bold">REFUND RECEIPT</h2>
+              <p className="text-sm text-gray-600">Australian Lighting & Fans</p>
+            </div>
+
+            <div className="border-t border-b border-gray-300 py-3 mb-4 text-sm space-y-1">
+              <div className="flex justify-between">
+                <span>Original Order:</span>
+                <span className="font-medium">{completedRefund.order.orderNumber}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Refund Date:</span>
+                <span>{formatDate(completedRefund.refund.createdAt)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Processed by:</span>
+                <span>
+                  {completedRefund.refund.user
+                    ? `${completedRefund.refund.user.firstName} ${completedRefund.refund.user.lastName}`
+                    : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span>Reason:</span>
+                <span>
+                  {REFUND_REASONS.find((r) => r.value === completedRefund.refund.reason)?.label}
+                </span>
+              </div>
+              {completedRefund.refund.reasonText && (
+                <div className="pt-1 text-xs text-gray-600">
+                  "{completedRefund.refund.reasonText}"
+                </div>
+              )}
+            </div>
+
+            <div className="mb-4">
+              <p className="text-sm font-semibold mb-2">Refunded Items</p>
+              <table className="w-full text-sm">
+                <tbody>
+                  {completedRefund.refund.items.map((ri: any) => {
+                    const meta = completedRefund.itemsByOrderItemId[ri.orderItemId];
+                    return (
+                      <tr key={ri.id} className="border-b border-gray-200">
+                        <td className="py-1">
+                          {ri.quantity}x {meta?.name || `Item #${ri.orderItemId}`}
+                          {!ri.restock && (
+                            <span className="text-xs text-red-600 ml-1">(not restocked)</span>
+                          )}
+                        </td>
+                        <td className="py-1 text-right">${ri.amount.toFixed(2)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="border-t border-gray-300 pt-3 mb-6">
+              <div className="flex justify-between font-bold text-lg">
+                <span>Total Refunded</span>
+                <span>${completedRefund.refund.refundAmount.toFixed(2)}</span>
+              </div>
+              <p className="text-xs text-gray-600 mt-2">
+                {completedRefund.refund.isFullRefund
+                  ? 'This order has been fully refunded.'
+                  : 'This is a partial refund. Remaining balance stays with original payment.'}
+              </p>
+            </div>
+
+            <div className="flex gap-3 print:hidden">
+              <button className="btn-secondary flex-1" onClick={() => setCompletedRefund(null)}>
+                Close
+              </button>
+              <button
+                className="btn-primary flex-1 flex items-center justify-center gap-2"
+                onClick={() => window.print()}
+              >
+                <PrinterIcon className="h-5 w-5" />
+                Print
+              </button>
             </div>
           </div>
         </div>

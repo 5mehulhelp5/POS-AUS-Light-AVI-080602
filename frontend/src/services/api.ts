@@ -88,6 +88,7 @@ export const customersApi = {
 export const ordersApi = {
   getOrders: (params?: {
     status?: string;
+    source?: string;
     search?: string;
     userId?: number;
     customerId?: number;
@@ -100,6 +101,17 @@ export const ordersApi = {
   getOrder: (id: number) => api.get(`/orders/${id}`),
 
   createOrder: (data: any) => api.post('/orders', data),
+
+  createRefund: (
+    orderId: number,
+    data: {
+      reason: string;
+      reasonText?: string;
+      items: Array<{ orderItemId: number; quantity: number; restock: boolean }>;
+    },
+  ) => api.post(`/orders/${orderId}/refund`, data),
+
+  getRefunds: (orderId: number) => api.get(`/orders/${orderId}/refunds`),
 };
 
 // Discounts API

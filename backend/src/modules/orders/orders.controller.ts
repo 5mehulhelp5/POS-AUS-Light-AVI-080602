@@ -10,7 +10,10 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
+import { RefundsService, CreateRefundDto } from './refunds.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles, RoleNames } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @ApiTags('orders')
@@ -18,12 +21,16 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(
+    private readonly ordersService: OrdersService,
+    private readonly refundsService: RefundsService,
+  ) {}
 
   @Get()
   @ApiOperation({ summary: 'List orders' })
   async findAll(
     @Query('status') status?: string,
+    @Query('source') source?: string,
     @Query('search') search?: string,
     @Query('userId') userId?: number,
     @Query('customerId') customerId?: number,
@@ -34,6 +41,7 @@ export class OrdersController {
   ) {
     const { orders, total } = await this.ordersService.findAll({
       status: status as any,
+      source: source as any,
       search,
       userId,
       customerId,
@@ -123,6 +131,79 @@ export class OrdersController {
         receipt: {
           url: `/receipts/${order.orderNumber}.pdf`,
         },
+      },
+    };
+  }
+
+  @Post(':id/refund')
+  @UseGuards(RolesGuard)
+  @Roles(RoleNames.ADMIN, RoleNames.MANAGER)
+  @ApiOperation({ summary: 'Refund selected items on an order (partial or full)' })
+  async refund(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CreateRefundDto,
+    @CurrentUser() user: any,
+  ) {
+    const refund = await this.refundsService.create(id, user.id, dto);
+    return {
+      success: true,
+      data: {
+        refund: {
+          id: refund.id,
+          orderId: refund.orderId,
+          reason: refund.reason,
+          reasonText: refund.reasonText,
+          refundAmount: parseFloat(refund.refundAmount.toString()),
+          isFullRefund: refund.isFullRefund,
+          createdAt: refund.createdAt,
+          user: refund.user
+            ? {
+                id: refund.user.id,
+                firstName: refund.user.firstName,
+                lastName: refund.user.lastName,
+              }
+            : null,
+          items: refund.items.map((ri) => ({
+            id: ri.id,
+            orderItemId: ri.orderItemId,
+            quantity: ri.quantity,
+            amount: parseFloat(ri.amount.toString()),
+            restock: ri.restock,
+          })),
+        },
+      },
+    };
+  }
+
+  @Get(':id/refunds')
+  @ApiOperation({ summary: 'List refunds for an order' })
+  async listRefunds(@Param('id', ParseIntPipe) id: number) {
+    const refunds = await this.refundsService.findByOrder(id);
+    return {
+      success: true,
+      data: {
+        refunds: refunds.map((r) => ({
+          id: r.id,
+          reason: r.reason,
+          reasonText: r.reasonText,
+          refundAmount: parseFloat(r.refundAmount.toString()),
+          isFullRefund: r.isFullRefund,
+          createdAt: r.createdAt,
+          user: r.user
+            ? {
+                id: r.user.id,
+                firstName: r.user.firstName,
+                lastName: r.user.lastName,
+              }
+            : null,
+          items: r.items.map((ri) => ({
+            id: ri.id,
+            orderItemId: ri.orderItemId,
+            quantity: ri.quantity,
+            amount: parseFloat(ri.amount.toString()),
+            restock: ri.restock,
+          })),
+        })),
       },
     };
   }

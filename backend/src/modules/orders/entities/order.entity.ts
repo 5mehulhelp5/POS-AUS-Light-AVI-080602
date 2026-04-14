@@ -19,6 +19,7 @@ export enum OrderStatus {
   PROCESSING = 'processing',
   COMPLETE = 'complete',
   CANCELLED = 'cancelled',
+  REFUND_IN_PROCESS = 'refund_in_process',
   REFUNDED = 'refunded',
 }
 

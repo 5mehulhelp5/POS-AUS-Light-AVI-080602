@@ -7,6 +7,7 @@ import {
   OrderStatus,
   PaymentStatus,
   OrderSyncStatus,
+  OrderSource,
 } from './entities';
 import { Payment, PaymentMethod, PaymentEntityStatus } from '../payments/entities/payment.entity';
 import { ProductsService } from '../products/products.service';
@@ -247,6 +248,7 @@ export class OrdersService {
 
   async findAll(options?: {
     status?: OrderStatus;
+    source?: OrderSource;
     search?: string;
     userId?: number;
     customerId?: number;
@@ -257,6 +259,7 @@ export class OrdersService {
   }): Promise<{ orders: Order[]; total: number }> {
     const {
       status,
+      source,
       search,
       userId,
       customerId,
@@ -302,6 +305,10 @@ export class OrdersService {
 
     if (status) {
       query.andWhere('order.status = :status', { status });
+    }
+
+    if (source) {
+      query.andWhere('order.source = :source', { source });
     }
 
     if (userId) {
