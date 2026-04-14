@@ -6,6 +6,7 @@ import { OrderItem } from './entities/order-item.entity';
 import { Refund, RefundReason } from './entities/refund.entity';
 import { RefundItem } from './entities/refund-item.entity';
 import { Product } from '../products/entities/product.entity';
+import { StoreCreditService } from '../customers/store-credit.service';
 
 export interface CreateRefundDto {
   reason: RefundReason;
@@ -25,6 +26,7 @@ export class RefundsService {
     @InjectRepository(Order)
     private readonly orderRepository: Repository<Order>,
     private readonly dataSource: DataSource,
+    private readonly storeCreditService: StoreCreditService,
   ) {}
 
   async create(orderId: number, userId: number, dto: CreateRefundDto): Promise<Refund> {
@@ -58,6 +60,14 @@ export class RefundsService {
       }
       if (order.status === OrderStatus.CANCELLED) {
         throw new BadRequestException('Cancelled orders cannot be refunded');
+      }
+      // Refunds are always issued as store credit, so the order must be
+      // linked to a registered customer. Walk-in refunds need the staff
+      // to create a customer record first.
+      if (!order.customerId) {
+        throw new BadRequestException(
+          'This order is not linked to a customer. Create a customer record for the buyer before refunding so store credit can be issued.',
+        );
       }
 
       // Fetch previously refunded quantities per order_item
@@ -163,6 +173,16 @@ export class RefundsService {
       // Update order status
       order.status = isFullRefund ? OrderStatus.REFUNDED : OrderStatus.REFUND_IN_PROCESS;
       await queryRunner.manager.save(order);
+
+      // Issue store credit to the customer. This runs inside the same
+      // transaction so a failure rolls back the refund cleanly.
+      await this.storeCreditService.issueFromRefund(
+        queryRunner.manager,
+        order.customerId!,
+        refundAmount,
+        savedRefund.id,
+        userId,
+      );
 
       await queryRunner.commitTransaction();
 

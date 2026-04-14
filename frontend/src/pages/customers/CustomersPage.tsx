@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useSelector } from 'react-redux';
 import toast from 'react-hot-toast';
+import { RootState } from '../../store';
 import { customersApi, ordersApi, quotesApi } from '../../services/api';
 import {
   MagnifyingGlassIcon,
@@ -56,8 +58,18 @@ export default function CustomersPage() {
   const fetchIdRef = useRef(0);
 
   // Customer detail state
-  const [detailTab, setDetailTab] = useState<'orders' | 'active_quotes' | 'previous_quotes'>('orders');
+  const [detailTab, setDetailTab] = useState<'orders' | 'active_quotes' | 'previous_quotes' | 'store_credit'>('orders');
   const [customerStats, setCustomerStats] = useState<any>(null);
+
+  // Store credit state
+  const [storeCreditBalance, setStoreCreditBalance] = useState<number>(0);
+  const [storeCreditTxs, setStoreCreditTxs] = useState<any[]>([]);
+  const [showAdjustModal, setShowAdjustModal] = useState(false);
+  const [adjustAmount, setAdjustAmount] = useState('');
+  const [adjustNote, setAdjustNote] = useState('');
+  const [isAdjusting, setIsAdjusting] = useState(false);
+  const { user: currentAuthUser } = useSelector((state: RootState) => state.auth);
+  const isAdmin = currentAuthUser?.role?.name === 'admin';
   const [customerOrders, setCustomerOrders] = useState<any[]>([]);
   const [customerOrdersPagination, setCustomerOrdersPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const [ordersPage, setOrdersPage] = useState(1);
@@ -127,6 +139,61 @@ export default function CustomersPage() {
       })
       .catch(() => setCustomerPreviousQuotes([]));
   }, [selectedCustomer, detailTab, previousQuotesPage]);
+
+  // Load store credit balance + transactions whenever a customer is opened
+  useEffect(() => {
+    if (!selectedCustomer) {
+      setStoreCreditBalance(0);
+      setStoreCreditTxs([]);
+      return;
+    }
+    customersApi
+      .getStoreCredit(selectedCustomer.id)
+      .then((r) => {
+        setStoreCreditBalance(Number(r.data.data.balance) || 0);
+        setStoreCreditTxs(r.data.data.transactions || []);
+      })
+      .catch(() => {
+        setStoreCreditBalance(0);
+        setStoreCreditTxs([]);
+      });
+  }, [selectedCustomer]);
+
+  const refreshStoreCredit = async () => {
+    if (!selectedCustomer) return;
+    const r = await customersApi.getStoreCredit(selectedCustomer.id);
+    setStoreCreditBalance(Number(r.data.data.balance) || 0);
+    setStoreCreditTxs(r.data.data.transactions || []);
+  };
+
+  const handleAdjust = async () => {
+    if (!selectedCustomer) return;
+    const amount = parseFloat(adjustAmount);
+    if (!amount) {
+      toast.error('Enter a non-zero amount');
+      return;
+    }
+    if (!adjustNote.trim()) {
+      toast.error('Note is required for manual adjustments');
+      return;
+    }
+    setIsAdjusting(true);
+    try {
+      await customersApi.adjustStoreCredit(selectedCustomer.id, {
+        amount,
+        note: adjustNote.trim(),
+      });
+      toast.success('Store credit adjusted');
+      setShowAdjustModal(false);
+      setAdjustAmount('');
+      setAdjustNote('');
+      await refreshStoreCredit();
+    } catch (e: any) {
+      toast.error(e.response?.data?.message || 'Failed to adjust credit');
+    } finally {
+      setIsAdjusting(false);
+    }
+  };
 
   const resetDetailState = () => {
     setSelectedCustomer(null);
@@ -437,7 +504,7 @@ export default function CustomersPage() {
             </div>
 
             {/* Stats strip */}
-            <div className="grid grid-cols-5 gap-3 px-6 py-4 border-b border-gray-700">
+            <div className="grid grid-cols-6 gap-3 px-6 py-4 border-b border-gray-700">
               <div className="bg-pos-dark rounded p-3">
                 <div className="flex items-center gap-2 text-xs text-gray-400">
                   <BanknotesIcon className="h-4 w-4" />
@@ -454,6 +521,15 @@ export default function CustomersPage() {
                 </div>
                 <p className="text-lg font-bold mt-1">
                   {customerStats?.orderCount ?? '—'}
+                </p>
+              </div>
+              <div className="bg-pos-dark rounded p-3 border border-purple-500/40 bg-purple-500/5">
+                <div className="flex items-center gap-2 text-xs text-purple-300">
+                  <BanknotesIcon className="h-4 w-4" />
+                  Store Credit
+                </div>
+                <p className="text-lg font-bold mt-1 text-purple-300">
+                  ${storeCreditBalance.toFixed(2)}
                 </p>
               </div>
               <div className="bg-pos-dark rounded p-3">
@@ -493,6 +569,7 @@ export default function CustomersPage() {
                 { id: 'orders', label: `Orders${customerStats ? ` (${customerStats.orderCount})` : ''}` },
                 { id: 'active_quotes', label: `Active Quotes${customerStats ? ` (${customerStats.activeQuoteCount})` : ''}` },
                 { id: 'previous_quotes', label: `Previous Quotes${customerStats ? ` (${customerStats.previousQuoteCount})` : ''}` },
+                { id: 'store_credit', label: `Store Credit ($${storeCreditBalance.toFixed(2)})` },
               ].map((t) => (
                 <button
                   key={t.id}
@@ -711,6 +788,147 @@ export default function CustomersPage() {
                   )}
                 </>
               )}
+
+              {detailTab === 'store_credit' && (
+                <>
+                  <div className="flex justify-between items-center mb-4">
+                    <div>
+                      <p className="text-xs text-gray-400 uppercase">Current Balance</p>
+                      <p className="text-3xl font-bold text-purple-300">
+                        ${storeCreditBalance.toFixed(2)}
+                      </p>
+                    </div>
+                    {isAdmin && (
+                      <button
+                        className="btn-secondary text-sm"
+                        onClick={() => setShowAdjustModal(true)}
+                      >
+                        Manual Adjust
+                      </button>
+                    )}
+                  </div>
+
+                  {storeCreditTxs.length === 0 ? (
+                    <p className="text-center text-gray-400 py-8">
+                      No store credit activity yet
+                    </p>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead className="bg-pos-accent">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Date</th>
+                          <th className="px-3 py-2 text-left">Type</th>
+                          <th className="px-3 py-2 text-left">Note / Link</th>
+                          <th className="px-3 py-2 text-left">By</th>
+                          <th className="px-3 py-2 text-right">Amount</th>
+                          <th className="px-3 py-2 text-right">Balance After</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-700">
+                        {storeCreditTxs.map((tx: any) => (
+                          <tr key={tx.id}>
+                            <td className="px-3 py-2 text-gray-400">
+                              {formatDate(tx.createdAt)}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span
+                                className={`px-2 py-0.5 rounded text-xs uppercase ${
+                                  tx.type === 'refund_issue'
+                                    ? 'bg-blue-600/30 text-blue-300'
+                                    : tx.type === 'redemption'
+                                      ? 'bg-orange-600/30 text-orange-300'
+                                      : 'bg-gray-600/30 text-gray-300'
+                                }`}
+                              >
+                                {tx.type.replace(/_/g, ' ')}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-400">
+                              {tx.relatedRefundId
+                                ? `Refund #${tx.relatedRefundId}`
+                                : tx.relatedOrderId
+                                  ? `Order #${tx.relatedOrderId}`
+                                  : tx.note || '—'}
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-400">
+                              {tx.user ? `${tx.user.firstName} ${tx.user.lastName}` : '—'}
+                            </td>
+                            <td
+                              className={`px-3 py-2 text-right font-medium ${
+                                tx.amount >= 0 ? 'text-green-400' : 'text-red-400'
+                              }`}
+                            >
+                              {tx.amount >= 0 ? '+' : ''}${Number(tx.amount).toFixed(2)}
+                            </td>
+                            <td className="px-3 py-2 text-right font-medium">
+                              ${Number(tx.balanceAfter).toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Store Credit Manual Adjust Modal (admin only) */}
+      {showAdjustModal && selectedCustomer && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60]">
+          <div className="bg-pos-card rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex justify-between items-start mb-4">
+              <h3 className="text-lg font-bold">Adjust Store Credit</h3>
+              <button
+                onClick={() => setShowAdjustModal(false)}
+                className="text-gray-400 hover:text-white"
+                disabled={isAdjusting}
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+            <p className="text-sm text-gray-400 mb-4">
+              Positive amount adds to balance, negative deducts. Can go negative.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Amount ($)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="input"
+                  placeholder="e.g. 25.00 or -10.00"
+                  value={adjustAmount}
+                  onChange={(e) => setAdjustAmount(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Note (required)</label>
+                <textarea
+                  className="input min-h-[60px]"
+                  placeholder="Reason for this adjustment"
+                  value={adjustNote}
+                  onChange={(e) => setAdjustNote(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-4">
+              <button
+                className="btn-secondary"
+                onClick={() => setShowAdjustModal(false)}
+                disabled={isAdjusting}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                onClick={handleAdjust}
+                disabled={isAdjusting}
+              >
+                {isAdjusting ? 'Saving...' : 'Apply'}
+              </button>
             </div>
           </div>
         </div>

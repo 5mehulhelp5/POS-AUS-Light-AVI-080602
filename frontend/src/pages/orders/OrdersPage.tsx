@@ -143,6 +143,14 @@ export default function OrdersPage() {
   };
 
   const openRefundModal = async (order: Order) => {
+    // Refunds are issued as store credit, so the order must be linked
+    // to a registered customer. Block walk-in refunds up front.
+    if (!order.customer) {
+      toast.error(
+        'This order has no linked customer. Link or create a customer before refunding so credit can be issued.',
+      );
+      return;
+    }
     try {
       const [orderRes, refundsRes] = await Promise.all([
         ordersApi.getOrder(order.id),
@@ -529,7 +537,7 @@ export default function OrdersPage() {
       {refundOrder && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-pos-card rounded-lg p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-auto">
-            <div className="flex justify-between items-start mb-6">
+            <div className="flex justify-between items-start mb-4">
               <div>
                 <h2 className="text-xl font-bold">Refund Order {refundOrder.orderNumber}</h2>
                 <p className="text-sm text-gray-400">Select items and quantities to refund</p>
@@ -541,6 +549,17 @@ export default function OrdersPage() {
               >
                 <XMarkIcon className="h-5 w-5" />
               </button>
+            </div>
+
+            {/* Credit destination banner */}
+            <div className="bg-blue-500/10 border border-blue-500/40 text-blue-300 rounded-lg p-3 mb-6 text-sm">
+              The refund total will be issued as <strong>store credit</strong> to{' '}
+              <strong>
+                {refundOrder.customer
+                  ? `${refundOrder.customer.firstName} ${refundOrder.customer.lastName}`
+                  : '—'}
+              </strong>
+              . No cash back. Credit can be used in-store.
             </div>
 
             {/* Items */}

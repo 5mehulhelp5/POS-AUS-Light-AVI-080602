@@ -14,6 +14,7 @@ import { ProductsService } from '../products/products.service';
 import { DiscountsService, UserRole } from '../discounts/discounts.service';
 import { DiscountType } from '../discounts/entities';
 import { ConfigService } from '@nestjs/config';
+import { StoreCreditService } from '../customers/store-credit.service';
 
 interface CreateOrderDto {
   customerId?: number;
@@ -49,6 +50,7 @@ export class OrdersService {
     private readonly discountsService: DiscountsService,
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
+    private readonly storeCreditService: StoreCreditService,
   ) {
     this.taxRate = parseFloat(
       this.configService.get<string>('TAX_RATE', '0.10'),
@@ -113,6 +115,23 @@ export class OrdersService {
     ) {
       throw new BadRequestException(
         `Payment amount $${totalPayments.toFixed(2)} does not match order total $${validation.calculatedTotals.grandTotal.toFixed(2)}`,
+      );
+    }
+
+    // Store credit validation: if any payment uses store_credit, the order
+    // must be linked to a customer and that customer must have enough balance.
+    const storeCreditTotal = dto.payments
+      .filter((p) => p.method === 'store_credit')
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+    if (storeCreditTotal > 0) {
+      if (!dto.customerId) {
+        throw new BadRequestException(
+          'Store credit can only be used when a customer is attached to the order',
+        );
+      }
+      await this.storeCreditService.assertSufficientBalance(
+        dto.customerId,
+        storeCreditTotal,
       );
     }
 
@@ -233,6 +252,18 @@ export class OrdersService {
           status: PaymentEntityStatus.COMPLETED,
         });
         await queryRunner.manager.save(payment);
+      }
+
+      // Deduct store credit after payments are recorded. Runs inside the
+      // same transaction so a failure rolls back the whole order.
+      if (storeCreditTotal > 0 && dto.customerId) {
+        await this.storeCreditService.redeemForOrder(
+          queryRunner.manager,
+          dto.customerId,
+          storeCreditTotal,
+          savedOrder.id,
+          userId,
+        );
       }
 
       await queryRunner.commitTransaction();

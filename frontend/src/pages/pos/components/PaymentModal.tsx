@@ -1,9 +1,17 @@
-import { useState } from 'react';
-import { XMarkIcon, BanknotesIcon, CreditCardIcon, UserIcon, BuildingStorefrontIcon, BuildingLibraryIcon } from '@heroicons/react/24/outline';
+import { useState, useEffect } from 'react';
+import {
+  XMarkIcon,
+  BanknotesIcon,
+  CreditCardIcon,
+  UserIcon,
+  BuildingStorefrontIcon,
+  BuildingLibraryIcon,
+  GiftIcon,
+} from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { useSelector } from 'react-redux';
 import { RootState } from '../../../store';
-import { ordersApi } from '../../../services/api';
+import { ordersApi, customersApi } from '../../../services/api';
 import InvoiceModal from './InvoiceModal';
 
 interface PaymentModalProps {
@@ -43,8 +51,39 @@ export default function PaymentModal({
   const [orderNotes, setOrderNotes] = useState('');
   const [walkIn, setWalkIn] = useState(false);
 
+  // Store credit state
+  const [storeCreditBalance, setStoreCreditBalance] = useState(0);
+  const [useStoreCredit, setUseStoreCredit] = useState(false);
+  const [storeCreditAmount, setStoreCreditAmount] = useState(0);
+
+  // Fetch store credit balance when a customer is attached to the cart
+  useEffect(() => {
+    if (!cart.customerId) {
+      setStoreCreditBalance(0);
+      setUseStoreCredit(false);
+      setStoreCreditAmount(0);
+      return;
+    }
+    customersApi
+      .getStoreCredit(cart.customerId)
+      .then((r) => setStoreCreditBalance(Number(r.data.data.balance) || 0))
+      .catch(() => setStoreCreditBalance(0));
+  }, [cart.customerId]);
+
+  // When store credit is toggled on, default it to min(balance, total)
+  useEffect(() => {
+    if (useStoreCredit) {
+      setStoreCreditAmount(Math.min(storeCreditBalance, total));
+    } else {
+      setStoreCreditAmount(0);
+    }
+  }, [useStoreCredit, storeCreditBalance, total]);
+
+  const creditApplied = useStoreCredit ? Math.min(storeCreditAmount, storeCreditBalance, total) : 0;
+  const remainingDue = Math.max(0, Math.round((total - creditApplied) * 100) / 100);
+
   const cashAmount = parseFloat(cashTendered) || 0;
-  const change = cashAmount - total;
+  const change = cashAmount - remainingDue;
 
   const quickCashAmounts = [20, 50, 100, 200, 500];
 
@@ -58,8 +97,18 @@ export default function PaymentModal({
   };
 
   const handlePayment = async () => {
-    if (method === 'cash' && cashAmount < total) {
+    if (remainingDue > 0 && method === 'cash' && cashAmount < remainingDue) {
       toast.error('Insufficient cash tendered');
+      return;
+    }
+
+    if (useStoreCredit && !cart.customerId) {
+      toast.error('Store credit can only be used when a customer is selected');
+      return;
+    }
+
+    if (useStoreCredit && creditApplied <= 0) {
+      toast.error('Enter a store credit amount greater than 0');
       return;
     }
 
@@ -86,7 +135,20 @@ export default function PaymentModal({
         orderNumber = generateOrderNumber();
         toast.success(`Demo Order ${orderNumber} created successfully!`);
       } else {
-        // Real payment via API
+        // Real payment via API — build a split payment array when store credit is used
+        const payments: any[] = [];
+        if (creditApplied > 0) {
+          payments.push({ method: 'store_credit', amount: creditApplied });
+        }
+        if (remainingDue > 0) {
+          payments.push({
+            method,
+            amount: remainingDue,
+            reference: method !== 'cash' ? eftposRef : undefined,
+            amountTendered: method === 'cash' ? cashAmount : undefined,
+          });
+        }
+
         const orderData = {
           customerId: cart.customerId,
           items: cart.items.map((item) => ({
@@ -95,14 +157,7 @@ export default function PaymentModal({
             discountPercent: item.discountPercent,
           })),
           cartDiscount: cart.cartDiscount || undefined,
-          payments: [
-            {
-              method,
-              amount: total,
-              reference: method !== 'cash' ? eftposRef : undefined,
-              amountTendered: method === 'cash' ? cashAmount : undefined,
-            },
-          ],
+          payments,
           notes: orderNotes.trim() || cart.notes || undefined,
         };
 
@@ -200,12 +255,73 @@ export default function PaymentModal({
         )}
 
         {/* Total */}
-        <div className="text-center mb-6">
-          <p className="text-gray-400 text-sm">Amount Due</p>
+        <div className="text-center mb-4">
+          <p className="text-gray-400 text-sm">Order Total</p>
           <p className="text-4xl font-bold text-primary-400">
             ${total.toFixed(2)}
           </p>
+          {creditApplied > 0 && (
+            <p className="text-sm text-gray-400 mt-1">
+              Store credit applied: <span className="text-purple-300 font-medium">-${creditApplied.toFixed(2)}</span>
+              {' — '}
+              Remaining: <span className="text-primary-400 font-bold">${remainingDue.toFixed(2)}</span>
+            </p>
+          )}
         </div>
+
+        {/* Store Credit */}
+        {cart.customerId && storeCreditBalance > 0 && (
+          <div className="mb-4 p-3 rounded-lg border border-purple-500/40 bg-purple-500/10">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={useStoreCredit}
+                  onChange={(e) => setUseStoreCredit(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <GiftIcon className="h-5 w-5 text-purple-300" />
+                <span className="text-sm font-medium text-purple-200">
+                  Apply store credit
+                </span>
+              </label>
+              <span className="text-xs text-gray-400">
+                Available: <span className="text-purple-300 font-semibold">${storeCreditBalance.toFixed(2)}</span>
+              </span>
+            </div>
+            {useStoreCredit && (
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-xs text-gray-400">Amount to use:</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={Math.min(storeCreditBalance, total)}
+                  step="0.01"
+                  value={storeCreditAmount}
+                  onChange={(e) =>
+                    setStoreCreditAmount(
+                      Math.max(
+                        0,
+                        Math.min(
+                          Math.min(storeCreditBalance, total),
+                          parseFloat(e.target.value) || 0,
+                        ),
+                      ),
+                    )
+                  }
+                  className="input w-28 py-1 px-2 text-sm"
+                />
+                <button
+                  type="button"
+                  className="btn-sm bg-purple-700 text-white text-xs"
+                  onClick={() => setStoreCreditAmount(Math.min(storeCreditBalance, total))}
+                >
+                  Max
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Buyer Type Selection */}
         <div className="mb-6">
@@ -514,12 +630,15 @@ export default function PaymentModal({
           className="btn-success w-full btn-lg text-lg"
           onClick={handlePayment}
           disabled={
-            isProcessing || (method === 'cash' && cashAmount < total)
+            isProcessing ||
+            (remainingDue > 0 && method === 'cash' && cashAmount < remainingDue)
           }
         >
           {isProcessing
             ? (demoMode ? 'Simulating...' : 'Processing...')
-            : 'Complete Payment'}
+            : remainingDue === 0 && creditApplied > 0
+              ? `Pay with Store Credit`
+              : `Complete Payment${creditApplied > 0 ? ` ($${remainingDue.toFixed(2)} + credit)` : ''}`}
         </button>
       </div>
     </div>

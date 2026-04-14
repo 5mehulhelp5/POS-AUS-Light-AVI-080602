@@ -85,6 +85,11 @@ export const customersApi = {
 
   getCustomerStats: (id: number) => api.get(`/customers/${id}/stats`),
 
+  getStoreCredit: (id: number) => api.get(`/customers/${id}/store-credit`),
+
+  adjustStoreCredit: (id: number, data: { amount: number; note: string }) =>
+    api.post(`/customers/${id}/store-credit/adjust`, data),
+
   updateCustomer: (id: number, data: any) => api.put(`/customers/${id}`, data),
 };
 
