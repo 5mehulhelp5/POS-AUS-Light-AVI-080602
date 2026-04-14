@@ -33,6 +33,12 @@ export class AuthService {
       throw new UnauthorizedException('Account is disabled');
     }
 
+    // Casual users without a password hash can only log in via PIN.
+    if (!user.passwordHash) {
+      this.logger.warn(`Email login blocked for PIN-only user: ${email}`);
+      throw new UnauthorizedException('This account uses PIN login only');
+    }
+
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
       this.logger.warn(`Invalid password for user: ${email}`);

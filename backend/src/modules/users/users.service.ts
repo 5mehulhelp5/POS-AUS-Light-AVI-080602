@@ -2,9 +2,10 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Not, IsNull } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User, Role } from './entities';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -58,10 +59,49 @@ export class UsersService {
   }
 
   async findByEmail(email: string): Promise<User | null> {
+    // Skip lookup for blank emails — casuals without an email should never match.
+    if (!email) return null;
     return this.userRepository.findOne({
-      where: { email },
+      where: { email, isActive: true },
       relations: ['role'],
     });
+  }
+
+  /**
+   * Check whether an email is already taken by a DIFFERENT active user.
+   * Null/empty emails are always allowed (casuals without email).
+   */
+  private async isEmailTaken(
+    email: string | null | undefined,
+    excludeUserId?: number,
+  ): Promise<boolean> {
+    if (!email) return false;
+    const query = this.userRepository
+      .createQueryBuilder('user')
+      .where('user.email = :email', { email });
+    if (excludeUserId) {
+      query.andWhere('user.id != :id', { id: excludeUserId });
+    }
+    const existing = await query.getOne();
+    return !!existing;
+  }
+
+  /**
+   * Check whether a PIN is already taken by a DIFFERENT user.
+   * PINs must be globally unique because they're the login identifier.
+   */
+  private async isPinTaken(
+    pinCode: string,
+    excludeUserId?: number,
+  ): Promise<boolean> {
+    const query = this.userRepository
+      .createQueryBuilder('user')
+      .where('user.pinCode = :pinCode', { pinCode });
+    if (excludeUserId) {
+      query.andWhere('user.id != :id', { id: excludeUserId });
+    }
+    const existing = await query.getOne();
+    return !!existing;
   }
 
   async findByPinCode(pinCode: string): Promise<User | null> {
@@ -74,18 +114,21 @@ export class UsersService {
   async create(createUserDto: CreateUserDto): Promise<User> {
     const { email, password, roleId, pinCode, ...rest } = createUserDto;
 
-    // Check for existing email
-    const existingUser = await this.findByEmail(email);
-    if (existingUser) {
+    // PIN is required for all users — it's the primary login for casuals
+    // and also how sales are attributed in reports.
+    if (!pinCode || !pinCode.trim()) {
+      throw new BadRequestException('PIN code is required');
+    }
+
+    // Email is optional. When provided, it must be unique.
+    const normalisedEmail = email && email.trim() ? email.trim() : null;
+    if (await this.isEmailTaken(normalisedEmail)) {
       throw new ConflictException('Email already exists');
     }
 
-    // Check for existing PIN
-    if (pinCode) {
-      const existingPin = await this.findByPinCode(pinCode);
-      if (existingPin) {
-        throw new ConflictException('PIN code already in use');
-      }
+    // PIN must be globally unique
+    if (await this.isPinTaken(pinCode)) {
+      throw new ConflictException('PIN code already in use');
     }
 
     // Verify role exists
@@ -94,16 +137,16 @@ export class UsersService {
       throw new NotFoundException('Role not found');
     }
 
-    // Hash password
-    const passwordHash = await bcrypt.hash(password, 10);
+    // Password is optional too — casuals may only use PIN login.
+    const passwordHash = password ? await bcrypt.hash(password, 10) : null;
 
     const user = this.userRepository.create({
       ...rest,
-      email,
+      email: normalisedEmail,
       passwordHash,
       roleId,
       pinCode,
-    });
+    } as Partial<User>);
 
     const savedUser = await this.userRepository.save(user);
     return this.findById(savedUser.id) as Promise<User>;
@@ -117,18 +160,23 @@ export class UsersService {
 
     const { password, roleId, pinCode, email, ...rest } = updateUserDto;
 
-    // Check email uniqueness if changing
-    if (email && email !== user.email) {
-      const existingUser = await this.findByEmail(email);
-      if (existingUser) {
-        throw new ConflictException('Email already exists');
+    // Email: allow clearing it (empty string → null) for casuals.
+    let normalisedEmail: string | null | undefined;
+    if (email !== undefined) {
+      normalisedEmail = email && email.trim() ? email.trim() : null;
+      if (normalisedEmail !== user.email) {
+        if (await this.isEmailTaken(normalisedEmail, id)) {
+          throw new ConflictException('Email already exists');
+        }
       }
     }
 
-    // Check PIN uniqueness if changing
-    if (pinCode && pinCode !== user.pinCode) {
-      const existingPin = await this.findByPinCode(pinCode);
-      if (existingPin) {
+    // PIN: cannot be cleared (still required) and must stay unique.
+    if (pinCode !== undefined) {
+      if (!pinCode || !pinCode.trim()) {
+        throw new BadRequestException('PIN code is required');
+      }
+      if (pinCode !== user.pinCode && (await this.isPinTaken(pinCode, id))) {
         throw new ConflictException('PIN code already in use');
       }
     }
@@ -141,12 +189,12 @@ export class UsersService {
       }
     }
 
-    // Update user
+    // Build update payload
     const updateData: Partial<User> = {
       ...rest,
     };
 
-    if (email) updateData.email = email;
+    if (email !== undefined) updateData.email = normalisedEmail ?? null;
     if (pinCode !== undefined) updateData.pinCode = pinCode;
     if (roleId) updateData.roleId = roleId;
     if (password) {

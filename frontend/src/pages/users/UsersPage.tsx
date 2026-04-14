@@ -114,7 +114,17 @@ export default function UsersPage() {
     setIsCreating(true);
 
     try {
-      await usersApi.createUser(newUser);
+      // Strip blank email / password so casuals without them send nulls
+      const payload: any = {
+        firstName: newUser.firstName,
+        lastName: newUser.lastName,
+        roleId: newUser.roleId,
+        pinCode: newUser.pinCode,
+      };
+      if (newUser.email && newUser.email.trim()) payload.email = newUser.email.trim();
+      if (newUser.password && newUser.password.trim()) payload.password = newUser.password;
+
+      await usersApi.createUser(payload);
       setShowCreateModal(false);
       setNewUser({
         firstName: '',
@@ -415,7 +425,7 @@ export default function UsersPage() {
 
               <div>
                 <label className="block text-sm text-gray-400 mb-1">
-                  Password
+                  Password (optional — leave blank for PIN-only login)
                 </label>
                 <input
                   type="password"
@@ -424,26 +434,27 @@ export default function UsersPage() {
                   onChange={(e) =>
                     setNewUser({ ...newUser, password: e.target.value })
                   }
-                  required
-                  minLength={6}
+                  minLength={8}
+                  placeholder="Leave blank for casuals"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-gray-400 mb-1">
-                    PIN Code (4 digits)
+                    PIN Code * (4–6 digits)
                   </label>
                   <input
                     type="text"
                     className="input font-mono tracking-widest"
                     value={newUser.pinCode}
                     onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, '').slice(0, 4);
+                      const value = e.target.value.replace(/\D/g, '').slice(0, 6);
                       setNewUser({ ...newUser, pinCode: value });
                     }}
                     placeholder="0000"
-                    maxLength={4}
+                    minLength={4}
+                    maxLength={6}
                     required
                   />
                 </div>

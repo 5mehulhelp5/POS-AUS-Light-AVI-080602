@@ -6,14 +6,17 @@ import {
   IsBoolean,
   Length,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateUserDto {
+  // Empty string / null clears the email (for existing casuals).
   @ApiPropertyOptional({ example: 'staff@store.com' })
   @IsOptional()
+  @ValidateIf((_o, v) => v !== null && v !== undefined && v !== '')
   @IsEmail()
-  email?: string;
+  email?: string | null;
 
   @ApiPropertyOptional({ example: 'NewSecurePass123!' })
   @IsOptional()

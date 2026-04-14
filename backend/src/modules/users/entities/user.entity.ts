@@ -23,16 +23,19 @@ export class User {
   @Column({ name: 'role_id', type: 'int', unsigned: true })
   roleId: number;
 
-  @Column({ type: 'varchar', length: 255, unique: true })
-  email: string;
+  // Nullable for casual staff who don't have email accounts.
+  // Uniqueness is enforced in UsersService only when a value is provided.
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  email: string | null;
 
   @Exclude()
-  @Column({ name: 'password_hash', type: 'varchar', length: 255 })
-  passwordHash: string;
+  @Column({ name: 'password_hash', type: 'varchar', length: 255, nullable: true })
+  passwordHash: string | null;
 
-  @Index()
-  @Column({ name: 'pin_code', type: 'varchar', length: 6, nullable: true })
-  pinCode: string | null;
+  // PIN is the primary login for casuals — required and unique.
+  @Index({ unique: true })
+  @Column({ name: 'pin_code', type: 'varchar', length: 6 })
+  pinCode: string;
 
   @Column({ name: 'first_name', type: 'varchar', length: 100 })
   firstName: string;
