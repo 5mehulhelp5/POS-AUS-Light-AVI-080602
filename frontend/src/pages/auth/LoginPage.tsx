@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { login, pinLogin, clearError } from '../../store/slices/authSlice';
 import { RootState, AppDispatch } from '../../store';
@@ -25,51 +25,49 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [pin, setPin] = useState('');
-  const submitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Clean up any pending debounce timer on unmount
+  // Keyboard support: digits add to PIN, Enter submits, Backspace removes
   useEffect(() => {
-    return () => {
-      if (submitTimerRef.current) clearTimeout(submitTimerRef.current);
+    if (mode !== 'pin') return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key >= '0' && e.key <= '9') {
+        if (pin.length < 6) setPin((p) => p + e.key);
+      } else if (e.key === 'Backspace') {
+        setPin((p) => p.slice(0, -1));
+      } else if (e.key === 'Enter' && pin.length >= 4) {
+        dispatch(pinLogin(pin));
+      } else if (e.key === 'Escape') {
+        setPin('');
+        dispatch(clearError());
+      }
     };
-  }, []);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mode, pin, dispatch]);
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     dispatch(login({ email, password }));
   };
 
-  const scheduleSubmit = (pinToSubmit: string) => {
-    if (submitTimerRef.current) clearTimeout(submitTimerRef.current);
-    // Immediate submit when they've typed the max (6 digits)
-    if (pinToSubmit.length === 6) {
-      dispatch(pinLogin(pinToSubmit));
-      return;
-    }
-    // Otherwise wait 800ms so longer PINs aren't eaten by a 4-digit prefix
-    submitTimerRef.current = setTimeout(() => {
-      dispatch(pinLogin(pinToSubmit));
-    }, 800);
-  };
-
   const handlePinChange = (digit: string) => {
     if (pin.length < 6) {
-      const newPin = pin + digit;
-      setPin(newPin);
-      if (newPin.length >= 4) {
-        scheduleSubmit(newPin);
-      }
+      setPin(pin + digit);
+    }
+  };
+
+  const handlePinSubmit = () => {
+    if (pin.length >= 4) {
+      dispatch(pinLogin(pin));
     }
   };
 
   const handlePinClear = () => {
-    if (submitTimerRef.current) clearTimeout(submitTimerRef.current);
     setPin('');
     dispatch(clearError());
   };
 
   const handlePinBackspace = () => {
-    if (submitTimerRef.current) clearTimeout(submitTimerRef.current);
     setPin(pin.slice(0, -1));
     dispatch(clearError());
   };
@@ -176,6 +174,15 @@ export default function LoginPage() {
               ←
             </button>
           </div>
+
+          {/* Enter / Submit */}
+          <button
+            className="btn-primary w-full mt-4 py-3 text-lg font-semibold disabled:opacity-50"
+            onClick={handlePinSubmit}
+            disabled={isLoading || pin.length < 4}
+          >
+            {isLoading ? 'Signing in...' : `Enter${pin.length >= 4 ? '' : ' (4–6 digits)'}`}
+          </button>
         </div>
       ) : (
         /* Email Login */
