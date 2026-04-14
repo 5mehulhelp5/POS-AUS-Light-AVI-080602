@@ -488,7 +488,7 @@ export class MagentoService {
     }
   }
 
-  async fetchAllOrders(maxPages: number = 20): Promise<MagentoOrder[]> {
+  async fetchAllOrders(maxPages: number = 500): Promise<MagentoOrder[]> {
     const allOrders: MagentoOrder[] = [];
     let currentPage = 1;
     const pageSize = 50;

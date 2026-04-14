@@ -1,6 +1,6 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, Brackets, WhereExpressionBuilder } from 'typeorm';
 import {
   Order,
   OrderItem,
@@ -273,10 +273,31 @@ export class OrdersService {
       .leftJoinAndSelect('order.items', 'items');
 
     if (search) {
-      query.andWhere(
-        '(order.orderNumber LIKE :search OR customer.firstName LIKE :search OR customer.lastName LIKE :search OR customer.phone LIKE :search OR customer.email LIKE :search)',
-        { search: `%${search}%` },
-      );
+      // Split on whitespace so "Lisa Davis" matches firstName=Lisa OR lastName=Davis
+      const tokens = search.trim().split(/\s+/).filter(Boolean);
+      if (tokens.length > 0) {
+        query.andWhere(
+          new Brackets((qb: WhereExpressionBuilder) => {
+            // Full-string match against order number and simple fields
+            qb.where('order.orderNumber LIKE :fullSearch', { fullSearch: `%${search}%` })
+              .orWhere('order.magentoIncrementId LIKE :fullSearch', { fullSearch: `%${search}%` })
+              .orWhere('customer.phone LIKE :fullSearch', { fullSearch: `%${search}%` })
+              .orWhere('customer.email LIKE :fullSearch', { fullSearch: `%${search}%` });
+
+            // Per-token match against name + CONCAT fullname (so "lisa davis" matches)
+            tokens.forEach((token, idx) => {
+              const key = `token${idx}`;
+              qb.orWhere(`customer.firstName LIKE :${key}`, { [key]: `%${token}%` })
+                .orWhere(`customer.lastName LIKE :${key}`, { [key]: `%${token}%` });
+            });
+
+            qb.orWhere(
+              "CONCAT(customer.firstName, ' ', customer.lastName) LIKE :fullSearch",
+              { fullSearch: `%${search}%` },
+            );
+          }),
+        );
+      }
     }
 
     if (status) {
