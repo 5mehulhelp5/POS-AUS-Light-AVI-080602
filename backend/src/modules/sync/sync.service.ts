@@ -21,7 +21,7 @@ export interface SyncResult {
   errors?: string[];
 }
 
-interface OrderSyncProgress {
+export interface OrderSyncProgress {
   running: boolean;
   startedAt: Date | null;
   finishedAt: Date | null;
