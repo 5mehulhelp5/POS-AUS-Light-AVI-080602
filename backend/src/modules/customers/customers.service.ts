@@ -29,10 +29,13 @@ export class CustomersService {
 
   async findAll(options?: {
     search?: string;
-    page?: number;
-    limit?: number;
+    page?: number | string;
+    limit?: number | string;
   }): Promise<{ customers: Customer[]; total: number }> {
-    const { search, page = 1, limit = 20 } = options || {};
+    const search = options?.search;
+    // Query params arrive as strings from the controller; coerce defensively.
+    const page = Number(options?.page) > 0 ? Number(options?.page) : 1;
+    const limit = Number(options?.limit) > 0 ? Number(options?.limit) : 20;
 
     const query = this.customerRepository.createQueryBuilder('customer');
 
