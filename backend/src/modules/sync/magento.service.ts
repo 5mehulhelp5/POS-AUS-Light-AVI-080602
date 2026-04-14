@@ -488,16 +488,17 @@ export class MagentoService {
     }
   }
 
-  async fetchAllOrders(maxPages: number = 500): Promise<MagentoOrder[]> {
+  async fetchAllOrders(): Promise<MagentoOrder[]> {
     const allOrders: MagentoOrder[] = [];
     let currentPage = 1;
-    const pageSize = 50;
+    const pageSize = 100;
     let totalCount = 0;
 
-    this.logger.log('Starting to fetch orders from Magento via REST API...');
+    this.logger.log('Starting to fetch ALL orders from Magento via REST API...');
 
     do {
-      this.logger.log(`Fetching orders page ${currentPage}...`);
+      const totalPages = totalCount > 0 ? Math.ceil(totalCount / pageSize) : '?';
+      this.logger.log(`Fetching orders page ${currentPage} of ${totalPages}...`);
       const response = await this.fetchOrders(pageSize, currentPage);
       allOrders.push(...response.items);
       totalCount = response.total_count;
@@ -506,12 +507,8 @@ export class MagentoService {
       );
       currentPage++;
 
-      // Safety cap + rate limit backoff
-      if (currentPage > maxPages) {
-        this.logger.warn(`Reached max pages cap (${maxPages}); stopping order fetch`);
-        break;
-      }
-      await new Promise((r) => setTimeout(r, 300));
+      // Small rate-limit backoff between pages
+      await new Promise((r) => setTimeout(r, 200));
     } while (allOrders.length < totalCount);
 
     this.logger.log(`Fetched ${allOrders.length} orders from Magento`);
