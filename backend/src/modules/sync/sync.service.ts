@@ -767,11 +767,28 @@ export class SyncService {
       order.paymentStatus = paymentStatus;
       order.grandTotal = Number(magentoOrder.grand_total);
       order.customerId = customerId;
+      order.source = OrderSource.MAGENTO;
       order.syncStatus = OrderSyncStatus.SYNCED;
       order.syncedAt = new Date();
     }
 
     const savedOrder = await this.orderRepository.save(order);
+
+    // Override TypeORM's auto-managed created_at / updated_at with Magento's real timestamps.
+    // @CreateDateColumn / @UpdateDateColumn ignore values passed via create(), so update directly.
+    const magentoCreated = magentoOrder.created_at ? new Date(magentoOrder.created_at) : null;
+    const magentoUpdated = magentoOrder.updated_at ? new Date(magentoOrder.updated_at) : null;
+    if (magentoCreated || magentoUpdated) {
+      await this.orderRepository
+        .createQueryBuilder()
+        .update(Order)
+        .set({
+          ...(magentoCreated ? { createdAt: magentoCreated } : {}),
+          ...(magentoUpdated ? { updatedAt: magentoUpdated } : {}),
+        })
+        .where('id = :id', { id: savedOrder.id })
+        .execute();
+    }
 
     // Build line items only for new orders
     if (isNew && Array.isArray(magentoOrder.items)) {

@@ -66,6 +66,8 @@ export class OrdersController {
           },
           itemCount: o.items.length,
           createdAt: o.createdAt,
+          source: o.source,
+          magentoIncrementId: o.magentoIncrementId,
         })),
         pagination: {
           page: page || 1,
