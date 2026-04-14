@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
+import { useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { MagnifyingGlassIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon, PlusCircleIcon } from '@heroicons/react/24/outline';
 import { RootState, AppDispatch } from '../../store';
@@ -19,6 +20,20 @@ type ViewMode = 'categories' | 'subcategories' | 'products';
 
 export default function POSPage() {
   const dispatch = useDispatch<AppDispatch>();
+  const location = useLocation();
+
+  // If navigated here from the Customer Card "Create Order" button,
+  // pre-select that customer in the cart on mount.
+  useEffect(() => {
+    const preselect = (location.state as any)?.preselectCustomer;
+    if (preselect?.id) {
+      dispatch(setCustomer({ id: preselect.id, name: preselect.name }));
+      // Clear location state so a later navigation doesn't re-apply
+      window.history.replaceState({}, document.title);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const {
     items: products,
     categories,

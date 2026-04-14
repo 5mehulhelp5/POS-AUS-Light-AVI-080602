@@ -64,6 +64,16 @@ export class CustomersController {
     };
   }
 
+  @Get(':id/stats')
+  @ApiOperation({ summary: 'Get customer aggregate stats (spend, orders, quotes)' })
+  async getStats(@Param('id', ParseIntPipe) id: number) {
+    const stats = await this.customersService.getStats(id);
+    return {
+      success: true,
+      data: { stats },
+    };
+  }
+
   @Post()
   @ApiOperation({ summary: 'Create new customer' })
   async create(@Body() createDto: any) {

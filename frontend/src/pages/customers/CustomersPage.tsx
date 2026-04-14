@@ -1,7 +1,19 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { customersApi } from '../../services/api';
-import { MagnifyingGlassIcon, UserIcon, PhoneIcon, EnvelopeIcon, PlusIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { customersApi, ordersApi, quotesApi } from '../../services/api';
+import {
+  MagnifyingGlassIcon,
+  UserIcon,
+  PhoneIcon,
+  EnvelopeIcon,
+  PlusIcon,
+  XMarkIcon,
+  ShoppingCartIcon,
+  DocumentTextIcon,
+  BanknotesIcon,
+  ClockIcon,
+} from '@heroicons/react/24/outline';
 
 interface Customer {
   id: number;
@@ -33,6 +45,7 @@ interface Pagination {
 }
 
 export default function CustomersPage() {
+  const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const [isLoading, setIsLoading] = useState(true);
@@ -41,6 +54,113 @@ export default function CustomersPage() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const fetchIdRef = useRef(0);
+
+  // Customer detail state
+  const [detailTab, setDetailTab] = useState<'orders' | 'active_quotes' | 'previous_quotes'>('orders');
+  const [customerStats, setCustomerStats] = useState<any>(null);
+  const [customerOrders, setCustomerOrders] = useState<any[]>([]);
+  const [customerOrdersPagination, setCustomerOrdersPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  const [ordersPage, setOrdersPage] = useState(1);
+  const [customerActiveQuotes, setCustomerActiveQuotes] = useState<any[]>([]);
+  const [activeQuotesPagination, setActiveQuotesPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  const [activeQuotesPage, setActiveQuotesPage] = useState(1);
+  const [customerPreviousQuotes, setCustomerPreviousQuotes] = useState<any[]>([]);
+  const [previousQuotesPagination, setPreviousQuotesPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
+  const [previousQuotesPage, setPreviousQuotesPage] = useState(1);
+  const [viewingOrder, setViewingOrder] = useState<any>(null);
+
+  // Load stats when a customer is opened
+  useEffect(() => {
+    if (!selectedCustomer) {
+      setCustomerStats(null);
+      return;
+    }
+    customersApi
+      .getCustomerStats(selectedCustomer.id)
+      .then((r) => setCustomerStats(r.data.data.stats))
+      .catch(() => setCustomerStats(null));
+  }, [selectedCustomer]);
+
+  // Load orders when Orders tab is active
+  useEffect(() => {
+    if (!selectedCustomer || detailTab !== 'orders') return;
+    ordersApi
+      .getOrders({ customerId: selectedCustomer.id, page: ordersPage, limit: 20 })
+      .then((r) => {
+        setCustomerOrders(r.data.data.orders);
+        setCustomerOrdersPagination(r.data.data.pagination);
+      })
+      .catch(() => {
+        setCustomerOrders([]);
+      });
+  }, [selectedCustomer, detailTab, ordersPage]);
+
+  // Load active quotes
+  useEffect(() => {
+    if (!selectedCustomer || detailTab !== 'active_quotes') return;
+    quotesApi
+      .getQuotes({ customerId: selectedCustomer.id, status: 'open', page: activeQuotesPage, limit: 20 })
+      .then((r) => {
+        const now = new Date();
+        const filtered = (r.data.data.quotes || []).filter(
+          (q: any) => new Date(q.expiresAt) >= now,
+        );
+        setCustomerActiveQuotes(filtered);
+        setActiveQuotesPagination(r.data.data.pagination);
+      })
+      .catch(() => setCustomerActiveQuotes([]));
+  }, [selectedCustomer, detailTab, activeQuotesPage]);
+
+  // Load previous quotes (all statuses, we'll show non-active on this tab)
+  useEffect(() => {
+    if (!selectedCustomer || detailTab !== 'previous_quotes') return;
+    quotesApi
+      .getQuotes({ customerId: selectedCustomer.id, page: previousQuotesPage, limit: 20 })
+      .then((r) => {
+        const now = new Date();
+        const filtered = (r.data.data.quotes || []).filter(
+          (q: any) =>
+            q.status !== 'open' || new Date(q.expiresAt) < now,
+        );
+        setCustomerPreviousQuotes(filtered);
+        setPreviousQuotesPagination(r.data.data.pagination);
+      })
+      .catch(() => setCustomerPreviousQuotes([]));
+  }, [selectedCustomer, detailTab, previousQuotesPage]);
+
+  const resetDetailState = () => {
+    setSelectedCustomer(null);
+    setCustomerStats(null);
+    setDetailTab('orders');
+    setCustomerOrders([]);
+    setOrdersPage(1);
+    setCustomerActiveQuotes([]);
+    setActiveQuotesPage(1);
+    setCustomerPreviousQuotes([]);
+    setPreviousQuotesPage(1);
+    setViewingOrder(null);
+  };
+
+  const openOrderDetail = async (orderId: number) => {
+    try {
+      const r = await ordersApi.getOrder(orderId);
+      setViewingOrder(r.data.data.order);
+    } catch {
+      toast.error('Failed to load order');
+    }
+  };
+
+  const handleCreateOrderForCustomer = () => {
+    if (!selectedCustomer) return;
+    navigate('/pos', {
+      state: {
+        preselectCustomer: {
+          id: selectedCustomer.id,
+          name: `${selectedCustomer.firstName} ${selectedCustomer.lastName}`,
+        },
+      },
+    });
+  };
 
   // Create Customer modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -262,84 +382,386 @@ export default function CustomersPage() {
       {/* Customer Detail Modal */}
       {selectedCustomer && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-pos-card rounded-lg p-6 max-w-lg w-full mx-4">
-            <div className="flex justify-between items-start mb-4">
+          <div className="bg-pos-card rounded-lg max-w-4xl w-full mx-4 max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex justify-between items-start p-6 pb-4 border-b border-gray-700">
               <div className="flex items-center gap-3">
                 <div className="p-3 bg-primary-600 rounded-full">
                   <UserIcon className="h-8 w-8" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold">
-                    {selectedCustomer.firstName} {selectedCustomer.lastName}
-                  </h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-bold">
+                      {selectedCustomer.firstName} {selectedCustomer.lastName}
+                    </h2>
+                    {selectedCustomer.isTrade && (
+                      <span className="px-2 py-0.5 rounded text-xs font-semibold uppercase bg-orange-600/30 text-orange-300">
+                        Trade
+                      </span>
+                    )}
+                  </div>
                   {selectedCustomer.company && (
-                    <p className="text-gray-400">{selectedCustomer.company}</p>
+                    <p className="text-sm text-gray-400">{selectedCustomer.company}</p>
                   )}
+                  <div className="flex items-center gap-3 text-xs text-gray-400 mt-0.5">
+                    {selectedCustomer.email && (
+                      <span className="flex items-center gap-1">
+                        <EnvelopeIcon className="h-3 w-3" />
+                        {selectedCustomer.email}
+                      </span>
+                    )}
+                    {(selectedCustomer.phone || selectedCustomer.mobile) && (
+                      <span className="flex items-center gap-1">
+                        <PhoneIcon className="h-3 w-3" />
+                        {selectedCustomer.mobile || selectedCustomer.phone}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
-              <button
-                onClick={() => setSelectedCustomer(null)}
-                className="text-gray-400 hover:text-white"
-              >
-                Close
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  className="btn-primary flex items-center gap-2 text-sm"
+                  onClick={handleCreateOrderForCustomer}
+                >
+                  <ShoppingCartIcon className="h-4 w-4" />
+                  Create Order
+                </button>
+                <button
+                  onClick={resetDetailState}
+                  className="text-gray-400 hover:text-white p-1"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+              </div>
             </div>
 
+            {/* Stats strip */}
+            <div className="grid grid-cols-5 gap-3 px-6 py-4 border-b border-gray-700">
+              <div className="bg-pos-dark rounded p-3">
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <BanknotesIcon className="h-4 w-4" />
+                  Total Spent (net)
+                </div>
+                <p className="text-lg font-bold mt-1">
+                  ${customerStats ? Number(customerStats.totalSpent).toFixed(2) : '—'}
+                </p>
+              </div>
+              <div className="bg-pos-dark rounded p-3">
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <ShoppingCartIcon className="h-4 w-4" />
+                  Orders
+                </div>
+                <p className="text-lg font-bold mt-1">
+                  {customerStats?.orderCount ?? '—'}
+                </p>
+              </div>
+              <div className="bg-pos-dark rounded p-3">
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <DocumentTextIcon className="h-4 w-4" />
+                  Active Quotes
+                </div>
+                <p className="text-lg font-bold mt-1 text-blue-300">
+                  {customerStats?.activeQuoteCount ?? '—'}
+                </p>
+              </div>
+              <div className="bg-pos-dark rounded p-3">
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <DocumentTextIcon className="h-4 w-4" />
+                  Previous Quotes
+                </div>
+                <p className="text-lg font-bold mt-1 text-gray-400">
+                  {customerStats?.previousQuoteCount ?? '—'}
+                </p>
+              </div>
+              <div className="bg-pos-dark rounded p-3">
+                <div className="flex items-center gap-2 text-xs text-gray-400">
+                  <ClockIcon className="h-4 w-4" />
+                  Last Purchase
+                </div>
+                <p className="text-sm font-medium mt-1">
+                  {customerStats?.lastPurchaseDate
+                    ? formatDate(customerStats.lastPurchaseDate)
+                    : '—'}
+                </p>
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex border-b border-gray-700 px-6">
+              {[
+                { id: 'orders', label: `Orders${customerStats ? ` (${customerStats.orderCount})` : ''}` },
+                { id: 'active_quotes', label: `Active Quotes${customerStats ? ` (${customerStats.activeQuoteCount})` : ''}` },
+                { id: 'previous_quotes', label: `Previous Quotes${customerStats ? ` (${customerStats.previousQuoteCount})` : ''}` },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    detailTab === t.id
+                      ? 'border-primary-500 text-white'
+                      : 'border-transparent text-gray-400 hover:text-white'
+                  }`}
+                  onClick={() => setDetailTab(t.id as any)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Tab content */}
+            <div className="flex-1 overflow-auto p-6">
+              {detailTab === 'orders' && (
+                <>
+                  {customerOrders.length === 0 ? (
+                    <p className="text-center text-gray-400 py-8">No orders yet</p>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead className="bg-pos-accent">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Order #</th>
+                          <th className="px-3 py-2 text-left">Date</th>
+                          <th className="px-3 py-2 text-center">Items</th>
+                          <th className="px-3 py-2 text-right">Total</th>
+                          <th className="px-3 py-2 text-left">Status</th>
+                          <th className="px-3 py-2"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-700">
+                        {customerOrders.map((o: any) => (
+                          <tr
+                            key={o.id}
+                            className="hover:bg-pos-accent/50 cursor-pointer"
+                            onClick={() => openOrderDetail(o.id)}
+                          >
+                            <td className="px-3 py-2 font-medium">
+                              <div className="flex items-center gap-2">
+                                <span>{o.orderNumber}</span>
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
+                                    o.source === 'magento'
+                                      ? 'bg-purple-600/30 text-purple-300'
+                                      : 'bg-blue-600/30 text-blue-300'
+                                  }`}
+                                >
+                                  {o.source === 'magento' ? 'M2' : 'POS'}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-gray-400">
+                              {formatDate(o.createdAt)}
+                            </td>
+                            <td className="px-3 py-2 text-center">{o.itemCount}</td>
+                            <td className="px-3 py-2 text-right font-medium">
+                              ${o.grandTotal.toFixed(2)}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className="px-2 py-0.5 rounded text-xs bg-gray-700 uppercase">
+                                {o.status.replace(/_/g, ' ')}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right text-gray-500">→</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {customerOrdersPagination.totalPages > 1 && (
+                    <div className="flex justify-center gap-2 mt-4 text-sm">
+                      <button
+                        className="btn-sm"
+                        disabled={ordersPage <= 1}
+                        onClick={() => setOrdersPage((p) => p - 1)}
+                      >
+                        Previous
+                      </button>
+                      <span className="px-3 py-1">
+                        Page {ordersPage} of {customerOrdersPagination.totalPages}
+                      </span>
+                      <button
+                        className="btn-sm"
+                        disabled={ordersPage >= customerOrdersPagination.totalPages}
+                        onClick={() => setOrdersPage((p) => p + 1)}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {detailTab === 'active_quotes' && (
+                <>
+                  {customerActiveQuotes.length === 0 ? (
+                    <p className="text-center text-gray-400 py-8">No active quotes</p>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead className="bg-pos-accent">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Quote #</th>
+                          <th className="px-3 py-2 text-left">Created</th>
+                          <th className="px-3 py-2 text-left">Expires</th>
+                          <th className="px-3 py-2 text-left">Type</th>
+                          <th className="px-3 py-2 text-center">Items</th>
+                          <th className="px-3 py-2 text-right">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-700">
+                        {customerActiveQuotes.map((q: any) => (
+                          <tr key={q.id} className="hover:bg-pos-accent/50">
+                            <td className="px-3 py-2 font-medium">{q.quoteNumber}</td>
+                            <td className="px-3 py-2 text-gray-400">{formatDate(q.createdAt)}</td>
+                            <td className="px-3 py-2 text-gray-400">{formatDate(q.expiresAt)}</td>
+                            <td className="px-3 py-2">
+                              <span className="text-xs uppercase text-gray-400">{q.buyerType || 'customer'}</span>
+                            </td>
+                            <td className="px-3 py-2 text-center">{q.itemCount}</td>
+                            <td className="px-3 py-2 text-right font-medium">
+                              ${q.grandTotal.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {activeQuotesPagination.totalPages > 1 && (
+                    <div className="flex justify-center gap-2 mt-4 text-sm">
+                      <button
+                        className="btn-sm"
+                        disabled={activeQuotesPage <= 1}
+                        onClick={() => setActiveQuotesPage((p) => p - 1)}
+                      >
+                        Previous
+                      </button>
+                      <span className="px-3 py-1">
+                        Page {activeQuotesPage} of {activeQuotesPagination.totalPages}
+                      </span>
+                      <button
+                        className="btn-sm"
+                        disabled={activeQuotesPage >= activeQuotesPagination.totalPages}
+                        onClick={() => setActiveQuotesPage((p) => p + 1)}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {detailTab === 'previous_quotes' && (
+                <>
+                  {customerPreviousQuotes.length === 0 ? (
+                    <p className="text-center text-gray-400 py-8">No previous quotes</p>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead className="bg-pos-accent">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Quote #</th>
+                          <th className="px-3 py-2 text-left">Created</th>
+                          <th className="px-3 py-2 text-left">Status</th>
+                          <th className="px-3 py-2 text-left">Type</th>
+                          <th className="px-3 py-2 text-center">Items</th>
+                          <th className="px-3 py-2 text-right">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-700">
+                        {customerPreviousQuotes.map((q: any) => {
+                          const status = q.status === 'open' ? 'expired' : q.status;
+                          return (
+                            <tr key={q.id} className="hover:bg-pos-accent/50">
+                              <td className="px-3 py-2 font-medium">{q.quoteNumber}</td>
+                              <td className="px-3 py-2 text-gray-400">{formatDate(q.createdAt)}</td>
+                              <td className="px-3 py-2">
+                                <span className="px-2 py-0.5 rounded text-xs bg-gray-700 uppercase">
+                                  {status}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2">
+                                <span className="text-xs uppercase text-gray-400">{q.buyerType || 'customer'}</span>
+                              </td>
+                              <td className="px-3 py-2 text-center">{q.itemCount}</td>
+                              <td className="px-3 py-2 text-right font-medium">
+                                ${q.grandTotal.toFixed(2)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                  {previousQuotesPagination.totalPages > 1 && (
+                    <div className="flex justify-center gap-2 mt-4 text-sm">
+                      <button
+                        className="btn-sm"
+                        disabled={previousQuotesPage <= 1}
+                        onClick={() => setPreviousQuotesPage((p) => p - 1)}
+                      >
+                        Previous
+                      </button>
+                      <span className="px-3 py-1">
+                        Page {previousQuotesPage} of {previousQuotesPagination.totalPages}
+                      </span>
+                      <button
+                        className="btn-sm"
+                        disabled={previousQuotesPage >= previousQuotesPagination.totalPages}
+                        onClick={() => setPreviousQuotesPage((p) => p + 1)}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Inline Order viewer (opened from the customer orders tab) */}
+      {viewingOrder && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60]">
+          <div className="bg-pos-card rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[85vh] overflow-auto">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h2 className="text-xl font-bold">{viewingOrder.orderNumber}</h2>
+                <p className="text-sm text-gray-400">{formatDate(viewingOrder.createdAt)}</p>
+              </div>
+              <button onClick={() => setViewingOrder(null)} className="text-gray-400 hover:text-white">
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-sm text-gray-400">Email</p>
-                  <p>{selectedCustomer.email || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-400">Phone</p>
-                  <p>{selectedCustomer.phone || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-400">Mobile</p>
-                  <p>{selectedCustomer.mobile || '-'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-400">ABN / Tax Number</p>
-                  <p>{selectedCustomer.taxNumber || '-'}</p>
+              <div>
+                <p className="text-sm text-gray-400 mb-2">Items</p>
+                <div className="bg-pos-dark rounded p-3 space-y-2 text-sm">
+                  {viewingOrder.items?.map((item: any) => (
+                    <div key={item.id} className="flex justify-between">
+                      <span>
+                        {item.quantity}x {item.name}
+                      </span>
+                      <span>${parseFloat(item.rowTotal).toFixed(2)}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
-
-              {(selectedCustomer.billingStreet || selectedCustomer.billingCity) && (
-                <div>
-                  <p className="text-sm text-gray-400">Billing Address</p>
-                  <p>
-                    {selectedCustomer.billingStreet && <span>{selectedCustomer.billingStreet}<br /></span>}
-                    {selectedCustomer.billingCity && <span>{selectedCustomer.billingCity} </span>}
-                    {selectedCustomer.billingState && <span>{selectedCustomer.billingState} </span>}
-                    {selectedCustomer.billingPostcode && <span>{selectedCustomer.billingPostcode}</span>}
-                  </p>
+              <div className="border-t border-gray-700 pt-4 text-sm">
+                <div className="flex justify-between">
+                  <span>Subtotal</span>
+                  <span>${parseFloat(viewingOrder.subtotal).toFixed(2)}</span>
                 </div>
-              )}
-
-              {(selectedCustomer.shippingStreet || selectedCustomer.shippingCity) && (
-                <div>
-                  <p className="text-sm text-gray-400">Shipping Address</p>
-                  <p>
-                    {selectedCustomer.shippingStreet && <span>{selectedCustomer.shippingStreet}<br /></span>}
-                    {selectedCustomer.shippingCity && <span>{selectedCustomer.shippingCity} </span>}
-                    {selectedCustomer.shippingState && <span>{selectedCustomer.shippingState} </span>}
-                    {selectedCustomer.shippingPostcode && <span>{selectedCustomer.shippingPostcode}</span>}
-                  </p>
+                {parseFloat(viewingOrder.discountAmount) > 0 && (
+                  <div className="flex justify-between text-green-400">
+                    <span>Discount</span>
+                    <span>-${parseFloat(viewingOrder.discountAmount).toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span>Tax</span>
+                  <span>${parseFloat(viewingOrder.taxAmount).toFixed(2)}</span>
                 </div>
-              )}
-
-              {selectedCustomer.notes && (
-                <div>
-                  <p className="text-sm text-gray-400">Notes</p>
-                  <p className="text-sm">{selectedCustomer.notes}</p>
+                <div className="flex justify-between font-bold text-lg mt-2">
+                  <span>Total</span>
+                  <span>${parseFloat(viewingOrder.grandTotal).toFixed(2)}</span>
                 </div>
-              )}
-
-              <div className="border-t border-gray-700 pt-4">
-                <p className="text-sm text-gray-400">
-                  Customer since {formatDate(selectedCustomer.createdAt)}
-                </p>
               </div>
             </div>
           </div>
