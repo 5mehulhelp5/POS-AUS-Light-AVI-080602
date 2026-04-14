@@ -14,6 +14,7 @@ import { addItem, removeItem, updateQuantity, clearCart, setItemDiscount, setCar
 import ProductGrid from './components/ProductGrid';
 import CartPanel from './components/CartPanel';
 import PaymentModal from './components/PaymentModal';
+import ProductDetailModal from './components/ProductDetailModal';
 
 // View mode: categories → subcategories → products
 type ViewMode = 'categories' | 'subcategories' | 'products';
@@ -50,6 +51,7 @@ export default function POSPage() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showPayment, setShowPayment] = useState(false);
+  const [detailProduct, setDetailProduct] = useState<any>(null);
   const [showCustomItem, setShowCustomItem] = useState(false);
   const [customItemName, setCustomItemName] = useState('');
   const [customItemPrice, setCustomItemPrice] = useState('');
@@ -188,21 +190,23 @@ export default function POSPage() {
     dispatch(fetchProducts({ limit: pageSize, page: 1 }));
   };
 
-  const handleAddToCart = (product: any) => {
+  const handleAddToCart = (product: any, quantity: number = 1) => {
     const alreadyInCart = cart.items.some((i) => i.productId === product.id);
     if (alreadyInCart) {
       toast(`"${product.name}" is already in the cart — quantity increased`, { icon: 'ℹ️' });
     }
-    dispatch(
-      addItem({
-        productId: product.id,
-        sku: product.sku,
-        name: product.name,
-        price: product.specialPrice || product.price,
-        imageUrl: product.thumbnailUrl,
-        isSaleItem: !!product.specialPrice,
-      })
-    );
+    for (let i = 0; i < quantity; i++) {
+      dispatch(
+        addItem({
+          productId: product.id,
+          sku: product.sku,
+          name: product.name,
+          price: product.specialPrice || product.price,
+          imageUrl: product.thumbnailUrl,
+          isSaleItem: !!product.specialPrice,
+        })
+      );
+    }
   };
 
   const handleAddCustomItem = () => {
@@ -413,7 +417,7 @@ export default function POSPage() {
             <ProductGrid
               products={products}
               isLoading={isLoading}
-              onAddToCart={handleAddToCart}
+              onSelect={(p) => setDetailProduct(p)}
             />
 
             {pagination.totalPages > 1 && (
@@ -480,6 +484,16 @@ export default function POSPage() {
             setShowPayment(false);
             dispatch(clearCart());
           }}
+        />
+      )}
+
+      {/* Product Detail Modal */}
+      {detailProduct && (
+        <ProductDetailModal
+          productId={detailProduct.id}
+          fallbackProduct={detailProduct}
+          onClose={() => setDetailProduct(null)}
+          onAddToCart={(p, q) => handleAddToCart(p, q)}
         />
       )}
 

@@ -64,6 +64,8 @@ export const productsApi = {
 
   getByBarcode: (barcode: string) => api.get(`/products/barcode/${barcode}`),
 
+  getProductDetail: (id: number) => api.get(`/products/${id}/detail`),
+
   getBySku: (sku: string) => api.get(`/products/sku/${sku}`),
 
   getCategories: () => api.get('/products/categories'),

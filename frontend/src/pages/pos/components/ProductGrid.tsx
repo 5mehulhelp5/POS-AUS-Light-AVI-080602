@@ -1,4 +1,4 @@
-import { PlusIcon } from '@heroicons/react/24/outline';
+import { InformationCircleIcon } from '@heroicons/react/24/outline';
 
 interface Product {
   id: number;
@@ -15,13 +15,13 @@ interface Product {
 interface ProductGridProps {
   products: Product[];
   isLoading: boolean;
-  onAddToCart: (product: Product) => void;
+  onSelect: (product: Product) => void;
 }
 
 export default function ProductGrid({
   products,
   isLoading,
-  onAddToCart,
+  onSelect,
 }: ProductGridProps) {
   if (isLoading) {
     return (
@@ -46,8 +46,7 @@ export default function ProductGrid({
           <button
             key={product.id}
             className="product-card text-left group h-fit"
-            onClick={() => onAddToCart(product)}
-            disabled={!product.isInStock}
+            onClick={() => onSelect(product)}
           >
             {/* Product Image */}
             <div className="h-28 bg-pos-accent rounded-lg mb-2 overflow-hidden relative">
@@ -63,9 +62,12 @@ export default function ProductGrid({
                 </div>
               )}
 
-              {/* Add overlay on hover */}
+              {/* View details overlay on hover */}
               <div className="absolute inset-0 bg-primary-600/80 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <PlusIcon className="h-10 w-10 text-white" />
+                <div className="flex flex-col items-center gap-1 text-white">
+                  <InformationCircleIcon className="h-8 w-8" />
+                  <span className="text-xs font-semibold">View Details</span>
+                </div>
               </div>
 
               {/* Out of stock overlay */}

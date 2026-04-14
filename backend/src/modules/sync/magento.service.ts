@@ -515,6 +515,23 @@ export class MagentoService {
     return allOrders;
   }
 
+  async fetchProductBySku(sku: string): Promise<MagentoProduct> {
+    const token = await this.getAdminToken();
+    try {
+      const response = await this.httpClient.get(
+        `/rest/V1/products/${encodeURIComponent(sku)}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 30000,
+        },
+      );
+      return response.data;
+    } catch (error) {
+      this.logger.error(`Failed to fetch product ${sku} from Magento`, error);
+      throw error;
+    }
+  }
+
   getBaseUrl(): string {
     return this.baseUrl;
   }
