@@ -196,10 +196,18 @@ export default function PaymentModal({
       setShowInvoice(true);
 
     } catch (error: any) {
-      console.error('Payment error:', error);
-      toast.error(
-        error.response?.data?.error?.message || 'Failed to process payment'
-      );
+      // Dig through NestJS's error envelope to find something human-readable.
+      const body = error?.response?.data;
+      console.error('Payment error — full response:', body, error);
+      const msg =
+        body?.error?.message ||
+        body?.message ||
+        (Array.isArray(body?.message) ? body.message.join(', ') : null) ||
+        body?.errors?.[0]?.message ||
+        (typeof body === 'string' ? body : null) ||
+        error?.message ||
+        'Failed to process payment';
+      toast.error(String(msg).slice(0, 300));
       setIsProcessing(false);
     }
   };
