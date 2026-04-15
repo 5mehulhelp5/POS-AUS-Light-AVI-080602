@@ -7,6 +7,7 @@ import { Order, OrderItem, Refund, RefundItem } from './entities';
 import { ProductsModule } from '../products/products.module';
 import { DiscountsModule } from '../discounts/discounts.module';
 import { CustomersModule } from '../customers/customers.module';
+import { SyncModule } from '../sync/sync.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { CustomersModule } from '../customers/customers.module';
     ProductsModule,
     DiscountsModule,
     CustomersModule,
+    SyncModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService, RefundsService],

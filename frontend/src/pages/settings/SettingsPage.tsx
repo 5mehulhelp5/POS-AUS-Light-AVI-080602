@@ -190,7 +190,7 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSync = async (type: 'categories' | 'products' | 'customers' | 'orders' | 'stock' | 'full' | 'clear-and-sync') => {
+  const handleSync = async (type: 'categories' | 'products' | 'customers' | 'orders' | 'push-orders' | 'stock' | 'full' | 'clear-and-sync') => {
     setSyncRunning(type);
     setSyncResult(null);
 
@@ -236,6 +236,7 @@ export default function SettingsPage() {
         case 'categories': res = await syncApi.syncCategories(); break;
         case 'products': res = await syncApi.syncProducts(); break;
         case 'customers': res = await syncApi.syncCustomers(); break;
+        case 'push-orders': res = await syncApi.pushPendingPosOrders(); break;
         case 'stock': res = await syncApi.syncStock(); break;
         case 'full': res = await syncApi.fullSync(); break;
         case 'clear-and-sync': res = await syncApi.clearAndSync(); break;
@@ -743,6 +744,15 @@ export default function SettingsPage() {
                   >
                     <ArrowPathIcon className={`h-5 w-5 ${syncRunning === 'orders' ? 'animate-spin' : ''}`} />
                     {syncRunning === 'orders' ? 'Syncing Orders...' : 'Sync Orders from Magento'}
+                  </button>
+
+                  <button
+                    className="flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-3 rounded-lg disabled:opacity-50"
+                    onClick={() => handleSync('push-orders')}
+                    disabled={syncRunning !== null}
+                  >
+                    <ArrowPathIcon className={`h-5 w-5 ${syncRunning === 'push-orders' ? 'animate-spin' : ''}`} />
+                    {syncRunning === 'push-orders' ? 'Pushing to Magento...' : 'Push Pending POS Orders to Magento'}
                   </button>
 
                   <button

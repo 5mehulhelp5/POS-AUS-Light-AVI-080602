@@ -577,6 +577,245 @@ export class SyncService {
     };
   }
 
+  // -----------------------------------------------------------------
+  // POS → Magento order push
+  // -----------------------------------------------------------------
+
+  private readonly MAX_PUSH_ATTEMPTS = 3;
+
+  /**
+   * Push a single POS order to Magento via the admin cart flow.
+   * Handles retries up to MAX_PUSH_ATTEMPTS with a short delay between each.
+   * Updates the order's sync_status / sync_error / synced_at / magento_order_id.
+   */
+  async pushOrderToMagento(orderId: number): Promise<{ success: boolean; message: string }> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['customer', 'items'],
+    });
+    if (!order) {
+      return { success: false, message: `Order ${orderId} not found` };
+    }
+
+    // Only POS-origin orders need pushing; Magento-origin orders are already
+    // in Magento (that's where they came from).
+    if (order.source !== OrderSource.POS) {
+      return { success: false, message: `Order ${orderId} is not a POS order` };
+    }
+
+    if (order.syncStatus === OrderSyncStatus.SYNCED) {
+      return { success: true, message: `Order ${orderId} already synced` };
+    }
+
+    this.logger.log(`Pushing POS order ${order.orderNumber} to Magento...`);
+
+    try {
+      const magentoOrderId = await this.buildAndSendOrderToMagento(order);
+
+      order.syncStatus = OrderSyncStatus.SYNCED;
+      order.magentoOrderId = String(magentoOrderId);
+      order.syncedAt = new Date();
+      order.syncError = null;
+      order.syncAttempts = (Number(order.syncAttempts) || 0) + 1;
+      await this.orderRepository.save(order);
+
+      this.logger.log(
+        `Pushed order ${order.orderNumber} → Magento order ${magentoOrderId}`,
+      );
+      return { success: true, message: `Pushed to Magento order ${magentoOrderId}` };
+    } catch (error: any) {
+      const attempts = (Number(order.syncAttempts) || 0) + 1;
+      const errorMsg = error?.response?.data?.message || error?.message || String(error);
+      this.logger.error(
+        `Push attempt ${attempts} for order ${order.orderNumber} failed: ${errorMsg}`,
+      );
+
+      order.syncAttempts = attempts;
+      order.syncError = errorMsg.substring(0, 1000);
+      order.syncStatus =
+        attempts >= this.MAX_PUSH_ATTEMPTS
+          ? OrderSyncStatus.FAILED
+          : OrderSyncStatus.PENDING;
+      await this.orderRepository.save(order);
+
+      return { success: false, message: errorMsg };
+    }
+  }
+
+  /**
+   * Attempt to push a POS order, auto-retry up to MAX_PUSH_ATTEMPTS with
+   * exponential backoff. Intended to be called fire-and-forget from the
+   * order creation path so staff don't wait on Magento.
+   */
+  async pushOrderToMagentoWithRetry(orderId: number): Promise<void> {
+    for (let attempt = 1; attempt <= this.MAX_PUSH_ATTEMPTS; attempt++) {
+      const result = await this.pushOrderToMagento(orderId);
+      if (result.success) return;
+
+      // If the single push method already hit the final failure state,
+      // stop retrying here — the caller can manually retry later.
+      const order = await this.orderRepository.findOne({ where: { id: orderId } });
+      if (!order || order.syncStatus === OrderSyncStatus.SYNCED) return;
+      if (order.syncStatus === OrderSyncStatus.FAILED) return;
+
+      // Exponential backoff: 2s, 6s, 18s
+      const delay = 2000 * Math.pow(3, attempt - 1);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+
+  /**
+   * The actual heavy lifting: creates a cart on Magento, adds each line item
+   * by SKU, sets shipping info, places the order, and appends a comment with
+   * POS metadata. Returns the new Magento order ID.
+   */
+  private async buildAndSendOrderToMagento(order: Order): Promise<number> {
+    const isGuest = !order.customer || !order.customer.magentoId;
+
+    // 1. Create a cart (admin-initiated for registered customer, guest otherwise)
+    let cartId: number | string;
+    if (isGuest) {
+      cartId = await this.magentoService.adminCreateGuestCart();
+    } else {
+      cartId = await this.magentoService.adminCreateCustomerCart(
+        order.customer!.magentoId!,
+      );
+    }
+
+    // 2. Add each line item by SKU. Skip items without a productId (custom
+    // items) — Magento has no SKU for them.
+    let skippedCustomItems = 0;
+    for (const item of order.items) {
+      if (!item.productId) {
+        skippedCustomItems++;
+        continue;
+      }
+      if (!item.sku) {
+        skippedCustomItems++;
+        continue;
+      }
+      await this.magentoService.adminAddItemToCart(
+        cartId,
+        { sku: item.sku, qty: Number(item.quantity) },
+        isGuest,
+      );
+    }
+
+    // 3. Set shipping / billing information.
+    // We use a minimal in-store pickup-style address. For guest orders,
+    // fall back to the store's own address.
+    const address = this.buildAddressForMagento(order);
+    await this.magentoService.adminSetShippingInformation(
+      cartId,
+      {
+        shipping_address: address,
+        billing_address: address,
+        shipping_method_code: 'flatrate',
+        shipping_carrier_code: 'flatrate',
+      },
+      isGuest,
+    );
+
+    // 4. Place the order. paymentMethod "checkmo" is Magento's offline
+    // "Check / Money Order" — used here as a generic in-store payment.
+    // The real POS payment method is recorded in the order comment below.
+    const email = isGuest
+      ? 'walkin@auslighting.com.au'
+      : order.customer!.email || 'walkin@auslighting.com.au';
+    const magentoOrderId = await this.magentoService.adminPlaceOrder(
+      cartId,
+      'checkmo',
+      isGuest,
+      email,
+    );
+
+    // 5. Add a comment noting this came from the POS + skipped item count.
+    const commentParts = [
+      `Created from POS (${order.orderNumber})`,
+      `Grand total: $${Number(order.grandTotal).toFixed(2)}`,
+    ];
+    if (skippedCustomItems > 0) {
+      commentParts.push(
+        `⚠ ${skippedCustomItems} custom item(s) were not synced to this Magento order`,
+      );
+    }
+    await this.magentoService.adminAddOrderComment(
+      magentoOrderId,
+      commentParts.join(' | '),
+    );
+
+    return magentoOrderId;
+  }
+
+  /**
+   * Build a Magento-compatible address payload from the customer, falling
+   * back to the store address for walk-ins.
+   */
+  private buildAddressForMagento(order: Order): any {
+    const storeFallback = {
+      firstname: 'Walk-in',
+      lastname: 'Customer',
+      street: ['Australian Lighting & Fans'],
+      city: 'Sydney',
+      region: 'NSW',
+      region_code: 'NSW',
+      country_id: 'AU',
+      postcode: '2000',
+      telephone: '0000000000',
+    };
+
+    const c = order.customer;
+    if (!c) return storeFallback;
+
+    return {
+      firstname: c.firstName || 'Walk-in',
+      lastname: c.lastName || 'Customer',
+      street: [c.billingStreet || 'Australian Lighting & Fans'],
+      city: c.billingCity || 'Sydney',
+      region: c.billingState || 'NSW',
+      region_code: c.billingState || 'NSW',
+      country_id: c.billingCountry || 'AU',
+      postcode: c.billingPostcode || '2000',
+      telephone: c.phone || c.mobile || '0000000000',
+      email: c.email || undefined,
+    };
+  }
+
+  /**
+   * Batch: push every POS order that is still PENDING. Used by the
+   * "Push Pending POS Orders" button in Settings.
+   */
+  async pushPendingPosOrders(): Promise<SyncResult> {
+    const pending = await this.orderRepository.find({
+      where: {
+        source: OrderSource.POS,
+        syncStatus: OrderSyncStatus.PENDING,
+      },
+      order: { createdAt: 'ASC' },
+      take: 500,
+    });
+
+    let pushed = 0;
+    const errors: string[] = [];
+
+    for (const order of pending) {
+      const result = await this.pushOrderToMagento(order.id);
+      if (result.success) {
+        pushed++;
+      } else {
+        errors.push(`${order.orderNumber}: ${result.message}`);
+      }
+      // Small delay to avoid hammering Magento
+      await new Promise((r) => setTimeout(r, 200));
+    }
+
+    return {
+      success: errors.length === 0,
+      message: `Pushed ${pushed} of ${pending.length} pending POS orders`,
+      errors: errors.length > 0 ? errors : undefined,
+    };
+  }
+
   async syncStockOnly(): Promise<SyncResult> {
     this.logger.log('Starting stock-only sync...');
 

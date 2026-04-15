@@ -515,6 +515,126 @@ export class MagentoService {
     return allOrders;
   }
 
+  // --- POS → Magento push helpers ---
+
+  private async adminHeaders() {
+    const token = await this.getAdminToken();
+    return {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    };
+  }
+
+  /**
+   * Create an admin-initiated cart for a registered Magento customer.
+   * Returns the quote/cart ID as a number.
+   */
+  async adminCreateCustomerCart(magentoCustomerId: number): Promise<number> {
+    const headers = await this.adminHeaders();
+    const res = await this.httpClient.post(
+      `/rest/V1/customers/${magentoCustomerId}/carts`,
+      {},
+      { headers, timeout: 30000 },
+    );
+    // Response body is the quote id as a raw number
+    return Number(res.data);
+  }
+
+  /**
+   * Create a guest cart for walk-in POS orders.
+   * Returns the guest cart token (string, not numeric).
+   */
+  async adminCreateGuestCart(): Promise<string> {
+    const headers = await this.adminHeaders();
+    const res = await this.httpClient.post(
+      `/rest/V1/guest-carts`,
+      {},
+      { headers, timeout: 30000 },
+    );
+    return String(res.data);
+  }
+
+  async adminAddItemToCart(
+    cartId: number | string,
+    item: { sku: string; qty: number },
+    isGuest: boolean,
+  ): Promise<void> {
+    const headers = await this.adminHeaders();
+    const base = isGuest ? `/rest/V1/guest-carts/${cartId}` : `/rest/V1/carts/${cartId}`;
+    await this.httpClient.post(
+      `${base}/items`,
+      {
+        cartItem: {
+          sku: item.sku,
+          qty: item.qty,
+          quote_id: String(cartId),
+        },
+      },
+      { headers, timeout: 30000 },
+    );
+  }
+
+  async adminSetShippingInformation(
+    cartId: number | string,
+    addressPayload: any,
+    isGuest: boolean,
+  ): Promise<void> {
+    const headers = await this.adminHeaders();
+    const base = isGuest ? `/rest/V1/guest-carts/${cartId}` : `/rest/V1/carts/${cartId}`;
+    await this.httpClient.post(
+      `${base}/shipping-information`,
+      {
+        addressInformation: addressPayload,
+      },
+      { headers, timeout: 30000 },
+    );
+  }
+
+  async adminPlaceOrder(
+    cartId: number | string,
+    paymentMethod: string,
+    isGuest: boolean,
+    email?: string,
+  ): Promise<number> {
+    const headers = await this.adminHeaders();
+    const base = isGuest ? `/rest/V1/guest-carts/${cartId}` : `/rest/V1/carts/${cartId}`;
+    const body: any = {
+      paymentMethod: { method: paymentMethod },
+    };
+    if (isGuest && email) body.email = email;
+    const res = await this.httpClient.put(`${base}/order`, body, {
+      headers,
+      timeout: 60000,
+    });
+    // Response is the Magento order ID as a raw number
+    return Number(res.data);
+  }
+
+  async adminAddOrderComment(
+    magentoOrderId: number,
+    comment: string,
+  ): Promise<void> {
+    try {
+      const headers = await this.adminHeaders();
+      await this.httpClient.post(
+        `/rest/V1/orders/${magentoOrderId}/comments`,
+        {
+          statusHistory: {
+            comment,
+            is_customer_notified: 0,
+            is_visible_on_front: 0,
+          },
+        },
+        { headers, timeout: 30000 },
+      );
+    } catch (error) {
+      // Non-fatal: log and move on, the order itself is already placed
+      this.logger.warn(
+        `Failed to add Magento order comment on order ${magentoOrderId}: ${error}`,
+      );
+    }
+  }
+
   async fetchProductBySku(sku: string): Promise<MagentoProduct> {
     const token = await this.getAdminToken();
     try {

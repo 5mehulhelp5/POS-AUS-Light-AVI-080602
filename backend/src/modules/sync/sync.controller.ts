@@ -2,6 +2,8 @@ import {
   Controller,
   Get,
   Post,
+  Param,
+  ParseIntPipe,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -68,6 +70,31 @@ export class SyncController {
         productsCreated: result.productsCreated,
         productsUpdated: result.productsUpdated,
       },
+      errors: result.errors,
+    };
+  }
+
+  @Post('orders/:id/push')
+  @Roles(RoleNames.ADMIN, RoleNames.MANAGER)
+  @ApiOperation({ summary: 'Push a single POS order to Magento (manual retry)' })
+  async pushOrder(@Param('id', ParseIntPipe) id: number) {
+    const result = await this.syncService.pushOrderToMagento(id);
+    return {
+      success: result.success,
+      message: result.message,
+    };
+  }
+
+  @Post('orders/push-pending')
+  @Roles(RoleNames.ADMIN)
+  @ApiOperation({
+    summary: 'Push every POS order that is still PENDING to Magento',
+  })
+  async pushPending() {
+    const result = await this.syncService.pushPendingPosOrders();
+    return {
+      success: result.success,
+      message: result.message,
       errors: result.errors,
     };
   }

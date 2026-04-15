@@ -15,6 +15,7 @@ import { DiscountsService, UserRole } from '../discounts/discounts.service';
 import { DiscountType } from '../discounts/entities';
 import { ConfigService } from '@nestjs/config';
 import { StoreCreditService } from '../customers/store-credit.service';
+import { SyncService } from '../sync/sync.service';
 
 interface CreateOrderDto {
   customerId?: number;
@@ -51,6 +52,7 @@ export class OrdersService {
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
     private readonly storeCreditService: StoreCreditService,
+    private readonly syncService: SyncService,
   ) {
     this.taxRate = parseFloat(
       this.configService.get<string>('TAX_RATE', '0.10'),
@@ -267,6 +269,19 @@ export class OrdersService {
       }
 
       await queryRunner.commitTransaction();
+
+      // Fire-and-forget push to Magento. Runs in the background so staff
+      // aren't blocked by Magento response time. Failures update the
+      // order's sync_status and can be retried from the Orders page.
+      this.syncService
+        .pushOrderToMagentoWithRetry(savedOrder.id)
+        .catch((err) => {
+          // eslint-disable-next-line no-console
+          console.error(
+            `[pushOrderToMagento] unhandled error for order ${savedOrder.id}:`,
+            err,
+          );
+        });
 
       return this.findById(savedOrder.id) as Promise<Order>;
     } catch (error) {

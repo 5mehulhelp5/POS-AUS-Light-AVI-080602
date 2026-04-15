@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import toast from 'react-hot-toast';
-import { ordersApi } from '../../services/api';
+import { ordersApi, syncApi } from '../../services/api';
 import { RootState } from '../../store';
 import {
   MagnifyingGlassIcon,
@@ -11,6 +11,7 @@ import {
   ArrowUturnLeftIcon,
   XMarkIcon,
   PrinterIcon,
+  CloudArrowUpIcon,
 } from '@heroicons/react/24/outline';
 
 interface Order {
@@ -24,6 +25,9 @@ interface Order {
   itemCount: number;
   createdAt: string;
   source?: 'pos' | 'magento';
+  syncStatus?: 'pending' | 'synced' | 'failed';
+  syncError?: string | null;
+  magentoOrderId?: string | null;
 }
 
 interface Pagination {
@@ -293,6 +297,20 @@ export default function OrdersPage() {
     );
   };
 
+  const handleRetryPush = async (orderId: number) => {
+    try {
+      const res = await syncApi.pushOrderToMagento(orderId);
+      if (res.data.success) {
+        toast.success(res.data.message || 'Pushed to Magento');
+        fetchOrders();
+      } else {
+        toast.error(res.data.message || 'Push failed');
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Push failed');
+    }
+  };
+
   const isRefundable = (status: string) =>
     status !== 'refunded' && status !== 'cancelled';
 
@@ -361,7 +379,7 @@ export default function OrdersPage() {
               {orders.map((order) => (
                 <tr key={order.id} className="hover:bg-pos-accent/50">
                   <td className="px-4 py-3 font-medium">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span>{order.orderNumber}</span>
                       <span
                         className={`px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase ${
@@ -372,6 +390,30 @@ export default function OrdersPage() {
                       >
                         {order.source === 'magento' ? 'M2' : 'POS'}
                       </span>
+                      {order.source === 'pos' && order.syncStatus === 'synced' && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-green-600/30 text-green-300"
+                          title={`Pushed to Magento as #${order.magentoOrderId ?? '?'}`}
+                        >
+                          M2 ✓
+                        </span>
+                      )}
+                      {order.source === 'pos' && order.syncStatus === 'pending' && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-yellow-600/30 text-yellow-300"
+                          title="Waiting to push to Magento"
+                        >
+                          M2 ⋯
+                        </span>
+                      )}
+                      {order.source === 'pos' && order.syncStatus === 'failed' && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-red-600/30 text-red-300"
+                          title={order.syncError || 'Push to Magento failed'}
+                        >
+                          M2 ✗
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="px-4 py-3">
@@ -402,6 +444,21 @@ export default function OrdersPage() {
                           <ArrowUturnLeftIcon className="h-5 w-5" />
                         </button>
                       )}
+                      {canRefund &&
+                        order.source === 'pos' &&
+                        (order.syncStatus === 'failed' || order.syncStatus === 'pending') && (
+                          <button
+                            onClick={() => handleRetryPush(order.id)}
+                            className="p-2 hover:bg-blue-500/20 text-blue-300 rounded"
+                            title={
+                              order.syncStatus === 'failed'
+                                ? `Retry Magento push: ${order.syncError || ''}`
+                                : 'Push to Magento now'
+                            }
+                          >
+                            <CloudArrowUpIcon className="h-5 w-5" />
+                          </button>
+                        )}
                     </div>
                   </td>
                 </tr>

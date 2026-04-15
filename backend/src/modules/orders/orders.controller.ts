@@ -76,6 +76,10 @@ export class OrdersController {
           createdAt: o.createdAt,
           source: o.source,
           magentoIncrementId: o.magentoIncrementId,
+          magentoOrderId: o.magentoOrderId,
+          syncStatus: o.syncStatus,
+          syncError: o.syncError,
+          syncAttempts: o.syncAttempts,
         })),
         pagination: {
           page: page || 1,
