@@ -111,6 +111,9 @@ export const ordersApi = {
 
   createOrder: (data: any) => api.post('/orders', data),
 
+  linkCustomer: (orderId: number, customerId: number) =>
+    api.patch(`/orders/${orderId}/customer`, { customerId }),
+
   createRefund: (
     orderId: number,
     data: {

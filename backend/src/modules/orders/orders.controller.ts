@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
   Body,
   Param,
   Query,
@@ -134,6 +135,42 @@ export class OrdersController {
         },
         receipt: {
           url: `/receipts/${order.orderNumber}.pdf`,
+        },
+      },
+    };
+  }
+
+  @Patch(':id/customer')
+  @UseGuards(RolesGuard)
+  @Roles(RoleNames.ADMIN, RoleNames.MANAGER)
+  @ApiOperation({
+    summary: 'Link a customer to an existing order (e.g. a walk-in) so store credit can be issued on refund',
+  })
+  async linkCustomer(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { customerId: number },
+  ) {
+    if (!body?.customerId) {
+      return {
+        success: false,
+        error: { code: 'BAD_REQUEST', message: 'customerId is required' },
+      };
+    }
+    const order = await this.ordersService.linkCustomer(id, Number(body.customerId));
+    return {
+      success: true,
+      data: {
+        order: {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          customerId: order.customerId,
+          customer: order.customer
+            ? {
+                id: order.customer.id,
+                firstName: order.customer.firstName,
+                lastName: order.customer.lastName,
+              }
+            : null,
         },
       },
     };

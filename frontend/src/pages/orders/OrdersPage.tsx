@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import toast from 'react-hot-toast';
-import { ordersApi, syncApi } from '../../services/api';
+import { ordersApi, syncApi, customersApi } from '../../services/api';
 import { RootState } from '../../store';
 import {
   MagnifyingGlassIcon,
@@ -95,6 +95,13 @@ export default function OrdersPage() {
 
   // Refund modal state
   const [refundOrder, setRefundOrder] = useState<any>(null);
+
+  // Link-customer flow (for walk-in orders that need a customer before refund)
+  const [linkOrder, setLinkOrder] = useState<Order | null>(null);
+  const [linkSearch, setLinkSearch] = useState('');
+  const [linkResults, setLinkResults] = useState<any[]>([]);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [isLinking, setIsLinking] = useState(false);
   const [refundItems, setRefundItems] = useState<RefundSelection[]>([]);
   const [refundReason, setRefundReason] = useState<string>('damaged');
   const [refundReasonText, setRefundReasonText] = useState('');
@@ -147,12 +154,13 @@ export default function OrdersPage() {
   };
 
   const openRefundModal = async (order: Order) => {
-    // Refunds are issued as store credit, so the order must be linked
-    // to a registered customer. Block walk-in refunds up front.
+    // Refunds are issued as store credit, so the order must be linked to a
+    // registered customer. For walk-ins, open the Link Customer flow first
+    // and automatically continue to the refund modal after linking.
     if (!order.customer) {
-      toast.error(
-        'This order has no linked customer. Link or create a customer before refunding so credit can be issued.',
-      );
+      setLinkOrder(order);
+      setLinkSearch('');
+      setLinkResults([]);
       return;
     }
     try {
@@ -295,6 +303,55 @@ export default function OrdersPage() {
         {labels[status] || status.toUpperCase()}
       </span>
     );
+  };
+
+  // Debounced customer search for the Link Customer flow
+  useEffect(() => {
+    if (!linkOrder) return;
+    if (linkSearch.trim().length < 2) {
+      setLinkResults([]);
+      return;
+    }
+    setLinkLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await customersApi.getCustomers({ search: linkSearch.trim(), limit: 10 });
+        setLinkResults(res.data.data?.customers || []);
+      } catch {
+        setLinkResults([]);
+      } finally {
+        setLinkLoading(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [linkSearch, linkOrder]);
+
+  const handleLinkPick = async (customer: any) => {
+    if (!linkOrder) return;
+    setIsLinking(true);
+    try {
+      await ordersApi.linkCustomer(linkOrder.id, customer.id);
+      toast.success(`Linked ${customer.firstName} ${customer.lastName} to ${linkOrder.orderNumber}`);
+      // Refresh orders and continue into the refund modal
+      await fetchOrders();
+      const fullOrder: Order = {
+        ...linkOrder,
+        customer: {
+          id: customer.id,
+          firstName: customer.firstName,
+          lastName: customer.lastName,
+        },
+      };
+      setLinkOrder(null);
+      setLinkSearch('');
+      setLinkResults([]);
+      // Jump straight into the refund flow for the now-linked order
+      openRefundModal(fullOrder);
+    } catch (e: any) {
+      toast.error(e?.response?.data?.message || 'Failed to link customer');
+    } finally {
+      setIsLinking(false);
+    }
   };
 
   const handleRetryPush = async (orderId: number) => {
@@ -758,6 +815,89 @@ export default function OrdersPage() {
                   {isProcessingRefund ? 'Processing...' : 'Process Refund'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Link Customer modal — shown when user tries to refund a walk-in order */}
+      {linkOrder && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60]">
+          <div className="bg-pos-card rounded-lg p-6 max-w-lg w-full mx-4 max-h-[85vh] overflow-auto">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h3 className="text-lg font-bold">Link Customer to Order</h3>
+                <p className="text-sm text-gray-400">
+                  {linkOrder.orderNumber} is a walk-in order. Attach a customer
+                  so store credit can be issued on refund.
+                </p>
+              </div>
+              <button
+                onClick={() => setLinkOrder(null)}
+                className="text-gray-400 hover:text-white"
+                disabled={isLinking}
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs text-gray-400 mb-1">
+                Search by name, email, phone or company
+              </label>
+              <input
+                type="text"
+                className="input"
+                autoComplete="off"
+                placeholder="Start typing…"
+                value={linkSearch}
+                onChange={(e) => setLinkSearch(e.target.value)}
+              />
+            </div>
+
+            {linkSearch.trim().length >= 2 && (
+              <div className="bg-pos-accent border border-gray-600 rounded-lg max-h-64 overflow-auto">
+                {linkLoading && (
+                  <div className="px-4 py-3 text-sm text-gray-400">Searching…</div>
+                )}
+                {!linkLoading && linkResults.length === 0 && (
+                  <div className="px-4 py-3 text-sm text-gray-400">
+                    No customers matched "{linkSearch}". Create one on the Customers page, then come back.
+                  </div>
+                )}
+                {linkResults.map((c: any) => (
+                  <button
+                    key={c.id}
+                    className="w-full text-left px-4 py-3 hover:bg-pos-card border-b border-gray-700 last:border-0 disabled:opacity-50"
+                    disabled={isLinking}
+                    onClick={() => handleLinkPick(c)}
+                  >
+                    <p className="font-medium">
+                      {c.firstName} {c.lastName}
+                      {c.isTrade && (
+                        <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-orange-600/30 text-orange-300">
+                          Trade
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      ID: {c.id}
+                      {c.email ? ` | ${c.email}` : ''}
+                      {c.phone ? ` | ${c.phone}` : ''}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 mt-4">
+              <button
+                className="btn-secondary"
+                onClick={() => setLinkOrder(null)}
+                disabled={isLinking}
+              >
+                Cancel
+              </button>
             </div>
           </div>
         </div>

@@ -411,4 +411,18 @@ export class OrdersService {
 
     return `${prefix}${sequence.toString().padStart(6, '0')}`;
   }
+
+  /**
+   * Link a customer to an existing order. Used to attach a buyer to a
+   * walk-in order so staff can issue store credit on a refund.
+   */
+  async linkCustomer(orderId: number, customerId: number): Promise<Order> {
+    const order = await this.orderRepository.findOne({ where: { id: orderId } });
+    if (!order) {
+      throw new BadRequestException('Order not found');
+    }
+    order.customerId = customerId;
+    await this.orderRepository.save(order);
+    return (await this.findById(orderId)) as Order;
+  }
 }
