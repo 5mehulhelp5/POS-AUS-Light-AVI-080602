@@ -243,6 +243,12 @@ export class DiscountsService {
     let itemDiscountTotal = 0;
     const calculatedItems: CalculatedItem[] = [];
 
+    // Australian prices are GST-INCLUSIVE. Unit prices coming in already
+    // contain GST, so we must NOT add 10% on top — we extract the GST
+    // component for display (gross ÷ 11) instead. This mirrors the
+    // frontend cart slice so order totals always agree.
+    const GST_DIVISOR = 11;
+
     for (const item of items) {
       const lineSubtotal = item.unitPrice * item.quantity;
       subtotal += lineSubtotal;
@@ -256,8 +262,8 @@ export class DiscountsService {
         itemDiscountTotal += discountAmount;
       }
 
-      const lineTotal = lineSubtotal - discountAmount;
-      const lineTax = lineTotal * this.taxRate;
+      const lineTotal = lineSubtotal - discountAmount; // gross (incl GST)
+      const lineTax = lineTotal / GST_DIVISOR; // GST component of the gross
 
       calculatedItems.push({
         productId: item.productId,
@@ -268,7 +274,8 @@ export class DiscountsService {
         discountPercent: ignoreDiscounts ? 0 : discountPercent,
         discountAmount: this.round(discountAmount),
         taxAmount: this.round(lineTax),
-        rowTotal: this.round(lineTotal + lineTax),
+        // rowTotal is the gross amount the customer pays — GST is already in it
+        rowTotal: this.round(lineTotal),
       });
     }
 
@@ -286,8 +293,10 @@ export class DiscountsService {
     }
 
     const totalAfterDiscounts = afterItemDiscounts - cartDiscountAmount;
-    const taxAmount = totalAfterDiscounts * this.taxRate;
-    const grandTotal = totalAfterDiscounts + taxAmount;
+    // Grand total is the gross amount — GST is already baked into the prices.
+    // We expose the extracted GST component for display/reporting.
+    const taxAmount = totalAfterDiscounts / GST_DIVISOR;
+    const grandTotal = totalAfterDiscounts;
 
     return {
       items: calculatedItems,

@@ -637,9 +637,14 @@ export class MagentoService {
 
   async fetchProductBySku(sku: string): Promise<MagentoProduct> {
     const token = await this.getAdminToken();
+    // Magento URL-decodes the path segment once before routing, so SKUs
+    // containing slashes (e.g. "22780/05") need double encoding — a plain
+    // %2F turns back into "/" and Magento then sees two path segments and
+    // returns 404. encodeURIComponent twice produces %252F which survives.
+    const safeSku = encodeURIComponent(encodeURIComponent(sku));
     try {
       const response = await this.httpClient.get(
-        `/rest/V1/products/${encodeURIComponent(sku)}`,
+        `/rest/V1/products/${safeSku}`,
         {
           headers: { Authorization: `Bearer ${token}` },
           timeout: 30000,
