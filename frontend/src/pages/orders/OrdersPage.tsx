@@ -12,6 +12,8 @@ import {
   PrinterIcon,
   CloudArrowUpIcon,
   ArrowLeftIcon,
+  BanknotesIcon,
+  CheckCircleIcon,
 } from '@heroicons/react/24/outline';
 
 interface Order {
@@ -25,6 +27,9 @@ interface Order {
   itemCount: number;
   createdAt: string;
   source?: 'pos' | 'magento';
+  orderType?: 'standard' | 'layby';
+  laybyExpiresAt?: string | null;
+  hasBackorderItems?: boolean;
   syncStatus?: 'pending' | 'synced' | 'failed';
   syncError?: string | null;
   magentoOrderId?: string | null;
@@ -42,8 +47,12 @@ type FilterOption =
   | 'all'
   | 'pos'
   | 'magento'
+  | 'layby'
   | 'complete'
   | 'pending'
+  | 'layby_active'
+  | 'layby_expired'
+  | 'backorder_pending'
   | 'refund_in_process'
   | 'refunded'
   | 'cancelled';
@@ -52,6 +61,10 @@ const FILTER_OPTIONS: { value: FilterOption; label: string }[] = [
   { value: 'all', label: 'All Orders' },
   { value: 'pos', label: 'POS Orders' },
   { value: 'magento', label: 'Magento Orders' },
+  { value: 'layby', label: 'Lay Bys (all)' },
+  { value: 'layby_active', label: 'Lay By — Active' },
+  { value: 'layby_expired', label: 'Lay By — Expired' },
+  { value: 'backorder_pending', label: 'Backorder Pending' },
   { value: 'complete', label: 'Completed' },
   { value: 'pending', label: 'Pending' },
   { value: 'refund_in_process', label: 'Refund In Process' },
@@ -112,6 +125,17 @@ export default function OrdersPage() {
   const [isProcessingRefund, setIsProcessingRefund] = useState(false);
   const [completedRefund, setCompletedRefund] = useState<any>(null);
 
+  // Layby payment modal
+  const [laybyPayOrder, setLaybyPayOrder] = useState<Order | null>(null);
+  const [laybyBalance, setLaybyBalance] = useState<{ grandTotal: number; paid: number; balance: number } | null>(null);
+  const [laybyPayAmount, setLaybyPayAmount] = useState('');
+  const [laybyPayMethod, setLaybyPayMethod] = useState<'cash' | 'eftpos' | 'bank_transfer' | 'store_credit'>('eftpos');
+  const [laybyPayRef, setLaybyPayRef] = useState('');
+  const [isTakingLaybyPayment, setIsTakingLaybyPayment] = useState(false);
+
+  const canManage =
+    user?.role.name === 'admin' || user?.role.name === 'manager';
+
   useEffect(() => {
     fetchOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -128,6 +152,8 @@ export default function OrdersPage() {
       };
       if (filter === 'pos' || filter === 'magento') {
         params.source = filter;
+      } else if (filter === 'layby') {
+        params.type = 'layby';
       } else if (filter !== 'all') {
         params.status = filter;
       }
@@ -295,9 +321,15 @@ export default function OrdersPage() {
       cancelled: 'bg-red-600',
       refunded: 'bg-purple-600',
       refund_in_process: 'bg-orange-600',
+      layby_active: 'bg-amber-600',
+      layby_expired: 'bg-red-700',
+      backorder_pending: 'bg-cyan-700',
     };
     const labels: Record<string, string> = {
       refund_in_process: 'REFUND IN PROCESS',
+      layby_active: 'LAY BY',
+      layby_expired: 'LAY BY EXPIRED',
+      backorder_pending: 'BACKORDER',
     };
     return (
       <span className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${colors[status] || 'bg-gray-600'}`}>
@@ -371,6 +403,91 @@ export default function OrdersPage() {
 
   const isRefundable = (status: string) =>
     status !== 'refunded' && status !== 'cancelled';
+
+  const openLaybyPay = async (order: Order) => {
+    try {
+      const res = await ordersApi.getLaybyBalance(order.id);
+      const b = res.data.data as { grandTotal: number; paid: number; balance: number };
+      setLaybyBalance(b);
+      setLaybyPayOrder(order);
+      setLaybyPayAmount(b.balance.toFixed(2));
+      setLaybyPayMethod('eftpos');
+      setLaybyPayRef('');
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to load layby balance');
+    }
+  };
+
+  const handleTakeLaybyPayment = async () => {
+    if (!laybyPayOrder) return;
+    const amount = parseFloat(laybyPayAmount);
+    if (!amount || amount <= 0) {
+      toast.error('Enter a payment amount');
+      return;
+    }
+    setIsTakingLaybyPayment(true);
+    try {
+      const res = await ordersApi.takeLaybyPayment(laybyPayOrder.id, {
+        amount,
+        method: laybyPayMethod,
+        reference: laybyPayRef.trim() || undefined,
+      });
+      const newStatus = res.data?.data?.order?.status;
+      if (newStatus === 'complete') {
+        toast.success(`Layby ${laybyPayOrder.orderNumber} fully paid — marked complete`);
+      } else {
+        toast.success(`Payment of $${amount.toFixed(2)} recorded`);
+      }
+      setLaybyPayOrder(null);
+      fetchOrders();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to record payment');
+    } finally {
+      setIsTakingLaybyPayment(false);
+    }
+  };
+
+  const handleCancelLayby = async (order: Order) => {
+    if (
+      !window.confirm(
+        `Cancel layby ${order.orderNumber}? Stock will be released. You'll be asked whether to refund paid amounts as store credit.`,
+      )
+    )
+      return;
+    const refund = window.confirm(
+      'Refund what the customer has already paid as store credit? OK = refund, Cancel = forfeit deposit.',
+    );
+    try {
+      await ordersApi.cancelLayby(order.id, { refundAsStoreCredit: refund });
+      toast.success(`Layby ${order.orderNumber} cancelled`);
+      fetchOrders();
+      setSelectedOrder(null);
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to cancel layby');
+    }
+  };
+
+  const handleFulfilBackorder = async (order: any, itemIds: number[]) => {
+    if (itemIds.length === 0) {
+      toast.error('Select items to mark as received');
+      return;
+    }
+    try {
+      const res = await ordersApi.fulfillBackorder(order.id, itemIds);
+      const newStatus = res.data?.data?.order?.status;
+      if (newStatus === 'complete') {
+        toast.success(`Order ${order.orderNumber} fully fulfilled`);
+      } else {
+        toast.success(`${itemIds.length} item(s) marked as received`);
+      }
+      // Refresh detail and list
+      const fresh = await ordersApi.getOrder(order.id);
+      setSelectedOrder({ ...fresh.data.data.order, refunds: selectedOrder?.refunds || [] });
+      fetchOrders();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || 'Failed to fulfil items');
+    }
+  };
 
   return (
     <div className="h-full p-6 overflow-auto">
@@ -507,6 +624,16 @@ export default function OrdersPage() {
                       >
                         <EyeIcon className="h-5 w-5" />
                       </button>
+                      {(order.status === 'layby_active' ||
+                        order.status === 'layby_expired') && (
+                        <button
+                          onClick={() => openLaybyPay(order)}
+                          className="p-2 hover:bg-amber-500/20 text-amber-300 rounded"
+                          title="Take Lay By payment"
+                        >
+                          <BanknotesIcon className="h-5 w-5" />
+                        </button>
+                      )}
                       {canRefund && isRefundable(order.status) && (
                         <button
                           onClick={() => openRefundModal(order)}
@@ -599,15 +726,69 @@ export default function OrdersPage() {
                 <p className="text-sm text-gray-400 mb-2">Items</p>
                 <div className="bg-pos-dark rounded p-3 space-y-2">
                   {selectedOrder.items?.map((item: any) => (
-                    <div key={item.id} className="flex justify-between">
-                      <span>
-                        {item.quantity}x {item.name}
-                      </span>
-                      <span>${parseFloat(item.rowTotal).toFixed(2)}</span>
+                    <div key={item.id} className="flex justify-between items-center gap-2">
+                      <div className="flex items-center gap-2 flex-1 min-w-0">
+                        <span className="truncate">
+                          {item.quantity}x {item.name}
+                        </span>
+                        {item.isBackorder && !item.backorderFulfilledAt && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-cyan-600/30 text-cyan-300 whitespace-nowrap">
+                            Backorder
+                          </span>
+                        )}
+                        {item.isBackorder && item.backorderFulfilledAt && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-green-600/30 text-green-300 whitespace-nowrap">
+                            Fulfilled
+                          </span>
+                        )}
+                      </div>
+                      <span className="whitespace-nowrap">${parseFloat(item.rowTotal).toFixed(2)}</span>
+                      {canManage &&
+                        item.isBackorder &&
+                        !item.backorderFulfilledAt && (
+                          <button
+                            onClick={() => handleFulfilBackorder(selectedOrder, [item.id])}
+                            className="p-1.5 hover:bg-green-500/20 text-green-400 rounded"
+                            title="Mark this backorder item as received"
+                          >
+                            <CheckCircleIcon className="h-4 w-4" />
+                          </button>
+                        )}
                     </div>
                   ))}
                 </div>
               </div>
+
+              {/* Layby actions */}
+              {(selectedOrder.status === 'layby_active' ||
+                selectedOrder.status === 'layby_expired') && (
+                <div className="border-t border-gray-700 pt-4 space-y-2">
+                  <p className="text-sm font-medium text-amber-300">
+                    Lay By
+                    {selectedOrder.laybyExpiresAt && (
+                      <span className="text-xs text-gray-400 ml-2">
+                        Expires {formatDate(selectedOrder.laybyExpiresAt)}
+                      </span>
+                    )}
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      className="btn-primary bg-amber-600 hover:bg-amber-700 flex items-center gap-2"
+                      onClick={() => openLaybyPay(selectedOrder)}
+                    >
+                      <BanknotesIcon className="h-4 w-4" /> Take Payment
+                    </button>
+                    {canManage && (
+                      <button
+                        className="btn-secondary"
+                        onClick={() => handleCancelLayby(selectedOrder)}
+                      >
+                        Cancel Lay By
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               <div className="border-t border-gray-700 pt-4">
                 <div className="flex justify-between text-sm">
@@ -657,6 +838,112 @@ export default function OrdersPage() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Take Lay By Payment Modal */}
+      {laybyPayOrder && (
+        <div className="modal-backdrop-top">
+          <div className="modal-content">
+            <div className="flex justify-between items-start mb-4">
+              <button
+                onClick={() => setLaybyPayOrder(null)}
+                className="modal-back-btn"
+                disabled={isTakingLaybyPayment}
+              >
+                <ArrowLeftIcon className="h-5 w-5" /> Back
+              </button>
+              <div className="text-right">
+                <h2 className="text-xl font-bold">Lay By Payment</h2>
+                <p className="text-sm text-gray-400">{laybyPayOrder.orderNumber}</p>
+              </div>
+            </div>
+
+            {laybyBalance && (
+              <div className="bg-pos-dark rounded-lg p-4 mb-4 grid grid-cols-3 gap-3 text-center">
+                <div>
+                  <p className="text-xs text-gray-400">Total</p>
+                  <p className="text-lg font-bold">${laybyBalance.grandTotal.toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Paid</p>
+                  <p className="text-lg font-bold text-green-400">${laybyBalance.paid.toFixed(2)}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-400">Balance</p>
+                  <p className="text-lg font-bold text-amber-300">${laybyBalance.balance.toFixed(2)}</p>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Amount</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={laybyBalance?.balance || undefined}
+                  className="input"
+                  value={laybyPayAmount}
+                  onChange={(e) => setLaybyPayAmount(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Method</label>
+                <div className="grid grid-cols-4 gap-2">
+                  {(['eftpos', 'cash', 'bank_transfer', 'store_credit'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      className={`py-2 rounded-md border text-sm font-medium ${
+                        laybyPayMethod === m
+                          ? 'border-primary-500 bg-primary-500/20 text-primary-200'
+                          : 'border-gray-600 text-gray-400 hover:border-gray-500'
+                      }`}
+                      onClick={() => setLaybyPayMethod(m)}
+                    >
+                      {m === 'eftpos'
+                        ? 'EFTPOS'
+                        : m === 'cash'
+                          ? 'Cash'
+                          : m === 'bank_transfer'
+                            ? 'Bank Transfer'
+                            : 'Store Credit'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {laybyPayMethod !== 'cash' && laybyPayMethod !== 'store_credit' && (
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Reference (optional)</label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={laybyPayRef}
+                    onChange={(e) => setLaybyPayRef(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                className="btn-secondary"
+                onClick={() => setLaybyPayOrder(null)}
+                disabled={isTakingLaybyPayment}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary bg-amber-600 hover:bg-amber-700"
+                onClick={handleTakeLaybyPayment}
+                disabled={isTakingLaybyPayment}
+              >
+                {isTakingLaybyPayment ? 'Recording...' : 'Record Payment'}
+              </button>
             </div>
           </div>
         </div>

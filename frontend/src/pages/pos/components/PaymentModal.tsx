@@ -56,6 +56,29 @@ export default function PaymentModal({
   const [useStoreCredit, setUseStoreCredit] = useState(false);
   const [storeCreditAmount, setStoreCreditAmount] = useState(0);
 
+  // Layby state. The 20% minimum and 90-day default are also enforced
+  // server-side; these constants just drive the UI defaults.
+  const LAYBY_DEPOSIT_PERCENT = 20;
+  const [isLayby, setIsLayby] = useState(false);
+  const [laybyDeposit, setLaybyDeposit] = useState<string>('');
+
+  // Per-item backorder flags (productId -> isBackorder). Cashier ticks
+  // items that aren't in stock and will be fulfilled later.
+  const [backorderByProductId, setBackorderByProductId] = useState<
+    Record<number, boolean>
+  >({});
+
+  // Default the deposit input to the 20% minimum whenever layby is
+  // toggled on or the cart total changes.
+  useEffect(() => {
+    if (isLayby) {
+      const min = Math.round((total * LAYBY_DEPOSIT_PERCENT) / 100 * 100) / 100;
+      setLaybyDeposit(min.toFixed(2));
+    } else {
+      setLaybyDeposit('');
+    }
+  }, [isLayby, total]);
+
   // Fetch store credit balance when a customer is attached to the cart
   useEffect(() => {
     if (!cart.customerId) {
@@ -96,9 +119,27 @@ export default function PaymentModal({
     return `INV-${year}${month}${day}-${random}`;
   };
 
+  // Resolve the amount the cashier is actually collecting right now.
+  // Lay By: whatever the deposit input is. Normal sale: the cart total.
+  const depositDue = isLayby
+    ? Math.max(0, Math.round((parseFloat(laybyDeposit) || 0) * 100) / 100)
+    : total;
+  const depositRemaining = Math.max(
+    0,
+    Math.round((depositDue - creditApplied) * 100) / 100,
+  );
+
   const handlePayment = async () => {
-    if (remainingDue > 0 && method === 'cash' && cashAmount < remainingDue) {
+    // Cash-at-register must cover the amount being collected right now
+    // (deposit for laybys, full total otherwise), minus any store credit.
+    const dueNow = isLayby ? depositRemaining : remainingDue;
+    if (dueNow > 0 && method === 'cash' && cashAmount < dueNow) {
       toast.error('Insufficient cash tendered');
+      return;
+    }
+
+    if (isLayby && !cart.customerId) {
+      toast.error('Lay By orders need a customer attached');
       return;
     }
 
@@ -110,6 +151,24 @@ export default function PaymentModal({
     if (useStoreCredit && creditApplied <= 0) {
       toast.error('Enter a store credit amount greater than 0');
       return;
+    }
+
+    // Block layby deposits that fall below the 20% minimum. Server also
+    // enforces this (manager+admin can override server-side) but fail
+    // fast on the client to save a round-trip.
+    if (isLayby) {
+      const minDeposit =
+        Math.round((total * LAYBY_DEPOSIT_PERCENT) / 100 * 100) / 100;
+      if (depositDue + 0.01 < minDeposit) {
+        toast.error(
+          `Deposit of $${depositDue.toFixed(2)} is below the ${LAYBY_DEPOSIT_PERCENT}% minimum ($${minDeposit.toFixed(2)}). A manager can override.`,
+        );
+        return;
+      }
+      if (depositDue > total + 0.01) {
+        toast.error('Deposit cannot exceed the order total');
+        return;
+      }
     }
 
     // Validate customer details if customer type (skip when walk-in)
@@ -135,15 +194,17 @@ export default function PaymentModal({
         orderNumber = generateOrderNumber();
         toast.success(`Demo Order ${orderNumber} created successfully!`);
       } else {
-        // Real payment via API — build a split payment array when store credit is used
+        // Real payment via API — build a split payment array when store
+        // credit is used. For laybys, only the deposit is charged now.
         const payments: any[] = [];
+        const payableNow = isLayby ? depositRemaining : remainingDue;
         if (creditApplied > 0) {
           payments.push({ method: 'store_credit', amount: creditApplied });
         }
-        if (remainingDue > 0) {
+        if (payableNow > 0) {
           payments.push({
             method,
-            amount: remainingDue,
+            amount: payableNow,
             reference: method !== 'cash' ? eftposRef : undefined,
             amountTendered: method === 'cash' ? cashAmount : undefined,
           });
@@ -151,10 +212,12 @@ export default function PaymentModal({
 
         const orderData = {
           customerId: cart.customerId,
+          orderType: isLayby ? 'layby' : 'standard',
           items: cart.items.map((item) => ({
             productId: item.productId,
             quantity: item.quantity,
             discountPercent: item.discountPercent,
+            isBackorder: !!backorderByProductId[item.productId],
           })),
           cartDiscount: cart.cartDiscount || undefined,
           payments,
@@ -168,7 +231,13 @@ export default function PaymentModal({
         }
 
         orderNumber = response.data.data.order.orderNumber;
-        toast.success(`Order ${orderNumber} created successfully!`);
+        if (isLayby) {
+          toast.success(
+            `Lay By ${orderNumber} created. Deposit $${depositDue.toFixed(2)} received. Balance $${(total - depositDue).toFixed(2)}.`,
+          );
+        } else {
+          toast.success(`Order ${orderNumber} created successfully!`);
+        }
       }
 
       // Prepare invoice data - include customer details for both buyer types if provided
@@ -626,20 +695,67 @@ export default function PaymentModal({
           />
         </div>
 
+        {/* Lay By toggle */}
+        <div className="mb-6 p-3 rounded-lg border border-amber-500/40 bg-amber-500/5">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isLayby}
+              onChange={(e) => setIsLayby(e.target.checked)}
+              className="w-4 h-4"
+              disabled={!cart.customerId}
+            />
+            <span className="font-medium text-amber-300">Create as Lay By</span>
+            <span className="text-xs text-gray-400">
+              {cart.customerId
+                ? '— customer pays deposit now, balance later'
+                : '(customer required)'}
+            </span>
+          </label>
+          {isLayby && (
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">
+                  Deposit (min {LAYBY_DEPOSIT_PERCENT}% = ${((total * LAYBY_DEPOSIT_PERCENT) / 100).toFixed(2)})
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min={0}
+                  max={total}
+                  className="input"
+                  value={laybyDeposit}
+                  onChange={(e) => setLaybyDeposit(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Balance owing</label>
+                <p className="input flex items-center text-gray-300">
+                  ${Math.max(0, total - (parseFloat(laybyDeposit) || 0)).toFixed(2)}
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Complete Button */}
         <button
           className="btn-success w-full btn-lg text-lg"
           onClick={handlePayment}
           disabled={
             isProcessing ||
-            (remainingDue > 0 && method === 'cash' && cashAmount < remainingDue)
+            (isLayby
+              ? depositRemaining > 0 && method === 'cash' && cashAmount < depositRemaining
+              : remainingDue > 0 && method === 'cash' && cashAmount < remainingDue)
           }
         >
           {isProcessing
             ? (demoMode ? 'Simulating...' : 'Processing...')
-            : remainingDue === 0 && creditApplied > 0
-              ? `Pay with Store Credit`
-              : `Complete Payment${creditApplied > 0 ? ` ($${remainingDue.toFixed(2)} + credit)` : ''}`}
+            : isLayby
+              ? `Create Lay By — Take Deposit $${depositRemaining.toFixed(2)}${creditApplied > 0 ? ' + credit' : ''}`
+              : remainingDue === 0 && creditApplied > 0
+                ? `Pay with Store Credit`
+                : `Complete Payment${creditApplied > 0 ? ` ($${remainingDue.toFixed(2)} + credit)` : ''}`}
         </button>
         </div>
         {/* End main payment column */}
@@ -676,6 +792,23 @@ export default function PaymentModal({
                       <span className="text-green-400">-{item.discountPercent}%</span>
                     )}
                   </div>
+                  {/* Backorder toggle — tick for items not in stock that the
+                      customer is happy to wait for. Stock isn't deducted and
+                      the order is flagged for fulfilment when it arrives. */}
+                  <label className="flex items-center gap-1.5 mt-2 text-xs text-gray-400 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!backorderByProductId[item.productId]}
+                      onChange={(e) =>
+                        setBackorderByProductId((prev) => ({
+                          ...prev,
+                          [item.productId]: e.target.checked,
+                        }))
+                      }
+                      className="w-3.5 h-3.5"
+                    />
+                    <span>Backorder (not in stock yet)</span>
+                  </label>
                 </div>
               ))
             )}

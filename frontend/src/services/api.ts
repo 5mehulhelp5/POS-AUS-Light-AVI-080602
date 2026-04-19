@@ -98,6 +98,7 @@ export const ordersApi = {
   getOrders: (params?: {
     status?: string;
     source?: string;
+    type?: string;
     search?: string;
     userId?: number;
     customerId?: number;
@@ -125,6 +126,31 @@ export const ordersApi = {
   ) => api.post(`/orders/${orderId}/refund`, data),
 
   getRefunds: (orderId: number) => api.get(`/orders/${orderId}/refunds`),
+
+  // Layby
+  takeLaybyPayment: (
+    orderId: number,
+    data: {
+      amount: number;
+      method: string;
+      reference?: string;
+      amountTendered?: number;
+    },
+  ) => api.post(`/orders/${orderId}/layby/payment`, data),
+
+  cancelLayby: (
+    orderId: number,
+    data: { reason?: string; refundAsStoreCredit?: boolean },
+  ) => api.post(`/orders/${orderId}/layby/cancel`, data),
+
+  getLaybyBalance: (orderId: number) =>
+    api.get(`/orders/${orderId}/layby/balance`),
+
+  expireLaybys: () => api.post('/orders/laybys/expire'),
+
+  // Backorder
+  fulfillBackorder: (orderId: number, itemIds: number[]) =>
+    api.post(`/orders/${orderId}/backorder/fulfill`, { itemIds }),
 };
 
 // Discounts API
