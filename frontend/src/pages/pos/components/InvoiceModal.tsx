@@ -20,6 +20,13 @@ interface InvoiceData {
   paymentMethod: string;
   cashTendered?: number;
   change?: number;
+  // Deposit / balance metadata. Present when the order is a layby or
+  // contains backorder items. If absent or balanceDue <= 0 the invoice
+  // prints as a regular fully-paid receipt.
+  isLayby?: boolean;
+  isBackorder?: boolean;
+  amountPaid?: number;
+  balanceDue?: number;
 }
 
 interface InvoiceModalProps {
@@ -147,10 +154,30 @@ export default function InvoiceModal({ invoice, onClose }: InvoiceModalProps) {
               fontSize: '12px',
               fontWeight: 'bold',
               marginTop: '10px',
-              backgroundColor: invoice.buyerType === 'retail' ? '#fef3c7' : '#dbeafe',
-              color: invoice.buyerType === 'retail' ? '#92400e' : '#1e40af'
+              backgroundColor: invoice.isLayby
+                ? '#fef3c7'
+                : invoice.isBackorder
+                  ? '#cffafe'
+                  : invoice.buyerType === 'retail'
+                    ? '#fef3c7'
+                    : '#dbeafe',
+              color: invoice.isLayby
+                ? '#92400e'
+                : invoice.isBackorder
+                  ? '#155e75'
+                  : invoice.buyerType === 'retail'
+                    ? '#92400e'
+                    : '#1e40af',
             }}>
-              {invoice.buyerType === 'retail' ? 'TRADE SALE' : 'CUSTOMER SALE'}
+              {invoice.isLayby
+                ? 'LAY BY — DEPOSIT RECEIPT'
+                : invoice.isBackorder &&
+                  typeof invoice.balanceDue === 'number' &&
+                  invoice.balanceDue > 0.01
+                  ? 'BACKORDER — DEPOSIT RECEIPT'
+                  : invoice.buyerType === 'retail'
+                    ? 'TRADE SALE'
+                    : 'CUSTOMER SALE'}
             </span>
           </div>
 
@@ -245,6 +272,29 @@ export default function InvoiceModal({ invoice, onClose }: InvoiceModalProps) {
               <span>Total:</span>
               <span>${invoice.grandTotal.toFixed(2)}</span>
             </div>
+
+            {/* Deposit / balance split for laybys and backorder orders */}
+            {typeof invoice.balanceDue === 'number' &&
+              invoice.balanceDue > 0.01 && (
+                <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #e5e7eb' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', color: '#059669', fontWeight: 'bold' }}>
+                    <span>
+                      {invoice.isLayby ? 'Deposit paid today' : 'Paid today'}:
+                    </span>
+                    <span>${(invoice.amountPaid || 0).toFixed(2)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', color: '#b45309', fontWeight: 'bold' }}>
+                    <span>Balance owing:</span>
+                    <span>${invoice.balanceDue.toFixed(2)}</span>
+                  </div>
+                  <p style={{ marginTop: '8px', fontSize: '13px', color: '#666', fontStyle: 'italic' }}>
+                    {invoice.isLayby
+                      ? 'This is a Lay By deposit receipt. Goods will be released when the balance is paid in full.'
+                      : 'Your order contains items that were not in stock. We will contact you when stock arrives and collect the balance on pickup/delivery.'}
+                  </p>
+                </div>
+              )}
+
             {invoice.cashTendered && (
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid #e5e7eb' }}>

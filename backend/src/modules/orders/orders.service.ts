@@ -187,13 +187,19 @@ export class OrdersService {
       0,
     );
 
-    if (isLayby) {
-      // Allow the cart to be split: staff enter the deposit, the
-      // remainder lives on the order as balance due. Floor guard:
-      // deposit must meet the configured minimum.
+    // Deposit-based orders: both laybys AND any order with backorder
+    // items let the customer pay a deposit now (>= 20%) with balance
+    // collected later (on pickup for laybys, on fulfilment for
+    // backorders). Full payment upfront is also fine — the deposit
+    // rule is only a minimum.
+    const isDepositOrder = isLayby || hasBackorder;
+    if (isDepositOrder) {
+      const settingKey = isLayby
+        ? 'layby_min_deposit_percent'
+        : 'backorder_min_deposit_percent';
       const minPercent = Number(
         (await this.settingsService.getValue<number | string>(
-          'layby_min_deposit_percent',
+          settingKey,
           20,
         )) || 20,
       );
@@ -202,14 +208,15 @@ export class OrdersService {
         'admin',
         'manager',
       ].includes(userRole.name);
+      const label = isLayby ? 'Layby' : 'Backorder';
       if (totalPayments + 0.01 < minDeposit && !depositOverridden) {
         throw new BadRequestException(
-          `Layby deposit of $${totalPayments.toFixed(2)} is below the ${minPercent}% minimum ($${minDeposit.toFixed(2)}). A manager can override this.`,
+          `${label} deposit of $${totalPayments.toFixed(2)} is below the ${minPercent}% minimum ($${minDeposit.toFixed(2)}). A manager can override this.`,
         );
       }
       if (totalPayments > grandTotal + 0.01) {
         throw new BadRequestException(
-          `Layby deposit $${totalPayments.toFixed(2)} exceeds the order total $${grandTotal.toFixed(2)}`,
+          `${label} deposit $${totalPayments.toFixed(2)} exceeds the order total $${grandTotal.toFixed(2)}`,
         );
       }
     } else if (Math.abs(totalPayments - grandTotal) > 0.01) {
@@ -254,11 +261,16 @@ export class OrdersService {
     } else {
       initialStatus = OrderStatus.COMPLETE;
     }
-    const initialPaymentStatus = isLayby
-      ? totalPayments > 0
-        ? PaymentStatus.PARTIAL
-        : PaymentStatus.PENDING
-      : PaymentStatus.PAID;
+    // Deposit orders (layby OR backorder with deposit-only) sit in
+    // PARTIAL until the balance is paid. A backorder order that was
+    // paid in full can still go straight to PAID.
+    let initialPaymentStatus: PaymentStatus;
+    if (isDepositOrder && totalPayments + 0.01 < grandTotal) {
+      initialPaymentStatus =
+        totalPayments > 0 ? PaymentStatus.PARTIAL : PaymentStatus.PENDING;
+    } else {
+      initialPaymentStatus = PaymentStatus.PAID;
+    }
 
     // Compute layby expiry from settings unless the caller supplied one.
     let laybyExpiresAt: Date | null = null;
@@ -612,8 +624,13 @@ export class OrdersService {
   }
 
   /**
-   * Record a payment against an active layby. If the balance reaches 0
-   * the layby auto-completes and pushes to Magento.
+   * Record a balance-due payment against an open order. Works for
+   * laybys (active or expired) and backorder-pending orders — both
+   * flows are "deposit now, rest later". When the balance reaches 0:
+   *   - Laybys complete immediately and push to Magento.
+   *   - Backorder orders only complete if every backorder line is
+   *     already fulfilled; otherwise paymentStatus flips to PAID but
+   *     the order stays BACKORDER_PENDING until stock arrives.
    */
   async takeLaybyPayment(
     orderId: number,
@@ -629,17 +646,21 @@ export class OrdersService {
       throw new BadRequestException('Payment amount must be greater than 0');
     }
 
-    const order = await this.orderRepository.findOne({ where: { id: orderId } });
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['items'],
+    });
     if (!order) throw new BadRequestException('Order not found');
-    if (order.orderType !== OrderType.LAYBY) {
-      throw new BadRequestException('Order is not a layby');
-    }
+    const isLaybyOrder = order.orderType === OrderType.LAYBY;
+    const isBackorderPending = order.status === OrderStatus.BACKORDER_PENDING;
     if (
+      !isLaybyOrder &&
+      !isBackorderPending &&
       order.status !== OrderStatus.LAYBY_ACTIVE &&
       order.status !== OrderStatus.LAYBY_EXPIRED
     ) {
       throw new BadRequestException(
-        `Cannot take payment on a layby with status "${order.status}"`,
+        `Cannot take balance payment on an order with status "${order.status}"`,
       );
     }
 
@@ -701,7 +722,7 @@ export class OrdersService {
         );
       }
 
-      // Check if the layby is now fully paid
+      // Check if the order is now fully paid.
       const newPaid = await queryRunner.manager
         .createQueryBuilder(Payment, 'p')
         .where('p.orderId = :orderId', { orderId: order.id })
@@ -714,9 +735,17 @@ export class OrdersService {
       const grandTotal = Number(order.grandTotal);
       const isFullyPaid = paidTotal + 0.01 >= grandTotal;
 
+      // Backorder orders can't complete until every backorder line is
+      // fulfilled (stock has arrived). They just go to PAID.
+      const hasOutstandingBackorder = (order.items || []).some(
+        (i) => i.isBackorder && !i.backorderFulfilledAt,
+      );
+
       if (isFullyPaid) {
-        order.status = OrderStatus.COMPLETE;
         order.paymentStatus = PaymentStatus.PAID;
+        if (!hasOutstandingBackorder) {
+          order.status = OrderStatus.COMPLETE;
+        }
       } else {
         order.paymentStatus = PaymentStatus.PARTIAL;
       }
@@ -724,8 +753,10 @@ export class OrdersService {
 
       await queryRunner.commitTransaction();
 
-      // Push to Magento only now that the layby is done.
-      if (isFullyPaid) {
+      // Push to Magento only when the order is actually complete. For
+      // laybys that means fully paid; for backorder orders that means
+      // fully paid AND all stock arrived.
+      if (isFullyPaid && !hasOutstandingBackorder && isLaybyOrder) {
         this.syncService
           .pushOrderToMagentoWithRetry(order.id)
           .catch((err) => {
@@ -891,7 +922,10 @@ export class OrdersService {
         }
       }
 
-      // If everything is now fulfilled, flip order status to COMPLETE.
+      // If everything is now fulfilled AND the balance is paid, flip
+      // the order to COMPLETE and push it to Magento. If the customer
+      // still owes money, keep the order PENDING so the cashier can
+      // collect the balance via Take Payment before closing it out.
       const refreshed = await queryRunner.manager.findOne(Order, {
         where: { id: orderId },
         relations: ['items'],
@@ -901,7 +935,21 @@ export class OrdersService {
           (i) => i.isBackorder && !i.backorderFulfilledAt,
         ) ?? false;
       if (!outstanding && refreshed) {
-        refreshed.status = OrderStatus.COMPLETE;
+        const paidRow = await queryRunner.manager
+          .createQueryBuilder(Payment, 'p')
+          .where('p.orderId = :orderId', { orderId })
+          .andWhere('p.status = :status', {
+            status: PaymentEntityStatus.COMPLETED,
+          })
+          .select('COALESCE(SUM(p.amount), 0)', 'total')
+          .getRawOne();
+        const paidTotal = Number(paidRow?.total || 0);
+        const grandTotal = Number(refreshed.grandTotal);
+        const balanceOwed = paidTotal + 0.01 < grandTotal;
+        if (!balanceOwed) {
+          refreshed.status = OrderStatus.COMPLETE;
+          refreshed.paymentStatus = PaymentStatus.PAID;
+        }
         await queryRunner.manager.save(refreshed);
       }
 

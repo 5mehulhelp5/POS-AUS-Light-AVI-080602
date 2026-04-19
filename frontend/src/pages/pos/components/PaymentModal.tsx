@@ -76,16 +76,28 @@ export default function PaymentModal({
     ),
   );
 
-  // Default the deposit input to the 20% minimum whenever layby is
-  // toggled on or the cart total changes.
+  // Does the current cart include at least one backorder line? Backorder
+  // orders follow the same "deposit now, balance later" rule as laybys,
+  // so the deposit UI appears automatically.
+  const hasBackorderLine = Object.values(backorderByProductId).some((v) => v);
+  // Any order that lets the customer pay less than the full grand total
+  // now: explicit Lay By, or an order containing backorder items.
+  const isDepositOrder = isLayby || hasBackorderLine;
+
+  // Default the deposit input to the 20% minimum whenever a deposit-
+  // based order is active (Lay By OR cart has backorder lines).
   useEffect(() => {
-    if (isLayby) {
+    if (isDepositOrder) {
       const min = Math.round((total * LAYBY_DEPOSIT_PERCENT) / 100 * 100) / 100;
-      setLaybyDeposit(min.toFixed(2));
+      // Only reset if the current value isn't already meaningful
+      setLaybyDeposit((prev) => {
+        if (prev && parseFloat(prev) > 0) return prev;
+        return min.toFixed(2);
+      });
     } else {
       setLaybyDeposit('');
     }
-  }, [isLayby, total]);
+  }, [isDepositOrder, total]);
 
   // Fetch store credit balance when a customer is attached to the cart
   useEffect(() => {
@@ -128,8 +140,9 @@ export default function PaymentModal({
   };
 
   // Resolve the amount the cashier is actually collecting right now.
-  // Lay By: whatever the deposit input is. Normal sale: the cart total.
-  const depositDue = isLayby
+  // Deposit orders (lay by or backorder): whatever the deposit input
+  // is. Normal sale: the cart total.
+  const depositDue = isDepositOrder
     ? Math.max(0, Math.round((parseFloat(laybyDeposit) || 0) * 100) / 100)
     : total;
   const depositRemaining = Math.max(
@@ -139,8 +152,9 @@ export default function PaymentModal({
 
   const handlePayment = async () => {
     // Cash-at-register must cover the amount being collected right now
-    // (deposit for laybys, full total otherwise), minus any store credit.
-    const dueNow = isLayby ? depositRemaining : remainingDue;
+    // (deposit for laybys/backorders, full total otherwise), minus any
+    // store credit.
+    const dueNow = isDepositOrder ? depositRemaining : remainingDue;
     if (dueNow > 0 && method === 'cash' && cashAmount < dueNow) {
       toast.error('Insufficient cash tendered');
       return;
@@ -169,10 +183,9 @@ export default function PaymentModal({
       return;
     }
 
-    // Block layby deposits that fall below the 20% minimum. Server also
-    // enforces this (manager+admin can override server-side) but fail
-    // fast on the client to save a round-trip.
-    if (isLayby) {
+    // Block deposits (layby or backorder) that fall below the 20%
+    // minimum. Server enforces too; fail fast on the client.
+    if (isDepositOrder) {
       const minDeposit =
         Math.round((total * LAYBY_DEPOSIT_PERCENT) / 100 * 100) / 100;
       if (depositDue + 0.01 < minDeposit) {
@@ -213,7 +226,7 @@ export default function PaymentModal({
         // Real payment via API — build a split payment array when store
         // credit is used. For laybys, only the deposit is charged now.
         const payments: any[] = [];
-        const payableNow = isLayby ? depositRemaining : remainingDue;
+        const payableNow = isDepositOrder ? depositRemaining : remainingDue;
         if (creditApplied > 0) {
           payments.push({ method: 'store_credit', amount: creditApplied });
         }
@@ -284,7 +297,15 @@ export default function PaymentModal({
         }
       }
 
-      // Prepare invoice data - include customer details for both buyer types if provided
+      // Prepare invoice data - include customer details for both buyer types if provided.
+      // For deposit orders, also pass the actual amount paid now + the
+      // balance owing so the invoice can show a deposit/balance split
+      // rather than claiming the whole total is paid.
+      const amountPaidNow = isDepositOrder ? depositDue : cart.grandTotal;
+      const balanceOwing = Math.max(
+        0,
+        Math.round((cart.grandTotal - amountPaidNow) * 100) / 100,
+      );
       const invoice = {
         orderNumber,
         date: new Date().toISOString(),
@@ -303,6 +324,11 @@ export default function PaymentModal({
         paymentMethod: method,
         cashTendered: method === 'cash' ? cashAmount : undefined,
         change: method === 'cash' ? change : undefined,
+        // Deposit / balance metadata — absent means the whole total was paid
+        isLayby,
+        isBackorder: hasBackorderLine,
+        amountPaid: amountPaidNow,
+        balanceDue: balanceOwing,
       };
 
       setInvoiceData(invoice);
@@ -374,11 +400,18 @@ export default function PaymentModal({
           <p className="text-4xl font-bold text-primary-400">
             ${total.toFixed(2)}
           </p>
+          {isDepositOrder && (
+            <p className="text-sm text-amber-300 mt-1">
+              Taking deposit now: <span className="font-bold">${depositDue.toFixed(2)}</span>
+              {' · '}
+              Balance owing: <span className="font-bold">${Math.max(0, total - depositDue).toFixed(2)}</span>
+            </p>
+          )}
           {creditApplied > 0 && (
             <p className="text-sm text-gray-400 mt-1">
               Store credit applied: <span className="text-purple-300 font-medium">-${creditApplied.toFixed(2)}</span>
               {' — '}
-              Remaining: <span className="text-primary-400 font-bold">${remainingDue.toFixed(2)}</span>
+              Remaining: <span className="text-primary-400 font-bold">${(isDepositOrder ? depositRemaining : remainingDue).toFixed(2)}</span>
             </p>
           )}
         </div>
@@ -766,7 +799,13 @@ export default function PaymentModal({
                 : '(fill in customer name + phone, or pick an existing customer)'}
             </span>
           </label>
-          {isLayby && (
+          {hasBackorderLine && !isLayby && (
+            <p className="text-xs text-cyan-300 mt-2">
+              Cart has backorder items — a deposit of at least {LAYBY_DEPOSIT_PERCENT}%
+              is required now, the balance is collected when stock arrives.
+            </p>
+          )}
+          {isDepositOrder && (
             <div className="mt-3 grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1">
@@ -800,7 +839,7 @@ export default function PaymentModal({
           onClick={handlePayment}
           disabled={
             isProcessing ||
-            (isLayby
+            (isDepositOrder
               ? depositRemaining > 0 && method === 'cash' && cashAmount < depositRemaining
               : remainingDue > 0 && method === 'cash' && cashAmount < remainingDue)
           }
@@ -809,9 +848,11 @@ export default function PaymentModal({
             ? (demoMode ? 'Simulating...' : 'Processing...')
             : isLayby
               ? `Create Lay By — Take Deposit $${depositRemaining.toFixed(2)}${creditApplied > 0 ? ' + credit' : ''}`
-              : remainingDue === 0 && creditApplied > 0
-                ? `Pay with Store Credit`
-                : `Complete Payment${creditApplied > 0 ? ` ($${remainingDue.toFixed(2)} + credit)` : ''}`}
+              : hasBackorderLine
+                ? `Create Backorder — Take Deposit $${depositRemaining.toFixed(2)}${creditApplied > 0 ? ' + credit' : ''}`
+                : remainingDue === 0 && creditApplied > 0
+                  ? `Pay with Store Credit`
+                  : `Complete Payment${creditApplied > 0 ? ` ($${remainingDue.toFixed(2)} + credit)` : ''}`}
         </button>
         </div>
         {/* End main payment column */}
