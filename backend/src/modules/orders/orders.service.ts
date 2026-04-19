@@ -76,14 +76,12 @@ export class OrdersService {
           `Product ${item.productId} not found`,
         );
       }
-      // Use effective price (special price if a sale is active, else regular).
-      // Must match what the POS shows the customer — otherwise the cart total
-      // on screen won't agree with what the server calculates, and the payment
-      // check below will reject the order.
+      // Use the special price if one is set, otherwise the regular price.
+      // Must match the POS cart (which uses `specialPrice || price` with no
+      // date check) — otherwise the cashier's total and the server's total
+      // disagree and the payment check rejects the order.
       const effective =
-        product.specialPrice &&
-        (!product.specialPriceFrom || product.specialPriceFrom <= new Date()) &&
-        (!product.specialPriceTo || product.specialPriceTo >= new Date())
+        product.specialPrice && Number(product.specialPrice) > 0
           ? product.specialPrice
           : product.price;
       return {
