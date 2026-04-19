@@ -94,10 +94,10 @@ body {
     @apply fixed inset-0 bg-black/90 z-50 flex items-stretch justify-stretch;
   }
 
-  /* Modal content — fills the viewport; individual modals can still
-     constrain inner content with max-w-Xl on their own inner wrappers */
+  /* Modal content — fills the viewport. Uses ! so Tailwind utility classes
+     like max-w-lg on the same element can't shrink the modal back down. */
   .modal-content {
-    @apply bg-pos-card w-full h-full max-w-none max-h-none overflow-y-auto p-6;
+    @apply bg-pos-card overflow-y-auto p-6 !w-full !h-full !max-w-none !max-h-none;
   }
 
   /* Elevated backdrop (sits over another modal) */

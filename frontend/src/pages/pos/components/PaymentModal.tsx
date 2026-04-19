@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  XMarkIcon,
+  ArrowLeftIcon,
   BanknotesIcon,
   CreditCardIcon,
   UserIcon,
@@ -223,34 +223,27 @@ export default function PaymentModal({
   }
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div
-        className="modal-content max-w-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="modal-backdrop">
+      <div className="bg-pos-card w-full h-full flex overflow-hidden">
+        {/* Main payment form column */}
+        <div className="flex-1 overflow-y-auto p-6">
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
+          <button onClick={onClose} className="modal-back-btn">
+            <ArrowLeftIcon className="h-5 w-5" /> Back
+          </button>
           <h2 className="text-xl font-bold">Payment</h2>
-          <div className="flex items-center gap-4">
-            {/* Demo Mode Toggle */}
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={demoMode}
-                onChange={(e) => setDemoMode(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-primary-500 focus:ring-primary-500"
-              />
-              <span className={demoMode ? 'text-yellow-400' : 'text-gray-400'}>
-                Demo Mode
-              </span>
-            </label>
-            <button
-              className="text-gray-400 hover:text-white"
-              onClick={onClose}
-            >
-              <XMarkIcon className="h-6 w-6" />
-            </button>
-          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={demoMode}
+              onChange={(e) => setDemoMode(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-600 bg-gray-700 text-primary-500 focus:ring-primary-500"
+            />
+            <span className={demoMode ? 'text-yellow-400' : 'text-gray-400'}>
+              Demo Mode
+            </span>
+          </label>
         </div>
 
         {/* Demo Mode Banner */}
@@ -648,6 +641,72 @@ export default function PaymentModal({
               ? `Pay with Store Credit`
               : `Complete Payment${creditApplied > 0 ? ` ($${remainingDue.toFixed(2)} + credit)` : ''}`}
         </button>
+        </div>
+        {/* End main payment column */}
+
+        {/* Cart sidebar — always visible during payment so the cashier can verify items */}
+        <aside className="w-96 border-l border-gray-700 bg-pos-dark flex flex-col">
+          <div className="p-4 border-b border-gray-700">
+            <h3 className="font-bold">Current Sale</h3>
+            <p className="text-xs text-gray-400">
+              {cart.items.length} item{cart.items.length === 1 ? '' : 's'}
+              {cart.customerName && ` · ${cart.customerName}`}
+            </p>
+          </div>
+          <div className="flex-1 overflow-y-auto divide-y divide-gray-800">
+            {cart.items.length === 0 ? (
+              <p className="p-4 text-sm text-gray-500">Cart is empty.</p>
+            ) : (
+              cart.items.map((item) => (
+                <div key={item.productId} className="p-3">
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{item.name}</p>
+                      <p className="text-xs text-gray-500 font-mono truncate">{item.sku}</p>
+                    </div>
+                    <p className="text-sm font-medium whitespace-nowrap">
+                      ${item.rowTotal.toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="flex justify-between items-center mt-1 text-xs text-gray-400">
+                    <span>
+                      {item.quantity} × ${item.unitPrice.toFixed(2)}
+                    </span>
+                    {item.discountPercent > 0 && (
+                      <span className="text-green-400">-{item.discountPercent}%</span>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="p-4 border-t border-gray-700 text-sm space-y-1">
+            <div className="flex justify-between text-gray-400">
+              <span>Subtotal</span>
+              <span>${cart.subtotal.toFixed(2)}</span>
+            </div>
+            {cart.itemDiscounts > 0 && (
+              <div className="flex justify-between text-green-400">
+                <span>Item discounts</span>
+                <span>-${cart.itemDiscounts.toFixed(2)}</span>
+              </div>
+            )}
+            {cart.cartDiscountAmount > 0 && (
+              <div className="flex justify-between text-green-400">
+                <span>Cart discount</span>
+                <span>-${cart.cartDiscountAmount.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-gray-400">
+              <span>GST (incl.)</span>
+              <span>${cart.taxAmount.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between text-lg font-bold pt-2 border-t border-gray-700">
+              <span>Total</span>
+              <span className="text-primary-400">${cart.grandTotal.toFixed(2)}</span>
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   );
