@@ -16,6 +16,9 @@ export interface CreateRefundDto {
     quantity: number;
     restock: boolean;
   }>;
+  // When true, refund goes back as cash (no store credit is issued).
+  // Defaults to false (store credit).
+  asCash?: boolean;
 }
 
 @Injectable()
@@ -61,12 +64,12 @@ export class RefundsService {
       if (order.status === OrderStatus.CANCELLED) {
         throw new BadRequestException('Cancelled orders cannot be refunded');
       }
-      // Refunds are always issued as store credit, so the order must be
-      // linked to a registered customer. Walk-in refunds need the staff
-      // to create a customer record first.
-      if (!order.customerId) {
+      // Store-credit refunds require a linked customer. Cash refunds don't —
+      // the customer walks away with cash and nothing needs to be tracked
+      // against an account.
+      if (!dto.asCash && !order.customerId) {
         throw new BadRequestException(
-          'This order is not linked to a customer. Create a customer record for the buyer before refunding so store credit can be issued.',
+          'This order is not linked to a customer. Link a customer to issue store credit, or refund as cash.',
         );
       }
 
@@ -151,12 +154,17 @@ export class RefundsService {
       // Determine if this refund fully completes the order refund
       const isFullRefund = newTotalRefunded >= orderGrandTotal - 0.01; // tolerance for float rounding
 
-      // Create refund + items
+      // Create refund + items. Prepend "[CASH REFUND]" to reasonText for
+      // cash refunds so it's visible on the refund list without needing a
+      // new schema column.
+      const combinedReasonText = dto.asCash
+        ? `[CASH REFUND] ${dto.reasonText?.trim() || ''}`.trim()
+        : dto.reasonText?.trim() || null;
       const refund = queryRunner.manager.create(Refund, {
         orderId: order.id,
         userId,
         reason: dto.reason,
-        reasonText: dto.reasonText?.trim() || null,
+        reasonText: combinedReasonText,
         refundAmount,
         isFullRefund,
       } as Partial<Refund>);
@@ -174,15 +182,18 @@ export class RefundsService {
       order.status = isFullRefund ? OrderStatus.REFUNDED : OrderStatus.REFUND_IN_PROCESS;
       await queryRunner.manager.save(order);
 
-      // Issue store credit to the customer. This runs inside the same
-      // transaction so a failure rolls back the refund cleanly.
-      await this.storeCreditService.issueFromRefund(
-        queryRunner.manager,
-        order.customerId!,
-        refundAmount,
-        savedRefund.id,
-        userId,
-      );
+      // Issue store credit to the customer — unless the cashier opted to
+      // refund as cash. Runs inside the same transaction so a failure
+      // rolls back the refund cleanly.
+      if (!dto.asCash && order.customerId) {
+        await this.storeCreditService.issueFromRefund(
+          queryRunner.manager,
+          order.customerId,
+          refundAmount,
+          savedRefund.id,
+          userId,
+        );
+      }
 
       await queryRunner.commitTransaction();
 

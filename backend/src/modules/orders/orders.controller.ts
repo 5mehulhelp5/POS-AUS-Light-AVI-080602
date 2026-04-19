@@ -66,6 +66,7 @@ export class OrdersController {
                 id: o.customer.id,
                 firstName: o.customer.firstName,
                 lastName: o.customer.lastName,
+                isTrade: o.customer.isTrade,
               }
             : null,
           user: {
@@ -178,7 +179,7 @@ export class OrdersController {
 
   @Post(':id/refund')
   @UseGuards(RolesGuard)
-  @Roles(RoleNames.ADMIN, RoleNames.MANAGER)
+  @Roles(RoleNames.ADMIN, RoleNames.MANAGER, RoleNames.SALES_STAFF)
   @ApiOperation({ summary: 'Refund selected items on an order (partial or full)' })
   async refund(
     @Param('id', ParseIntPipe) id: number,

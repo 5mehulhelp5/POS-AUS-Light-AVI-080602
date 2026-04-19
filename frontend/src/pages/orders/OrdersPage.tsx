@@ -20,7 +20,7 @@ interface Order {
   status: string;
   paymentStatus: string;
   grandTotal: number;
-  customer: { id: number; firstName: string; lastName: string } | null;
+  customer: { id: number; firstName: string; lastName: string; isTrade?: boolean } | null;
   user: { id: number; firstName: string; lastName: string };
   itemCount: number;
   createdAt: string;
@@ -84,7 +84,10 @@ interface RefundSelection {
 
 export default function OrdersPage() {
   const { user } = useSelector((state: RootState) => state.auth);
-  const canRefund = user?.role.name === 'admin' || user?.role.name === 'manager';
+  const canRefund =
+    user?.role.name === 'admin' ||
+    user?.role.name === 'manager' ||
+    user?.role.name === 'sales_staff';
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [pagination, setPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
@@ -105,6 +108,7 @@ export default function OrdersPage() {
   const [refundItems, setRefundItems] = useState<RefundSelection[]>([]);
   const [refundReason, setRefundReason] = useState<string>('damaged');
   const [refundReasonText, setRefundReasonText] = useState('');
+  const [refundAsCash, setRefundAsCash] = useState(false);
   const [isProcessingRefund, setIsProcessingRefund] = useState(false);
   const [completedRefund, setCompletedRefund] = useState<any>(null);
 
@@ -154,15 +158,9 @@ export default function OrdersPage() {
   };
 
   const openRefundModal = async (order: Order) => {
-    // Refunds are issued as store credit, so the order must be linked to a
-    // registered customer. For walk-ins, open the Link Customer flow first
-    // and automatically continue to the refund modal after linking.
-    if (!order.customer) {
-      setLinkOrder(order);
-      setLinkSearch('');
-      setLinkResults([]);
-      return;
-    }
+    // Walk-ins can now be refunded as cash without linking a customer.
+    // Cashier can still opt to link a customer inside the modal to issue
+    // store credit instead (via the Link Customer link we show there).
     try {
       const [orderRes, refundsRes] = await Promise.all([
         ordersApi.getOrder(order.id),
@@ -205,6 +203,8 @@ export default function OrdersPage() {
       setRefundItems(selections);
       setRefundReason('damaged');
       setRefundReasonText('');
+      // Walk-ins with no customer default to cash (can't issue credit to no-one)
+      setRefundAsCash(!fullOrder.customer);
       // Default restock off for damaged/faulty on open
       setRefundItems((prev) =>
         prev.map((it) => ({ ...it, restock: !NON_RESTOCKABLE_REASONS.has('damaged') })),
@@ -259,6 +259,7 @@ export default function OrdersPage() {
         reason: refundReason,
         reasonText: refundReasonText.trim() || undefined,
         items,
+        asCash: refundAsCash || !refundOrder.customer,
       });
       toast.success('Refund processed successfully');
       setCompletedRefund({
@@ -434,7 +435,12 @@ export default function OrdersPage() {
             </thead>
             <tbody className="divide-y divide-gray-700">
               {orders.map((order) => (
-                <tr key={order.id} className="hover:bg-pos-accent/50">
+                <tr
+                  key={order.id}
+                  className={`hover:bg-pos-accent/50 ${
+                    order.customer?.isTrade ? 'bg-orange-500/5 border-l-2 border-orange-500' : ''
+                  }`}
+                >
                   <td className="px-4 py-3 font-medium">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span>{order.orderNumber}</span>
@@ -474,9 +480,18 @@ export default function OrdersPage() {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    {order.customer
-                      ? `${order.customer.firstName} ${order.customer.lastName}`
-                      : 'Walk-in'}
+                    {order.customer ? (
+                      <span className="flex items-center gap-2">
+                        <span>{order.customer.firstName} {order.customer.lastName}</span>
+                        {order.customer.isTrade && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-orange-600/30 text-orange-300 border border-orange-500/40">
+                            Trade
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      'Walk-in'
+                    )}
                   </td>
                   <td className="px-4 py-3">{order.itemCount}</td>
                   <td className="px-4 py-3 font-medium">${order.grandTotal.toFixed(2)}</td>
@@ -793,10 +808,60 @@ export default function OrdersPage() {
               </p>
             </div>
 
+            {/* Refund method */}
+            <div className="mb-4 p-3 rounded-lg border border-gray-600 bg-pos-accent/40">
+              <p className="text-xs text-gray-400 mb-2">Refund method</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className={`flex-1 py-2 px-3 rounded-md border text-sm font-medium ${
+                    !refundAsCash && refundOrder.customer
+                      ? 'border-purple-500 bg-purple-500/20 text-purple-200'
+                      : 'border-gray-600 text-gray-400 hover:border-gray-500'
+                  }`}
+                  onClick={() => setRefundAsCash(false)}
+                  disabled={!refundOrder.customer}
+                  title={!refundOrder.customer ? 'Walk-in order — link a customer to issue store credit' : ''}
+                >
+                  Store Credit
+                </button>
+                <button
+                  type="button"
+                  className={`flex-1 py-2 px-3 rounded-md border text-sm font-medium ${
+                    refundAsCash || !refundOrder.customer
+                      ? 'border-green-500 bg-green-500/20 text-green-200'
+                      : 'border-gray-600 text-gray-400 hover:border-gray-500'
+                  }`}
+                  onClick={() => setRefundAsCash(true)}
+                >
+                  Cash
+                </button>
+              </div>
+              {!refundOrder.customer && (
+                <p className="text-xs text-gray-500 mt-2">
+                  This is a walk-in order — cash refund only, unless you{' '}
+                  <button
+                    className="text-blue-400 underline"
+                    onClick={() => {
+                      setLinkOrder(refundOrder);
+                      setLinkSearch('');
+                      setLinkResults([]);
+                      setRefundOrder(null);
+                    }}
+                  >
+                    link a customer first
+                  </button>
+                  .
+                </p>
+              )}
+            </div>
+
             {/* Total + Actions */}
             <div className="flex justify-between items-center border-t border-gray-700 pt-4">
               <div>
-                <p className="text-sm text-gray-400">Refund total</p>
+                <p className="text-sm text-gray-400">
+                  Refund total ({refundAsCash || !refundOrder.customer ? 'cash' : 'store credit'})
+                </p>
                 <p className="text-2xl font-bold text-orange-400">${refundTotal.toFixed(2)}</p>
               </div>
               <div className="flex gap-3">

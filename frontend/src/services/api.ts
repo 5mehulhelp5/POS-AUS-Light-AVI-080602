@@ -120,6 +120,7 @@ export const ordersApi = {
       reason: string;
       reasonText?: string;
       items: Array<{ orderItemId: number; quantity: number; restock: boolean }>;
+      asCash?: boolean;
     },
   ) => api.post(`/orders/${orderId}/refund`, data),
 
