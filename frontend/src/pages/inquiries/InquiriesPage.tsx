@@ -7,7 +7,7 @@ import {
   UserGroupIcon,
   ChatBubbleLeftIcon,
   PlusIcon,
-  XMarkIcon,
+  ArrowLeftIcon,
 } from '@heroicons/react/24/outline';
 
 interface Inquiry {
@@ -294,13 +294,13 @@ export default function InquiriesPage() {
 
       {/* Add Enquiry Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-pos-card rounded-lg p-6 max-w-lg w-full mx-4">
+        <div className="modal-backdrop">
+          <div className="modal-content">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Add Enquiry</h2>
-              <button onClick={() => setShowAddModal(false)} className="text-gray-400 hover:text-white">
-                <XMarkIcon className="h-5 w-5" />
+              <button onClick={() => setShowAddModal(false)} className="modal-back-btn">
+                <ArrowLeftIcon className="h-5 w-5" /> Back
               </button>
+              <h2 className="text-xl font-bold">Add Enquiry</h2>
             </div>
             <div className="space-y-3">
               <div>
@@ -402,9 +402,15 @@ export default function InquiriesPage() {
 
       {/* Inquiry Detail Modal */}
       {selectedInquiry && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-pos-card rounded-lg p-6 max-w-lg w-full mx-4">
+        <div className="modal-backdrop">
+          <div className="modal-content">
             <div className="flex justify-between items-start mb-4">
+              <button
+                onClick={() => setSelectedInquiry(null)}
+                className="modal-back-btn"
+              >
+                <ArrowLeftIcon className="h-5 w-5" /> Back
+              </button>
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-primary-600 rounded-full">
                   {getTypeIcon(selectedInquiry.type)}
@@ -421,12 +427,6 @@ export default function InquiriesPage() {
                   </div>
                 </div>
               </div>
-              <button
-                onClick={() => setSelectedInquiry(null)}
-                className="text-gray-400 hover:text-white"
-              >
-                Close
-              </button>
             </div>
 
             <div className="space-y-4">

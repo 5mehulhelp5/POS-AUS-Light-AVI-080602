@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
-  XMarkIcon,
   PlusIcon,
   MinusIcon,
   ShoppingCartIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ArrowLeftIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { productsApi, competitorApi } from '../../../services/api';
@@ -132,11 +132,14 @@ export default function ProductDetailModal({
     setGalleryIdx((i) => (i - 1 + gallery.length) % Math.max(1, gallery.length));
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-      <div className="bg-pos-card rounded-lg max-w-4xl w-full mx-4 max-h-[92vh] flex flex-col">
+    <div className="modal-backdrop">
+      <div className="bg-pos-card w-full h-full flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex justify-between items-start p-6 pb-4 border-b border-gray-700">
-          <div className="flex-1 pr-6">
+          <button onClick={onClose} className="modal-back-btn self-start">
+            <ArrowLeftIcon className="h-5 w-5" /> Back
+          </button>
+          <div className="flex-1 px-6">
             <p className="text-xs text-gray-400 font-mono">{product.sku}</p>
             <h2 className="text-xl font-bold mt-1">{product.name}</h2>
             <div className="flex items-center gap-3 mt-2">
@@ -168,9 +171,6 @@ export default function ProductDetailModal({
               </span>
             </div>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-white p-1">
-            <XMarkIcon className="h-5 w-5" />
-          </button>
         </div>
 
         {/* Body: gallery + tabs */}

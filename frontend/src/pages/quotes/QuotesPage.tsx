@@ -9,6 +9,7 @@ import {
   PlusCircleIcon,
   TrashIcon,
   XMarkIcon,
+  ArrowLeftIcon,
   PencilIcon,
   ArrowRightCircleIcon,
   PrinterIcon,
@@ -528,12 +529,15 @@ export default function QuotesPage() {
         const canConvert = (status === 'open' || status === 'expired') && expiryState !== 'past_grace';
         const canCancel = status === 'open';
         return (
-          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-            <div className="bg-pos-card rounded-lg p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-auto">
+          <div className="modal-backdrop">
+            <div className="modal-content">
               <div className="flex justify-between items-start mb-4">
-                <div>
+                <button onClick={() => setSelectedQuote(null)} className="modal-back-btn">
+                  <ArrowLeftIcon className="h-5 w-5" /> Back
+                </button>
+                <div className="text-right">
                   <h2 className="text-xl font-bold">{selectedQuote.quoteNumber}</h2>
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <div className="flex items-center gap-2 mt-1 flex-wrap justify-end">
                     {getStatusBadge(status)}
                     <span className="px-2 py-0.5 rounded text-xs font-medium bg-gray-700 uppercase">
                       {selectedQuote.buyerType || 'customer'}
@@ -543,9 +547,6 @@ export default function QuotesPage() {
                     </span>
                   </div>
                 </div>
-                <button onClick={() => setSelectedQuote(null)} className="text-gray-400 hover:text-white">
-                  <XMarkIcon className="h-5 w-5" />
-                </button>
               </div>
 
               {/* Status banner */}
@@ -673,15 +674,15 @@ export default function QuotesPage() {
 
       {/* Create Quote Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-pos-card rounded-lg p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-auto">
+        <div className="modal-backdrop">
+          <div className="modal-content">
             <div className="flex justify-between items-center mb-6">
+              <button onClick={() => { setShowCreateModal(false); resetCreateForm(); }} className="modal-back-btn">
+                <ArrowLeftIcon className="h-5 w-5" /> Back
+              </button>
               <h2 className="text-xl font-bold">
                 {editingQuoteId ? `Edit Quote #${editingQuoteId}` : 'Create Quote'}
               </h2>
-              <button onClick={() => { setShowCreateModal(false); resetCreateForm(); }} className="text-gray-400 hover:text-white">
-                <XMarkIcon className="h-6 w-6" />
-              </button>
             </div>
 
             {/* Buyer Type Toggle */}
@@ -1083,13 +1084,13 @@ export default function QuotesPage() {
         const expiredWithinGrace = !!check.expiredWithinGrace;
         const priceDropped = (check.prices || []).some((p: any) => p.priceDropped);
         return (
-          <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60]">
-            <div className="bg-pos-card rounded-lg p-6 max-w-xl w-full mx-4 max-h-[90vh] overflow-auto">
+          <div className="modal-backdrop-top">
+            <div className="modal-content">
               <div className="flex justify-between items-start mb-4">
-                <h2 className="text-xl font-bold">Convert Quote {quote.quoteNumber}</h2>
-                <button onClick={() => setConvertData(null)} className="text-gray-400 hover:text-white">
-                  <XMarkIcon className="h-5 w-5" />
+                <button onClick={() => setConvertData(null)} className="modal-back-btn">
+                  <ArrowLeftIcon className="h-5 w-5" /> Back
                 </button>
+                <h2 className="text-xl font-bold">Convert Quote {quote.quoteNumber}</h2>
               </div>
 
               {pastGrace && (
@@ -1207,8 +1208,8 @@ export default function QuotesPage() {
 
       {/* Cancel confirm */}
       {cancelConfirm && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60]">
-          <div className="bg-pos-card rounded-lg p-6 max-w-sm w-full mx-4">
+        <div className="modal-backdrop-top">
+          <div className="modal-content">
             <h3 className="text-lg font-bold mb-2">Cancel Quote?</h3>
             <p className="text-sm text-gray-400 mb-6">
               Are you sure you want to cancel quote {cancelConfirm.quoteNumber}? This cannot be undone.
@@ -1230,8 +1231,8 @@ export default function QuotesPage() {
 
       {/* Print view (full invoice-style) */}
       {printingQuote && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[70] print:bg-white print:static">
-          <div className="bg-white text-black rounded-lg max-w-2xl w-full mx-4 max-h-[95vh] overflow-auto print:shadow-none print:max-w-none print:rounded-none">
+        <div className="modal-backdrop-top print:bg-white print:static" style={{ zIndex: 70 }}>
+          <div className="modal-content bg-white text-black !p-0 print:shadow-none">
             <div className="p-8">
               {/* Store header */}
               <div className="flex justify-between items-start mb-6 border-b-2 border-gray-800 pb-4">

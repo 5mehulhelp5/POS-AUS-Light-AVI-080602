@@ -10,7 +10,7 @@ import {
   PhoneIcon,
   EnvelopeIcon,
   PlusIcon,
-  XMarkIcon,
+  ArrowLeftIcon,
   ShoppingCartIcon,
   DocumentTextIcon,
   BanknotesIcon,
@@ -448,8 +448,8 @@ export default function CustomersPage() {
 
       {/* Customer Detail Modal */}
       {selectedCustomer && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-pos-card rounded-lg max-w-4xl w-full mx-4 max-h-[90vh] flex flex-col">
+        <div className="modal-backdrop">
+          <div className="bg-pos-card w-full h-full flex flex-col overflow-hidden">
             {/* Header */}
             <div className="flex justify-between items-start p-6 pb-4 border-b border-gray-700">
               <div className="flex items-center gap-3">
@@ -496,9 +496,9 @@ export default function CustomersPage() {
                 </button>
                 <button
                   onClick={resetDetailState}
-                  className="text-gray-400 hover:text-white p-1"
+                  className="modal-back-btn"
                 >
-                  <XMarkIcon className="h-5 w-5" />
+                  <ArrowLeftIcon className="h-5 w-5" /> Back
                 </button>
               </div>
             </div>
@@ -877,17 +877,17 @@ export default function CustomersPage() {
 
       {/* Store Credit Manual Adjust Modal (admin only) */}
       {showAdjustModal && selectedCustomer && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60]">
-          <div className="bg-pos-card rounded-lg p-6 max-w-md w-full mx-4">
+        <div className="modal-backdrop-top">
+          <div className="modal-content">
             <div className="flex justify-between items-start mb-4">
-              <h3 className="text-lg font-bold">Adjust Store Credit</h3>
               <button
                 onClick={() => setShowAdjustModal(false)}
-                className="text-gray-400 hover:text-white"
+                className="modal-back-btn"
                 disabled={isAdjusting}
               >
-                <XMarkIcon className="h-5 w-5" />
+                <ArrowLeftIcon className="h-5 w-5" /> Back
               </button>
+              <h3 className="text-lg font-bold">Adjust Store Credit</h3>
             </div>
             <p className="text-sm text-gray-400 mb-4">
               Positive amount adds to balance, negative deducts. Can go negative.
@@ -936,16 +936,16 @@ export default function CustomersPage() {
 
       {/* Inline Order viewer (opened from the customer orders tab) */}
       {viewingOrder && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60]">
-          <div className="bg-pos-card rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[85vh] overflow-auto">
+        <div className="modal-backdrop-top">
+          <div className="modal-content">
             <div className="flex justify-between items-start mb-4">
-              <div>
+              <button onClick={() => setViewingOrder(null)} className="modal-back-btn">
+                <ArrowLeftIcon className="h-5 w-5" /> Back
+              </button>
+              <div className="text-right">
                 <h2 className="text-xl font-bold">{viewingOrder.orderNumber}</h2>
                 <p className="text-sm text-gray-400">{formatDate(viewingOrder.createdAt)}</p>
               </div>
-              <button onClick={() => setViewingOrder(null)} className="text-gray-400 hover:text-white">
-                <XMarkIcon className="h-5 w-5" />
-              </button>
             </div>
             <div className="space-y-4">
               <div>
@@ -988,13 +988,13 @@ export default function CustomersPage() {
 
       {/* Create Customer Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-pos-card rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-auto">
+        <div className="modal-backdrop">
+          <div className="modal-content">
             <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold">Create Customer</h2>
-              <button onClick={() => setShowCreateModal(false)} className="text-gray-400 hover:text-white">
-                <XMarkIcon className="h-6 w-6" />
+              <button onClick={() => setShowCreateModal(false)} className="modal-back-btn">
+                <ArrowLeftIcon className="h-5 w-5" /> Back
               </button>
+              <h2 className="text-xl font-bold">Create Customer</h2>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

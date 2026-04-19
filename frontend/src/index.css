@@ -89,15 +89,27 @@ body {
            aspect-square hover:bg-pos-card;
   }
 
-  /* Modal backdrop */
+  /* Modal backdrop — full-screen, opaque so popups feel like pages */
   .modal-backdrop {
-    @apply fixed inset-0 bg-black/50 backdrop-blur-sm z-50
-           flex items-center justify-center p-4;
+    @apply fixed inset-0 bg-black/90 z-50 flex items-stretch justify-stretch;
   }
 
-  /* Modal content */
+  /* Modal content — fills the viewport; individual modals can still
+     constrain inner content with max-w-Xl on their own inner wrappers */
   .modal-content {
-    @apply card w-full max-w-md max-h-[90vh] overflow-y-auto p-6;
+    @apply bg-pos-card w-full h-full max-w-none max-h-none overflow-y-auto p-6;
+  }
+
+  /* Elevated backdrop (sits over another modal) */
+  .modal-backdrop-top {
+    @apply fixed inset-0 bg-black/95 z-[60] flex items-stretch justify-stretch;
+  }
+
+  /* Back-navigation button for full-screen modals */
+  .modal-back-btn {
+    @apply inline-flex items-center gap-2 px-3 py-2 rounded-md
+           text-gray-300 hover:text-white hover:bg-pos-accent
+           font-medium text-sm;
   }
 
   /* Badge */

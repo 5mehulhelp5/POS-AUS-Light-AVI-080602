@@ -7,6 +7,7 @@ import {
   Cog6ToothIcon,
   ClockIcon,
   ArrowPathIcon,
+  ArrowLeftIcon,
 } from '@heroicons/react/24/outline';
 
 interface Role {
@@ -917,9 +918,14 @@ export default function SettingsPage() {
 
       {/* Edit Role Modal */}
       {editingRole && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-pos-card rounded-lg p-6 max-w-md w-full mx-4">
-            <h2 className="text-xl font-bold mb-4">Edit Role: {editingRole.name}</h2>
+        <div className="modal-backdrop">
+          <div className="modal-content">
+            <div className="flex items-center justify-between mb-4">
+              <button onClick={() => setEditingRole(null)} className="modal-back-btn">
+                <ArrowLeftIcon className="h-5 w-5" /> Back
+              </button>
+              <h2 className="text-xl font-bold">Edit Role: {editingRole.name}</h2>
+            </div>
 
             <div className="space-y-4">
               <div>

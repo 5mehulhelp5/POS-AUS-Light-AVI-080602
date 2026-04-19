@@ -9,9 +9,9 @@ import {
   EyeIcon,
   PlusIcon,
   ArrowUturnLeftIcon,
-  XMarkIcon,
   PrinterIcon,
   CloudArrowUpIcon,
+  ArrowLeftIcon,
 } from '@heroicons/react/24/outline';
 
 interface Order {
@@ -565,16 +565,16 @@ export default function OrdersPage() {
 
       {/* Order Detail Modal */}
       {selectedOrder && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-pos-card rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[85vh] overflow-auto">
+        <div className="modal-backdrop">
+          <div className="modal-content">
             <div className="flex justify-between items-start mb-4">
-              <div>
+              <button onClick={() => setSelectedOrder(null)} className="modal-back-btn">
+                <ArrowLeftIcon className="h-5 w-5" /> Back
+              </button>
+              <div className="text-right">
                 <h2 className="text-xl font-bold">{selectedOrder.orderNumber}</h2>
                 <p className="text-sm text-gray-400">{formatDate(selectedOrder.createdAt)}</p>
               </div>
-              <button onClick={() => setSelectedOrder(null)} className="text-gray-400 hover:text-white">
-                <XMarkIcon className="h-5 w-5" />
-              </button>
             </div>
 
             <div className="space-y-4">
@@ -664,20 +664,20 @@ export default function OrdersPage() {
 
       {/* Refund Modal */}
       {refundOrder && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-pos-card rounded-lg p-6 max-w-3xl w-full mx-4 max-h-[90vh] overflow-auto">
+        <div className="modal-backdrop">
+          <div className="modal-content">
             <div className="flex justify-between items-start mb-4">
-              <div>
+              <button
+                onClick={() => setRefundOrder(null)}
+                className="modal-back-btn"
+                disabled={isProcessingRefund}
+              >
+                <ArrowLeftIcon className="h-5 w-5" /> Back
+              </button>
+              <div className="text-right">
                 <h2 className="text-xl font-bold">Refund Order {refundOrder.orderNumber}</h2>
                 <p className="text-sm text-gray-400">Select items and quantities to refund</p>
               </div>
-              <button
-                onClick={() => setRefundOrder(null)}
-                className="text-gray-400 hover:text-white"
-                disabled={isProcessingRefund}
-              >
-                <XMarkIcon className="h-5 w-5" />
-              </button>
             </div>
 
             {/* Credit destination banner */}
@@ -887,23 +887,23 @@ export default function OrdersPage() {
 
       {/* Link Customer modal — shown when user tries to refund a walk-in order */}
       {linkOrder && (
-        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60]">
-          <div className="bg-pos-card rounded-lg p-6 max-w-lg w-full mx-4 max-h-[85vh] overflow-auto">
+        <div className="modal-backdrop-top">
+          <div className="modal-content">
             <div className="flex justify-between items-start mb-4">
-              <div>
+              <button
+                onClick={() => setLinkOrder(null)}
+                className="modal-back-btn"
+                disabled={isLinking}
+              >
+                <ArrowLeftIcon className="h-5 w-5" /> Back
+              </button>
+              <div className="text-right">
                 <h3 className="text-lg font-bold">Link Customer to Order</h3>
                 <p className="text-sm text-gray-400">
                   {linkOrder.orderNumber} is a walk-in order. Attach a customer
                   so store credit can be issued on refund.
                 </p>
               </div>
-              <button
-                onClick={() => setLinkOrder(null)}
-                className="text-gray-400 hover:text-white"
-                disabled={isLinking}
-              >
-                <XMarkIcon className="h-5 w-5" />
-              </button>
             </div>
 
             <div className="mb-4">
@@ -970,8 +970,8 @@ export default function OrdersPage() {
 
       {/* Refund Receipt (print view) */}
       {completedRefund && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 print:bg-white print:static">
-          <div className="bg-white text-black rounded-lg p-8 max-w-md w-full mx-4 max-h-[90vh] overflow-auto print:shadow-none print:max-w-none">
+        <div className="modal-backdrop print:bg-white print:static">
+          <div className="modal-content bg-white text-black p-8 print:shadow-none">
             <div className="text-center mb-4">
               <h2 className="text-2xl font-bold">REFUND RECEIPT</h2>
               <p className="text-sm text-gray-600">Australian Lighting & Fans</p>
