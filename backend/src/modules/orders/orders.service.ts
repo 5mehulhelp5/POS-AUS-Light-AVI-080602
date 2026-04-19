@@ -144,8 +144,12 @@ export class OrdersService {
       if (item.isBackorder) continue;
       const product = products.find((p) => p.id === item.productId);
       if (product && product.manageStock && product.stockQty < item.quantity) {
+        // Include the isBackorder flag we received in the error so it's
+        // obvious whether the issue is "not ticked" vs "backend on stale
+        // code" vs "flag got lost in transit".
         throw new BadRequestException(
-          `Insufficient stock for ${product.name}. Available: ${product.stockQty}`,
+          `Insufficient stock for ${product.name}. Available: ${product.stockQty}. ` +
+          `(isBackorder flag received from client: ${JSON.stringify(item.isBackorder)})`,
         );
       }
     }
