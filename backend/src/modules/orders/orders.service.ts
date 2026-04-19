@@ -158,6 +158,14 @@ export class OrdersService {
     );
     const grandTotal = validation.calculatedTotals.grandTotal;
 
+    // One-line breadcrumb so we can see in pm2 logs whether the layby flag
+    // and backorder flags actually reached the server. Cheap and helpful
+    // next time someone reports "it didn't work".
+    // eslint-disable-next-line no-console
+    console.log(
+      `[orders.create] type=${dto.orderType || 'standard'} isLayby=${isLayby} hasBackorder=${hasBackorder} grandTotal=${grandTotal} payments=${dto.payments.length}`,
+    );
+
     // Laybys require a linked customer — without one, there's no way to
     // track the balance or release credits on cancellation.
     if (isLayby && !dto.customerId) {
