@@ -68,6 +68,16 @@ export class OrderItem {
   })
   costPrice: number | null;
 
+  // Backorder tracking. `isBackorder` is true when stock wasn't available
+  // at time of sale and the customer agreed to wait. `backorderFulfilledAt`
+  // is set when a manager marks the item as received.
+  @Index()
+  @Column({ name: 'is_backorder', type: 'boolean', default: false })
+  isBackorder: boolean;
+
+  @Column({ name: 'backorder_fulfilled_at', type: 'timestamp', nullable: true })
+  backorderFulfilledAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

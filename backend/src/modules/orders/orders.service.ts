@@ -5,6 +5,7 @@ import {
   Order,
   OrderItem,
   OrderStatus,
+  OrderType,
   PaymentStatus,
   OrderSyncStatus,
   OrderSource,
@@ -16,6 +17,7 @@ import { DiscountType } from '../discounts/entities';
 import { ConfigService } from '@nestjs/config';
 import { StoreCreditService } from '../customers/store-credit.service';
 import { SyncService } from '../sync/sync.service';
+import { SettingsService } from '../settings/settings.service';
 
 interface CreateOrderDto {
   customerId?: number;
@@ -23,6 +25,10 @@ interface CreateOrderDto {
     productId: number;
     quantity: number;
     discountPercent?: number;
+    // Mark a line as a backorder. Skips the stock availability check and
+    // doesn't deduct inventory. Stock is decremented when the manager
+    // marks the item as fulfilled.
+    isBackorder?: boolean;
   }>;
   cartDiscount?: {
     type: 'percent' | 'fixed';
@@ -36,6 +42,13 @@ interface CreateOrderDto {
     amountTendered?: number;
   }>;
   notes?: string;
+  // Layby options. When `orderType === 'layby'`, the sum of payments
+  // is treated as a deposit rather than the full grand total. The
+  // remainder is owed by the customer and collected via
+  // `takeLaybyPayment`. `laybyExpiresAt` is when the balance must be
+  // paid by; defaults to now + laybyMaxDays (settings).
+  orderType?: 'standard' | 'layby';
+  laybyExpiresAt?: string;
 }
 
 @Injectable()
@@ -53,6 +66,7 @@ export class OrdersService {
     private readonly dataSource: DataSource,
     private readonly storeCreditService: StoreCreditService,
     private readonly syncService: SyncService,
+    private readonly settingsService: SettingsService,
   ) {
     this.taxRate = parseFloat(
       this.configService.get<string>('TAX_RATE', '0.10'),
@@ -108,8 +122,12 @@ export class OrdersService {
       });
     }
 
-    // Check stock
+    // Check stock. Skip backorder lines — those are explicitly allowed to
+    // exceed available stock and stock isn't deducted until fulfilment.
+    const isBackorderByProductId = new Map<number, boolean>();
     for (const item of dto.items) {
+      isBackorderByProductId.set(item.productId, !!item.isBackorder);
+      if (item.isBackorder) continue;
       const product = products.find((p) => p.id === item.productId);
       if (product && product.manageStock && product.stockQty < item.quantity) {
         throw new BadRequestException(
@@ -118,20 +136,62 @@ export class OrdersService {
       }
     }
 
-    // Verify payment amount. Coerce amounts to Number so a stray string
+    // Figure out what kind of order this is and how much the customer must
+    // actually pay now.
+    const isLayby = dto.orderType === 'layby';
+    const hasBackorder = Array.from(isBackorderByProductId.values()).some(
+      (b) => b,
+    );
+    const grandTotal = validation.calculatedTotals.grandTotal;
+
+    // Laybys require a linked customer — without one, there's no way to
+    // track the balance or release credits on cancellation.
+    if (isLayby && !dto.customerId) {
+      throw new BadRequestException(
+        'Layby orders must be linked to a customer',
+      );
+    }
+
+    // Verify payment amount. Standard orders must pay the full grand
+    // total; laybys must pay at least the configured deposit percent
+    // (default 20%). Coerce amounts to Number so a stray string
     // amount doesn't silently concatenate into a bogus total.
     const totalPayments = dto.payments.reduce(
       (sum, p) => sum + Number(p.amount || 0),
       0,
     );
-    if (
-      Math.abs(totalPayments - validation.calculatedTotals.grandTotal) > 0.01
-    ) {
+
+    if (isLayby) {
+      // Allow the cart to be split: staff enter the deposit, the
+      // remainder lives on the order as balance due. Floor guard:
+      // deposit must meet the configured minimum.
+      const minPercent = Number(
+        (await this.settingsService.getValue<number | string>(
+          'layby_min_deposit_percent',
+          20,
+        )) || 20,
+      );
+      const minDeposit = Math.round((grandTotal * minPercent) / 100 * 100) / 100;
+      const depositOverridden = !!userRole && [
+        'admin',
+        'manager',
+      ].includes(userRole.name);
+      if (totalPayments + 0.01 < minDeposit && !depositOverridden) {
+        throw new BadRequestException(
+          `Layby deposit of $${totalPayments.toFixed(2)} is below the ${minPercent}% minimum ($${minDeposit.toFixed(2)}). A manager can override this.`,
+        );
+      }
+      if (totalPayments > grandTotal + 0.01) {
+        throw new BadRequestException(
+          `Layby deposit $${totalPayments.toFixed(2)} exceeds the order total $${grandTotal.toFixed(2)}`,
+        );
+      }
+    } else if (Math.abs(totalPayments - grandTotal) > 0.01) {
       const breakdown = dto.payments
         .map((p) => `${p.method}:$${Number(p.amount || 0).toFixed(2)}`)
         .join(', ');
       throw new BadRequestException(
-        `Payment amount $${totalPayments.toFixed(2)} does not match order total $${validation.calculatedTotals.grandTotal.toFixed(2)} (${breakdown})`,
+        `Payment amount $${totalPayments.toFixed(2)} does not match order total $${grandTotal.toFixed(2)} (${breakdown})`,
       );
     }
 
@@ -155,6 +215,41 @@ export class OrdersService {
     // Generate order number
     const orderNumber = await this.generateOrderNumber();
 
+    // Pick the right status/payment-status combo for this order.
+    // Laybys sit in LAYBY_ACTIVE until fully paid.
+    // Orders containing backorder items sit in BACKORDER_PENDING until every
+    // line is fulfilled.
+    // Everything else completes immediately.
+    let initialStatus: OrderStatus;
+    if (isLayby) {
+      initialStatus = OrderStatus.LAYBY_ACTIVE;
+    } else if (hasBackorder) {
+      initialStatus = OrderStatus.BACKORDER_PENDING;
+    } else {
+      initialStatus = OrderStatus.COMPLETE;
+    }
+    const initialPaymentStatus = isLayby
+      ? totalPayments > 0
+        ? PaymentStatus.PARTIAL
+        : PaymentStatus.PENDING
+      : PaymentStatus.PAID;
+
+    // Compute layby expiry from settings unless the caller supplied one.
+    let laybyExpiresAt: Date | null = null;
+    if (isLayby) {
+      if (dto.laybyExpiresAt) {
+        laybyExpiresAt = new Date(dto.laybyExpiresAt);
+      } else {
+        const maxDays = Number(
+          (await this.settingsService.getValue<number | string>(
+            'layby_max_days',
+            90,
+          )) || 90,
+        );
+        laybyExpiresAt = new Date(Date.now() + maxDays * 24 * 60 * 60 * 1000);
+      }
+    }
+
     // Create order in transaction
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
@@ -169,12 +264,14 @@ export class OrdersService {
         subtotal: validation.calculatedTotals.subtotal,
         discountAmount: validation.calculatedTotals.totalDiscount,
         taxAmount: validation.calculatedTotals.taxAmount,
-        grandTotal: validation.calculatedTotals.grandTotal,
+        grandTotal,
         taxRate: this.taxRate,
-        status: OrderStatus.COMPLETE,
-        paymentStatus: PaymentStatus.PAID,
+        status: initialStatus,
+        paymentStatus: initialPaymentStatus,
         syncStatus: OrderSyncStatus.PENDING,
         notes: dto.notes || null,
+        orderType: isLayby ? OrderType.LAYBY : OrderType.STANDARD,
+        laybyExpiresAt,
       });
 
       const savedOrder = await queryRunner.manager.save(order);
@@ -182,6 +279,7 @@ export class OrdersService {
       // Create order items
       for (const calcItem of validation.calculatedTotals.items) {
         const product = products.find((p) => p.id === calcItem.productId);
+        const lineIsBackorder = !!isBackorderByProductId.get(calcItem.productId);
         const orderItem = queryRunner.manager.create(OrderItem, {
           orderId: savedOrder.id,
           productId: calcItem.productId,
@@ -194,6 +292,7 @@ export class OrdersService {
           taxAmount: calcItem.taxAmount,
           rowTotal: calcItem.rowTotal,
           costPrice: product?.cost || null,
+          isBackorder: lineIsBackorder,
         });
         await queryRunner.manager.save(orderItem);
 
@@ -213,8 +312,10 @@ export class OrdersService {
           );
         }
 
-        // Update stock
-        if (product) {
+        // Update stock — except for backorder lines (not yet in hand) and
+        // layby orders (stock is held on paper but we still decrement so
+        // it's reserved against other sales).
+        if (product && !lineIsBackorder) {
           await queryRunner.manager.update(
             'products',
             { id: product.id },
@@ -288,15 +389,21 @@ export class OrdersService {
       // Fire-and-forget push to Magento. Runs in the background so staff
       // aren't blocked by Magento response time. Failures update the
       // order's sync_status and can be retried from the Orders page.
-      this.syncService
-        .pushOrderToMagentoWithRetry(savedOrder.id)
-        .catch((err) => {
-          // eslint-disable-next-line no-console
-          console.error(
-            `[pushOrderToMagento] unhandled error for order ${savedOrder.id}:`,
-            err,
-          );
-        });
+      //
+      // Laybys don't push until they're fully paid (handled in
+      // completeLayby). Backorder orders DO push — Magento tracks them as
+      // a regular order with a note that items are on backorder.
+      if (!isLayby) {
+        this.syncService
+          .pushOrderToMagentoWithRetry(savedOrder.id)
+          .catch((err) => {
+            // eslint-disable-next-line no-console
+            console.error(
+              `[pushOrderToMagento] unhandled error for order ${savedOrder.id}:`,
+              err,
+            );
+          });
+      }
 
       return this.findById(savedOrder.id) as Promise<Order>;
     } catch (error) {
@@ -310,6 +417,7 @@ export class OrdersService {
   async findAll(options?: {
     status?: OrderStatus;
     source?: OrderSource;
+    orderType?: OrderType;
     search?: string;
     userId?: number;
     customerId?: number;
@@ -321,6 +429,7 @@ export class OrdersService {
     const {
       status,
       source,
+      orderType,
       search,
       userId,
       customerId,
@@ -370,6 +479,10 @@ export class OrdersService {
 
     if (source) {
       query.andWhere('order.source = :source', { source });
+    }
+
+    if (orderType) {
+      query.andWhere('order.orderType = :orderType', { orderType });
     }
 
     if (userId) {
@@ -439,5 +552,340 @@ export class OrdersService {
     order.customerId = customerId;
     await this.orderRepository.save(order);
     return (await this.findById(orderId)) as Order;
+  }
+
+  // -------------------------------------------------------------------
+  // Layby + backorder helpers
+  // -------------------------------------------------------------------
+
+  /**
+   * Sum of every completed payment against an order. Used to compute
+   * layby balance due = grandTotal - paid.
+   */
+  private async sumPaidForOrder(orderId: number): Promise<number> {
+    const row = await this.dataSource
+      .createQueryBuilder(Payment, 'p')
+      .where('p.orderId = :orderId', { orderId })
+      .andWhere('p.status = :status', { status: PaymentEntityStatus.COMPLETED })
+      .select('COALESCE(SUM(p.amount), 0)', 'total')
+      .getRawOne();
+    return Number(row?.total || 0);
+  }
+
+  async getLaybyBalance(orderId: number): Promise<{
+    grandTotal: number;
+    paid: number;
+    balance: number;
+  }> {
+    const order = await this.orderRepository.findOne({ where: { id: orderId } });
+    if (!order) throw new BadRequestException('Order not found');
+    const grandTotal = Number(order.grandTotal);
+    const paid = await this.sumPaidForOrder(orderId);
+    const balance = Math.max(0, Math.round((grandTotal - paid) * 100) / 100);
+    return { grandTotal, paid, balance };
+  }
+
+  /**
+   * Record a payment against an active layby. If the balance reaches 0
+   * the layby auto-completes and pushes to Magento.
+   */
+  async takeLaybyPayment(
+    orderId: number,
+    userId: number,
+    dto: {
+      amount: number;
+      method: string;
+      reference?: string;
+      amountTendered?: number;
+    },
+  ): Promise<Order> {
+    if (!dto.amount || dto.amount <= 0) {
+      throw new BadRequestException('Payment amount must be greater than 0');
+    }
+
+    const order = await this.orderRepository.findOne({ where: { id: orderId } });
+    if (!order) throw new BadRequestException('Order not found');
+    if (order.orderType !== OrderType.LAYBY) {
+      throw new BadRequestException('Order is not a layby');
+    }
+    if (
+      order.status !== OrderStatus.LAYBY_ACTIVE &&
+      order.status !== OrderStatus.LAYBY_EXPIRED
+    ) {
+      throw new BadRequestException(
+        `Cannot take payment on a layby with status "${order.status}"`,
+      );
+    }
+
+    const { balance } = await this.getLaybyBalance(orderId);
+    const toApply = Math.min(Number(dto.amount), balance);
+    if (toApply <= 0) {
+      throw new BadRequestException('Layby balance is already paid in full');
+    }
+
+    const methodMap: Record<string, PaymentMethod> = {
+      cash: PaymentMethod.CASH,
+      eftpos: PaymentMethod.EFTPOS,
+      credit_card: PaymentMethod.CREDIT_CARD,
+      bank_transfer: PaymentMethod.BANK_TRANSFER,
+      store_credit: PaymentMethod.STORE_CREDIT,
+      other: PaymentMethod.OTHER,
+    };
+    const paymentMethod = methodMap[dto.method] || PaymentMethod.OTHER;
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      // If paying with store credit, verify the customer has the balance
+      // and deduct from it inside the same transaction.
+      if (paymentMethod === PaymentMethod.STORE_CREDIT) {
+        if (!order.customerId) {
+          throw new BadRequestException(
+            'Store credit payments need a linked customer',
+          );
+        }
+        await this.storeCreditService.assertSufficientBalance(
+          order.customerId,
+          toApply,
+        );
+      }
+
+      const payment = queryRunner.manager.create(Payment, {
+        orderId: order.id,
+        userId,
+        method: paymentMethod,
+        amount: toApply,
+        reference: dto.reference || null,
+        amountTendered: dto.amountTendered || null,
+        changeGiven: dto.amountTendered
+          ? dto.amountTendered - toApply
+          : null,
+        status: PaymentEntityStatus.COMPLETED,
+      });
+      await queryRunner.manager.save(payment);
+
+      if (paymentMethod === PaymentMethod.STORE_CREDIT && order.customerId) {
+        await this.storeCreditService.redeemForOrder(
+          queryRunner.manager,
+          order.customerId,
+          toApply,
+          order.id,
+          userId,
+        );
+      }
+
+      // Check if the layby is now fully paid
+      const newPaid = await queryRunner.manager
+        .createQueryBuilder(Payment, 'p')
+        .where('p.orderId = :orderId', { orderId: order.id })
+        .andWhere('p.status = :status', {
+          status: PaymentEntityStatus.COMPLETED,
+        })
+        .select('COALESCE(SUM(p.amount), 0)', 'total')
+        .getRawOne();
+      const paidTotal = Number(newPaid?.total || 0);
+      const grandTotal = Number(order.grandTotal);
+      const isFullyPaid = paidTotal + 0.01 >= grandTotal;
+
+      if (isFullyPaid) {
+        order.status = OrderStatus.COMPLETE;
+        order.paymentStatus = PaymentStatus.PAID;
+      } else {
+        order.paymentStatus = PaymentStatus.PARTIAL;
+      }
+      await queryRunner.manager.save(order);
+
+      await queryRunner.commitTransaction();
+
+      // Push to Magento only now that the layby is done.
+      if (isFullyPaid) {
+        this.syncService
+          .pushOrderToMagentoWithRetry(order.id)
+          .catch((err) => {
+            // eslint-disable-next-line no-console
+            console.error(
+              `[pushOrderToMagento] layby ${order.id}:`,
+              err,
+            );
+          });
+      }
+
+      return (await this.findById(order.id)) as Order;
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * Cancel an active layby. Releases reserved stock back to inventory.
+   * `refundAsStoreCredit` — return the deposit(s) to the customer as
+   * store credit. `forfeitDeposit` — keep the deposit (admin option,
+   * e.g. after no-show + expiry).
+   */
+  async cancelLayby(
+    orderId: number,
+    userId: number,
+    opts: { reason?: string; refundAsStoreCredit?: boolean } = {},
+  ): Promise<Order> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['items'],
+    });
+    if (!order) throw new BadRequestException('Order not found');
+    if (order.orderType !== OrderType.LAYBY) {
+      throw new BadRequestException('Order is not a layby');
+    }
+    if (
+      order.status !== OrderStatus.LAYBY_ACTIVE &&
+      order.status !== OrderStatus.LAYBY_EXPIRED
+    ) {
+      throw new BadRequestException(
+        `Cannot cancel layby with status "${order.status}"`,
+      );
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      // Release reserved stock for non-backorder items. Backorder items
+      // never took stock in the first place.
+      for (const item of order.items) {
+        if (!item.productId || item.isBackorder) continue;
+        await queryRunner.manager.update(
+          'products',
+          { id: item.productId },
+          {
+            stockQty: () => `stock_qty + ${item.quantity}`,
+            isInStock: () => `1`,
+          },
+        );
+      }
+
+      // Optionally issue store credit for what was paid.
+      if (opts.refundAsStoreCredit && order.customerId) {
+        const paid = await this.sumPaidForOrder(order.id);
+        if (paid > 0) {
+          await this.storeCreditService.issueFromRefund(
+            queryRunner.manager,
+            order.customerId,
+            paid,
+            order.id, // using orderId as a related ref since there's no Refund row
+            userId,
+          );
+        }
+      }
+
+      order.status = OrderStatus.CANCELLED;
+      order.notes = [order.notes, opts.reason ? `Cancelled: ${opts.reason}` : null]
+        .filter(Boolean)
+        .join('\n');
+      await queryRunner.manager.save(order);
+
+      await queryRunner.commitTransaction();
+      return (await this.findById(order.id)) as Order;
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  /**
+   * Mark any active laybys whose expiry has passed as LAYBY_EXPIRED so
+   * they surface on the list for admin review. Intended to be called on
+   * a schedule or on demand. Returns the number of orders touched.
+   */
+  async expireLaybys(): Promise<number> {
+    const result = await this.orderRepository
+      .createQueryBuilder()
+      .update(Order)
+      .set({ status: OrderStatus.LAYBY_EXPIRED })
+      .where('orderType = :type', { type: OrderType.LAYBY })
+      .andWhere('status = :status', { status: OrderStatus.LAYBY_ACTIVE })
+      .andWhere('laybyExpiresAt IS NOT NULL')
+      .andWhere('laybyExpiresAt < :now', { now: new Date() })
+      .execute();
+    return result.affected || 0;
+  }
+
+  /**
+   * Mark one or more backorder line items as fulfilled (stock arrived).
+   * Decrements stock and, if every backorder line on the order is now
+   * fulfilled, transitions the order from BACKORDER_PENDING to COMPLETE.
+   */
+  async fulfillBackorderItems(
+    orderId: number,
+    itemIds: number[],
+  ): Promise<Order> {
+    if (!itemIds || itemIds.length === 0) {
+      throw new BadRequestException('No items to fulfil');
+    }
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['items'],
+    });
+    if (!order) throw new BadRequestException('Order not found');
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+    try {
+      for (const id of itemIds) {
+        const item = order.items.find((i) => i.id === id);
+        if (!item) {
+          throw new BadRequestException(`Item ${id} is not on this order`);
+        }
+        if (!item.isBackorder) {
+          throw new BadRequestException(
+            `Item ${id} is not flagged as a backorder`,
+          );
+        }
+        if (item.backorderFulfilledAt) {
+          continue; // already fulfilled
+        }
+        item.backorderFulfilledAt = new Date();
+        await queryRunner.manager.save(item);
+
+        if (item.productId) {
+          await queryRunner.manager.update(
+            'products',
+            { id: item.productId },
+            {
+              stockQty: () => `stock_qty - ${item.quantity}`,
+              isInStock: () =>
+                `CASE WHEN stock_qty - ${item.quantity} > 0 THEN 1 ELSE 0 END`,
+            },
+          );
+        }
+      }
+
+      // If everything is now fulfilled, flip order status to COMPLETE.
+      const refreshed = await queryRunner.manager.findOne(Order, {
+        where: { id: orderId },
+        relations: ['items'],
+      });
+      const outstanding =
+        refreshed?.items?.some(
+          (i) => i.isBackorder && !i.backorderFulfilledAt,
+        ) ?? false;
+      if (!outstanding && refreshed) {
+        refreshed.status = OrderStatus.COMPLETE;
+        await queryRunner.manager.save(refreshed);
+      }
+
+      await queryRunner.commitTransaction();
+      return (await this.findById(order.id)) as Order;
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
   }
 }

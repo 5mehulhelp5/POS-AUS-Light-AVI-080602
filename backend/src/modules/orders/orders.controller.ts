@@ -32,6 +32,7 @@ export class OrdersController {
   async findAll(
     @Query('status') status?: string,
     @Query('source') source?: string,
+    @Query('type') type?: string,
     @Query('search') search?: string,
     @Query('userId') userId?: number,
     @Query('customerId') customerId?: number,
@@ -43,6 +44,7 @@ export class OrdersController {
     const { orders, total } = await this.ordersService.findAll({
       status: status as any,
       source: source as any,
+      orderType: type as any,
       search,
       userId,
       customerId,
@@ -77,6 +79,9 @@ export class OrdersController {
           itemCount: o.items.length,
           createdAt: o.createdAt,
           source: o.source,
+          orderType: o.orderType,
+          laybyExpiresAt: o.laybyExpiresAt,
+          hasBackorderItems: o.items.some((i) => i.isBackorder),
           magentoIncrementId: o.magentoIncrementId,
           magentoOrderId: o.magentoOrderId,
           syncStatus: o.syncStatus,
@@ -212,6 +217,109 @@ export class OrdersController {
             amount: parseFloat(ri.amount.toString()),
             restock: ri.restock,
           })),
+        },
+      },
+    };
+  }
+
+  @Post(':id/layby/payment')
+  @ApiOperation({
+    summary: 'Record a payment against an active layby. Completes the layby once fully paid.',
+  })
+  async takeLaybyPayment(
+    @Param('id', ParseIntPipe) id: number,
+    @Body()
+    body: {
+      amount: number;
+      method: string;
+      reference?: string;
+      amountTendered?: number;
+    },
+    @CurrentUser() user: any,
+  ) {
+    const order = await this.ordersService.takeLaybyPayment(id, user.id, body);
+    const balance = await this.ordersService.getLaybyBalance(id);
+    return {
+      success: true,
+      data: {
+        order: {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          status: order.status,
+          paymentStatus: order.paymentStatus,
+          grandTotal: parseFloat(order.grandTotal.toString()),
+        },
+        balance,
+      },
+    };
+  }
+
+  @Post(':id/layby/cancel')
+  @UseGuards(RolesGuard)
+  @Roles(RoleNames.ADMIN, RoleNames.MANAGER)
+  @ApiOperation({
+    summary: 'Cancel an active or expired layby and optionally refund paid amounts as store credit',
+  })
+  async cancelLayby(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { reason?: string; refundAsStoreCredit?: boolean },
+    @CurrentUser() user: any,
+  ) {
+    const order = await this.ordersService.cancelLayby(id, user.id, {
+      reason: body?.reason,
+      refundAsStoreCredit: !!body?.refundAsStoreCredit,
+    });
+    return {
+      success: true,
+      data: {
+        order: {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          status: order.status,
+        },
+      },
+    };
+  }
+
+  @Get(':id/layby/balance')
+  @ApiOperation({ summary: 'Current balance due on a layby' })
+  async getLaybyBalance(@Param('id', ParseIntPipe) id: number) {
+    const balance = await this.ordersService.getLaybyBalance(id);
+    return { success: true, data: balance };
+  }
+
+  @Post('laybys/expire')
+  @UseGuards(RolesGuard)
+  @Roles(RoleNames.ADMIN, RoleNames.MANAGER)
+  @ApiOperation({
+    summary: 'Mark laybys past their expiry date as expired. Safe to call repeatedly.',
+  })
+  async expireLaybys() {
+    const count = await this.ordersService.expireLaybys();
+    return { success: true, data: { expired: count } };
+  }
+
+  @Post(':id/backorder/fulfill')
+  @UseGuards(RolesGuard)
+  @Roles(RoleNames.ADMIN, RoleNames.MANAGER)
+  @ApiOperation({
+    summary: 'Mark backorder items as received. Completes the order when all lines are fulfilled.',
+  })
+  async fulfillBackorder(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { itemIds: number[] },
+  ) {
+    const order = await this.ordersService.fulfillBackorderItems(
+      id,
+      body?.itemIds || [],
+    );
+    return {
+      success: true,
+      data: {
+        order: {
+          id: order.id,
+          orderNumber: order.orderNumber,
+          status: order.status,
         },
       },
     };

@@ -8,6 +8,7 @@ import { ProductsModule } from '../products/products.module';
 import { DiscountsModule } from '../discounts/discounts.module';
 import { CustomersModule } from '../customers/customers.module';
 import { SyncModule } from '../sync/sync.module';
+import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { SyncModule } from '../sync/sync.module';
     DiscountsModule,
     CustomersModule,
     SyncModule,
+    SettingsModule,
   ],
   controllers: [OrdersController],
   providers: [OrdersService, RefundsService],

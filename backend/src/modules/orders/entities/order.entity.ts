@@ -21,6 +21,20 @@ export enum OrderStatus {
   CANCELLED = 'cancelled',
   REFUND_IN_PROCESS = 'refund_in_process',
   REFUNDED = 'refunded',
+  // Layby lifecycle: customer paid a deposit, owes the balance, stock is held.
+  LAYBY_ACTIVE = 'layby_active',
+  // Passed expiry without full payment. Admin decides whether to refund or
+  // forfeit the deposit and release the stock.
+  LAYBY_EXPIRED = 'layby_expired',
+  // At least one line item couldn't be fulfilled immediately (out of stock
+  // at the time of sale). Becomes complete once all backorder items are
+  // received and fulfilled.
+  BACKORDER_PENDING = 'backorder_pending',
+}
+
+export enum OrderType {
+  STANDARD = 'standard',
+  LAYBY = 'layby',
 }
 
 export enum PaymentStatus {
@@ -148,6 +162,20 @@ export class Order {
     default: OrderSource.POS,
   })
   source: OrderSource;
+
+  // Layby/backorder metadata. orderType distinguishes a layby from a normal
+  // sale; laybyExpiresAt is the latest date the balance must be paid by.
+  @Index()
+  @Column({
+    name: 'order_type',
+    type: 'enum',
+    enum: OrderType,
+    default: OrderType.STANDARD,
+  })
+  orderType: OrderType;
+
+  @Column({ name: 'layby_expires_at', type: 'timestamp', nullable: true })
+  laybyExpiresAt: Date | null;
 
   @Index()
   @CreateDateColumn({ name: 'created_at' })
