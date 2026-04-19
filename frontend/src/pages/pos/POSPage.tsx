@@ -195,6 +195,12 @@ export default function POSPage() {
     if (alreadyInCart) {
       toast(`"${product.name}" is already in the cart — quantity increased`, { icon: 'ℹ️' });
     }
+    // If the product was out of stock at add time, pre-flag it as a
+    // backorder line so the cashier sees the checkbox already ticked
+    // at checkout. They can still untick it if they manually pulled
+    // stock from somewhere.
+    const outOfStock =
+      product.isInStock === false || Number(product.stockQty) <= 0;
     for (let i = 0; i < quantity; i++) {
       dispatch(
         addItem({
@@ -204,6 +210,7 @@ export default function POSPage() {
           price: product.specialPrice || product.price,
           imageUrl: product.thumbnailUrl,
           isSaleItem: !!product.specialPrice,
+          isBackorder: outOfStock,
         })
       );
     }

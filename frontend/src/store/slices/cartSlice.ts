@@ -12,6 +12,11 @@ export interface CartItem {
   rowTotal: number;
   imageUrl?: string;
   isSaleItem?: boolean;
+  // Item was out of stock when it was added to cart. PaymentModal uses
+  // this to default the "Backorder" checkbox to on, and — combined with
+  // the manual toggle — this is what gets submitted as `isBackorder` on
+  // the order item.
+  isBackorder?: boolean;
 }
 
 export interface CartDiscount {
@@ -107,14 +112,19 @@ const cartSlice = createSlice({
         price: number;
         imageUrl?: string;
         isSaleItem?: boolean;
+        isBackorder?: boolean;
       }>
     ) => {
-      const { productId, sku, name, price, imageUrl, isSaleItem } = action.payload;
+      const { productId, sku, name, price, imageUrl, isSaleItem, isBackorder } =
+        action.payload;
 
       const existingItem = state.items.find((i) => i.productId === productId);
 
       if (existingItem) {
         existingItem.quantity += 1;
+        // If we're adding a backorder copy of an item, upgrade the flag so
+        // the cashier sees it tagged even if the first add was in-stock.
+        if (isBackorder) existingItem.isBackorder = true;
       } else {
         state.items.push({
           productId,
@@ -128,6 +138,7 @@ const cartSlice = createSlice({
           rowTotal: 0,
           imageUrl,
           isSaleItem,
+          isBackorder,
         });
       }
 

@@ -63,10 +63,18 @@ export default function PaymentModal({
   const [laybyDeposit, setLaybyDeposit] = useState<string>('');
 
   // Per-item backorder flags (productId -> isBackorder). Cashier ticks
-  // items that aren't in stock and will be fulfilled later.
+  // items that aren't in stock and will be fulfilled later. Seed from
+  // cart.items.isBackorder so lines that were out of stock at add time
+  // already have the flag on.
   const [backorderByProductId, setBackorderByProductId] = useState<
     Record<number, boolean>
-  >({});
+  >(() =>
+    Object.fromEntries(
+      cart.items
+        .filter((i) => i.isBackorder)
+        .map((i) => [i.productId, true]),
+    ),
+  );
 
   // Default the deposit input to the 20% minimum whenever layby is
   // toggled on or the cart total changes.
@@ -138,9 +146,17 @@ export default function PaymentModal({
       return;
     }
 
+    // Layby needs a DB customer record so we can track the balance and
+    // (later) follow up on expiry. If the cashier only typed inline
+    // invoice details, require at minimum a name and phone — we'll
+    // auto-create the customer record before submitting the order.
     if (isLayby && !cart.customerId) {
-      toast.error('Lay By orders need a customer attached');
-      return;
+      if (!customerName.trim() || !customerPhone.trim()) {
+        toast.error(
+          'Lay By needs a customer name and phone (or pick an existing customer)',
+        );
+        return;
+      }
     }
 
     if (useStoreCredit && !cart.customerId) {
@@ -210,8 +226,33 @@ export default function PaymentModal({
           });
         }
 
+        // Layby requires a DB customer record. If the cashier typed inline
+        // details without picking/creating a customer first, auto-create
+        // one here so the order can attach to it and we can follow up
+        // later.
+        let customerIdToUse = cart.customerId;
+        if (isLayby && !customerIdToUse) {
+          const parts = customerName.trim().split(/\s+/);
+          const firstName = parts.shift() || customerName.trim();
+          const lastName = parts.join(' ') || '—';
+          const created = await customersApi.createCustomer({
+            firstName,
+            lastName,
+            phone: customerPhone.trim() || undefined,
+            email: customerEmail.trim() || undefined,
+            street: customerStreet.trim() || undefined,
+            city: customerCity.trim() || undefined,
+            state: customerState || undefined,
+            postcode: customerPostcode.trim() || undefined,
+          });
+          customerIdToUse = created.data?.data?.customer?.id || null;
+          if (!customerIdToUse) {
+            throw new Error('Could not create customer record for layby');
+          }
+        }
+
         const orderData = {
-          customerId: cart.customerId,
+          customerId: customerIdToUse,
           orderType: isLayby ? 'layby' : 'standard',
           items: cart.items.map((item) => ({
             productId: item.productId,
@@ -695,7 +736,15 @@ export default function PaymentModal({
           />
         </div>
 
-        {/* Lay By toggle */}
+        {/* Lay By toggle. A DB customer record is required — if the cashier
+            filled in ad-hoc customer details above, we auto-create one on
+            submit, so allow the checkbox as long as we have a name + phone. */}
+        {(() => {
+          const hasLinkedCustomer = !!cart.customerId;
+          const hasAdHocCustomer =
+            !!customerName.trim() && !!customerPhone.trim();
+          const canLayby = hasLinkedCustomer || hasAdHocCustomer;
+          return (
         <div className="mb-6 p-3 rounded-lg border border-amber-500/40 bg-amber-500/5">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -703,13 +752,15 @@ export default function PaymentModal({
               checked={isLayby}
               onChange={(e) => setIsLayby(e.target.checked)}
               className="w-4 h-4"
-              disabled={!cart.customerId}
+              disabled={!canLayby}
             />
             <span className="font-medium text-amber-300">Create as Lay By</span>
             <span className="text-xs text-gray-400">
-              {cart.customerId
-                ? '— customer pays deposit now, balance later'
-                : '(customer required)'}
+              {canLayby
+                ? hasLinkedCustomer
+                  ? '— customer pays deposit now, balance later'
+                  : '— a customer record will be created from the details above'
+                : '(fill in customer name + phone, or pick an existing customer)'}
             </span>
           </label>
           {isLayby && (
@@ -737,6 +788,8 @@ export default function PaymentModal({
             </div>
           )}
         </div>
+          );
+        })()}
 
         {/* Complete Button */}
         <button

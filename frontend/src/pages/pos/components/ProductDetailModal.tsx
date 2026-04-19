@@ -31,6 +31,8 @@ interface ProductDetailModalProps {
       price: number;
       specialPrice: number | null;
       thumbnailUrl: string | null;
+      isInStock?: boolean;
+      stockQty?: number;
     },
     quantity: number,
   ) => void;
@@ -108,9 +110,14 @@ export default function ProductDetailModal({
     compPrice !== null && compPrice > 0 ? (diff! / compPrice) * 100 : null;
 
   const handleAdd = () => {
-    if (!product.isInStock && product.stockQty <= 0) {
-      toast.error('Product is out of stock');
-      return;
+    // Out-of-stock items can still be added — the cashier will mark them
+    // as Backorder in the payment sidebar. Surface a warning so they
+    // don't forget.
+    if (!product.isInStock || product.stockQty <= 0) {
+      toast(
+        'Out of stock — remember to tick "Backorder" on this line at checkout',
+        { icon: 'ℹ️', duration: 5000 },
+      );
     }
     onAddToCart(
       {
@@ -120,6 +127,8 @@ export default function ProductDetailModal({
         price: product.price,
         specialPrice: product.specialPrice,
         thumbnailUrl: product.thumbnailUrl,
+        isInStock: product.isInStock,
+        stockQty: product.stockQty,
       },
       qty,
     );
@@ -383,10 +392,11 @@ export default function ProductDetailModal({
             <button
               className="btn-primary flex items-center gap-2"
               onClick={handleAdd}
-              disabled={!product.isInStock}
             >
               <ShoppingCartIcon className="h-5 w-5" />
-              Add to Cart
+              {product.isInStock && product.stockQty > 0
+                ? 'Add to Cart'
+                : 'Add as Backorder'}
             </button>
           </div>
         </div>
