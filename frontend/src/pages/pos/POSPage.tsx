@@ -10,7 +10,7 @@ import {
   fetchSubcategories,
 } from '../../store/slices/productsSlice';
 import { productsApi } from '../../services/api';
-import { addItem, removeItem, updateQuantity, clearCart, setItemDiscount, setCartDiscount, setCustomer } from '../../store/slices/cartSlice';
+import { addItem, removeItem, updateQuantity, clearCart, setItemDiscount, setItemUnitPrice, setCartDiscount, setCustomer } from '../../store/slices/cartSlice';
 import ProductGrid from './components/ProductGrid';
 import CartPanel from './components/CartPanel';
 import PaymentModal from './components/PaymentModal';
@@ -475,6 +475,9 @@ export default function POSPage() {
         }
         onSetItemDiscount={(productId, discountPercent) =>
           dispatch(setItemDiscount({ productId, discountPercent }))
+        }
+        onSetItemUnitPrice={(productId, unitPrice) =>
+          dispatch(setItemUnitPrice({ productId, unitPrice }))
         }
         onSetCartDiscount={(discount) => dispatch(setCartDiscount(discount))}
         onSetCustomer={(customer) => dispatch(setCustomer(customer))}

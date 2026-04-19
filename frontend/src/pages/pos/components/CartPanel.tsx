@@ -26,6 +26,7 @@ interface CartPanelProps {
   onRemoveItem: (productId: number) => void;
   onUpdateQuantity: (productId: number, quantity: number) => void;
   onSetItemDiscount: (productId: number, discountPercent: number) => void;
+  onSetItemUnitPrice: (productId: number, unitPrice: number) => void;
   onSetCartDiscount: (discount: CartDiscount | null) => void;
   onSetCustomer: (customer: { id: number; name: string } | null) => void;
   onClearCart: () => void;
@@ -46,6 +47,7 @@ export default function CartPanel({
   onRemoveItem,
   onUpdateQuantity,
   onSetItemDiscount,
+  onSetItemUnitPrice,
   onSetCartDiscount,
   onSetCustomer,
   onClearCart,
@@ -66,6 +68,8 @@ export default function CartPanel({
   const [discountReason, setDiscountReason] = useState('');
   const [editingItemDiscount, setEditingItemDiscount] = useState<number | null>(null);
   const [itemDiscountValue, setItemDiscountValue] = useState('');
+  const [editingUnitPrice, setEditingUnitPrice] = useState<number | null>(null);
+  const [unitPriceInput, setUnitPriceInput] = useState('');
   const [editingQuantity, setEditingQuantity] = useState<number | null>(null);
   const [quantityInput, setQuantityInput] = useState('');
   const [competitorPrices, setCompetitorPrices] = useState<
@@ -229,10 +233,55 @@ export default function CartPanel({
                   <div className="flex-1 min-w-0">
                     <h3 className="font-medium text-sm truncate">{item.name}</h3>
                     <p className="text-xs text-gray-400 font-mono">{item.sku}</p>
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="text-sm">
-                        ${item.unitPrice.toFixed(2)}
+                    {item.isBackorder && (
+                      <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-cyan-600/30 text-cyan-300">
+                        Backorder
                       </span>
+                    )}
+                    <div className="flex items-center justify-between mt-1">
+                      {editingUnitPrice === item.productId ? (
+                        <input
+                          type="number"
+                          step="0.01"
+                          min={0}
+                          autoFocus
+                          className="input py-0.5 px-1.5 text-sm w-24"
+                          value={unitPriceInput}
+                          onChange={(e) => setUnitPriceInput(e.target.value)}
+                          onBlur={() => {
+                            const v = parseFloat(unitPriceInput);
+                            if (!isNaN(v) && v >= 0) {
+                              onSetItemUnitPrice(item.productId, v);
+                            }
+                            setEditingUnitPrice(null);
+                            setUnitPriceInput('');
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              const v = parseFloat(unitPriceInput);
+                              if (!isNaN(v) && v >= 0) {
+                                onSetItemUnitPrice(item.productId, v);
+                              }
+                              setEditingUnitPrice(null);
+                              setUnitPriceInput('');
+                            } else if (e.key === 'Escape') {
+                              setEditingUnitPrice(null);
+                              setUnitPriceInput('');
+                            }
+                          }}
+                        />
+                      ) : (
+                        <button
+                          className="text-sm hover:text-primary-400"
+                          title="Click to edit unit price"
+                          onClick={() => {
+                            setEditingUnitPrice(item.productId);
+                            setUnitPriceInput(item.unitPrice.toFixed(2));
+                          }}
+                        >
+                          ${item.unitPrice.toFixed(2)}
+                        </button>
+                      )}
                       {item.discountPercent > 0 && (
                         <span className="text-xs text-green-400">
                           -{item.discountPercent}%

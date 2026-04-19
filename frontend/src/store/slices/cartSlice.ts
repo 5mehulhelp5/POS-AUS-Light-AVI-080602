@@ -182,6 +182,22 @@ const cartSlice = createSlice({
       recalculateTotals(state);
     },
 
+    // Allow the cashier to override the unit price on a cart line —
+    // needed for backorder/quote-style items where the catalogue price
+    // is $0 or out of date. Backend only honours overrides for items
+    // flagged isBackorder.
+    setItemUnitPrice: (
+      state,
+      action: PayloadAction<{ productId: number; unitPrice: number }>,
+    ) => {
+      const { productId, unitPrice } = action.payload;
+      const item = state.items.find((i) => i.productId === productId);
+      if (item) {
+        item.unitPrice = Math.max(0, unitPrice);
+      }
+      recalculateTotals(state);
+    },
+
     setCartDiscount: (state, action: PayloadAction<CartDiscount | null>) => {
       state.cartDiscount = action.payload;
       recalculateTotals(state);
@@ -247,6 +263,7 @@ export const {
   removeItem,
   updateQuantity,
   setItemDiscount,
+  setItemUnitPrice,
   setCartDiscount,
   setCustomer,
   setNotes,

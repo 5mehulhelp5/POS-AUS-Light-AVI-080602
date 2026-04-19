@@ -29,6 +29,10 @@ interface CreateOrderDto {
     // doesn't deduct inventory. Stock is decremented when the manager
     // marks the item as fulfilled.
     isBackorder?: boolean;
+    // Manual unit price override. Honoured only for backorder lines —
+    // catalogue items must be sold at their DB price (use discountPercent
+    // for adjustments instead).
+    unitPrice?: number;
   }>;
   cartDiscount?: {
     type: 'percent' | 'fixed';
@@ -98,12 +102,22 @@ export class OrdersService {
         product.specialPrice && Number(product.specialPrice) > 0
           ? product.specialPrice
           : product.price;
+      // For backorder lines, let the cashier override the unit price —
+      // catalogue price may be $0 (new SKU, pre-order) or out of date.
+      // Non-backorder lines must use the catalogue price; cashiers have
+      // the discount flow for adjustments.
+      const resolvedUnitPrice =
+        item.isBackorder &&
+        item.unitPrice != null &&
+        Number(item.unitPrice) >= 0
+          ? Number(item.unitPrice)
+          : parseFloat(effective.toString());
       return {
         productId: item.productId,
         sku: product.sku,
         name: product.name,
         quantity: item.quantity,
-        unitPrice: parseFloat(effective.toString()),
+        unitPrice: resolvedUnitPrice,
         discountPercent: item.discountPercent,
       };
     });

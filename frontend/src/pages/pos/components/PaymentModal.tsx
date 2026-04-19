@@ -259,6 +259,9 @@ export default function PaymentModal({
             quantity: item.quantity,
             discountPercent: item.discountPercent,
             isBackorder: !!backorderByProductId[item.productId],
+            // Pass unitPrice so the server can honour manual overrides on
+            // backorder lines (e.g. catalogue price is $0).
+            unitPrice: item.unitPrice,
           })),
           cartDiscount: cart.cartDiscount || undefined,
           payments,
