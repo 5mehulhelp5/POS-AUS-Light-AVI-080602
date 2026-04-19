@@ -76,12 +76,22 @@ export class OrdersService {
           `Product ${item.productId} not found`,
         );
       }
+      // Use effective price (special price if a sale is active, else regular).
+      // Must match what the POS shows the customer — otherwise the cart total
+      // on screen won't agree with what the server calculates, and the payment
+      // check below will reject the order.
+      const effective =
+        product.specialPrice &&
+        (!product.specialPriceFrom || product.specialPriceFrom <= new Date()) &&
+        (!product.specialPriceTo || product.specialPriceTo >= new Date())
+          ? product.specialPrice
+          : product.price;
       return {
         productId: item.productId,
         sku: product.sku,
         name: product.name,
         quantity: item.quantity,
-        unitPrice: parseFloat(product.price.toString()),
+        unitPrice: parseFloat(effective.toString()),
         discountPercent: item.discountPercent,
       };
     });
@@ -110,13 +120,20 @@ export class OrdersService {
       }
     }
 
-    // Verify payment amount
-    const totalPayments = dto.payments.reduce((sum, p) => sum + p.amount, 0);
+    // Verify payment amount. Coerce amounts to Number so a stray string
+    // amount doesn't silently concatenate into a bogus total.
+    const totalPayments = dto.payments.reduce(
+      (sum, p) => sum + Number(p.amount || 0),
+      0,
+    );
     if (
       Math.abs(totalPayments - validation.calculatedTotals.grandTotal) > 0.01
     ) {
+      const breakdown = dto.payments
+        .map((p) => `${p.method}:$${Number(p.amount || 0).toFixed(2)}`)
+        .join(', ');
       throw new BadRequestException(
-        `Payment amount $${totalPayments.toFixed(2)} does not match order total $${validation.calculatedTotals.grandTotal.toFixed(2)}`,
+        `Payment amount $${totalPayments.toFixed(2)} does not match order total $${validation.calculatedTotals.grandTotal.toFixed(2)} (${breakdown})`,
       );
     }
 
