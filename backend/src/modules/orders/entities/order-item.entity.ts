@@ -78,6 +78,15 @@ export class OrderItem {
   @Column({ name: 'backorder_fulfilled_at', type: 'timestamp', nullable: true })
   backorderFulfilledAt: Date | null;
 
+  // Layby hold. True means the item stays with the store until the layby
+  // balance is paid in full — even though stock was available at time
+  // of sale. Lets a single order mix "take now" lines with held lines:
+  // customer walks out with the non-held items, leaves the held items
+  // behind, and collects them once the balance is cleared.
+  @Index()
+  @Column({ name: 'is_layby_held', type: 'boolean', default: false })
+  isLaybyHeld: boolean;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

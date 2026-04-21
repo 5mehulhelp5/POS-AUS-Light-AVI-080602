@@ -76,28 +76,60 @@ export default function PaymentModal({
     ),
   );
 
-  // Does the current cart include at least one backorder line? Backorder
-  // orders follow the same "deposit now, balance later" rule as laybys,
-  // so the deposit UI appears automatically.
-  const hasBackorderLine = Object.values(backorderByProductId).some((v) => v);
-  // Any order that lets the customer pay less than the full grand total
-  // now: explicit Lay By, or an order containing backorder items.
-  const isDepositOrder = isLayby || hasBackorderLine;
+  // Per-item "hold on lay by" flags. When ticked, stock for that line
+  // stays with the store until the layby balance is paid — even though
+  // the item is in stock. Lets an order mix take-now + held items.
+  const [laybyHeldByProductId, setLaybyHeldByProductId] = useState<
+    Record<number, boolean>
+  >({});
 
-  // Default the deposit input to the 20% minimum whenever a deposit-
-  // based order is active (Lay By OR cart has backorder lines).
+  // Does the current cart include at least one backorder / held line?
+  const hasBackorderLine = Object.values(backorderByProductId).some((v) => v);
+  const hasLaybyHeldLine = Object.values(laybyHeldByProductId).some((v) => v);
+  // Any order that lets the customer pay less than the full grand total
+  // now: explicit Lay By toggle, any held line, or any backorder line.
+  const isDepositOrder = isLayby || hasBackorderLine || hasLaybyHeldLine;
+
+  // Split the cart into take-now (full price now) vs deferred (held or
+  // backorder — 20% deposit now). When the Lay By toggle is on but no
+  // per-line overrides were made, treat every non-backorder line as held.
+  const LAYBY_ALL_FROM_TOGGLE = isLayby && !hasLaybyHeldLine;
+  const { takeNowSubtotal, deferredSubtotal } = (() => {
+    let takeNow = 0;
+    let deferred = 0;
+    for (const it of cart.items) {
+      const isBack = !!backorderByProductId[it.productId];
+      const isHeld =
+        !!laybyHeldByProductId[it.productId] ||
+        (LAYBY_ALL_FROM_TOGGLE && !isBack);
+      if (isBack || isHeld) deferred += it.rowTotal;
+      else takeNow += it.rowTotal;
+    }
+    return {
+      takeNowSubtotal: Math.round(takeNow * 100) / 100,
+      deferredSubtotal: Math.round(deferred * 100) / 100,
+    };
+  })();
+  // Minimum deposit = full take-now total + 20% of deferred.
+  const minDepositForOrder =
+    Math.round(
+      (takeNowSubtotal + (deferredSubtotal * LAYBY_DEPOSIT_PERCENT) / 100) *
+        100,
+    ) / 100;
+
+  // Default the deposit input to the split minimum whenever a deposit-
+  // based order is active. The minimum = full price for take-now lines
+  // + 20% of held/backorder lines.
   useEffect(() => {
     if (isDepositOrder) {
-      const min = Math.round((total * LAYBY_DEPOSIT_PERCENT) / 100 * 100) / 100;
-      // Only reset if the current value isn't already meaningful
       setLaybyDeposit((prev) => {
         if (prev && parseFloat(prev) > 0) return prev;
-        return min.toFixed(2);
+        return minDepositForOrder.toFixed(2);
       });
     } else {
       setLaybyDeposit('');
     }
-  }, [isDepositOrder, total]);
+  }, [isDepositOrder, minDepositForOrder]);
 
   // Fetch store credit balance when a customer is attached to the cart
   useEffect(() => {
@@ -183,14 +215,15 @@ export default function PaymentModal({
       return;
     }
 
-    // Block deposits (layby or backorder) that fall below the 20%
-    // minimum. Server enforces too; fail fast on the client.
+    // Block deposits that fall below the minimum = full price for
+    // take-now items + 20% of held / backorder items. Server enforces
+    // too; fail fast on the client.
     if (isDepositOrder) {
-      const minDeposit =
-        Math.round((total * LAYBY_DEPOSIT_PERCENT) / 100 * 100) / 100;
-      if (depositDue + 0.01 < minDeposit) {
+      if (depositDue + 0.01 < minDepositForOrder) {
         toast.error(
-          `Deposit of $${depositDue.toFixed(2)} is below the ${LAYBY_DEPOSIT_PERCENT}% minimum ($${minDeposit.toFixed(2)}). A manager can override.`,
+          `Deposit of $${depositDue.toFixed(2)} is below the minimum $${minDepositForOrder.toFixed(2)} ` +
+            `(take-now $${takeNowSubtotal.toFixed(2)} + ${LAYBY_DEPOSIT_PERCENT}% on deferred $${deferredSubtotal.toFixed(2)}). ` +
+            `A manager can override.`,
         );
         return;
       }
@@ -267,15 +300,24 @@ export default function PaymentModal({
         const orderData = {
           customerId: customerIdToUse,
           orderType: isLayby ? 'layby' : 'standard',
-          items: cart.items.map((item) => ({
-            productId: item.productId,
-            quantity: item.quantity,
-            discountPercent: item.discountPercent,
-            isBackorder: !!backorderByProductId[item.productId],
-            // Pass unitPrice so the server can honour manual overrides on
-            // backorder lines (e.g. catalogue price is $0).
-            unitPrice: item.unitPrice,
-          })),
+          items: cart.items.map((item) => {
+            const isBack = !!backorderByProductId[item.productId];
+            // If the top-level Lay By toggle is on with no per-line
+            // overrides, every non-backorder line is treated as held.
+            const isHeld =
+              !!laybyHeldByProductId[item.productId] ||
+              (LAYBY_ALL_FROM_TOGGLE && !isBack);
+            return {
+              productId: item.productId,
+              quantity: item.quantity,
+              discountPercent: item.discountPercent,
+              isBackorder: isBack,
+              isLaybyHeld: isHeld,
+              // Pass unitPrice so the server can honour manual overrides on
+              // backorder lines (e.g. catalogue price is $0).
+              unitPrice: item.unitPrice,
+            };
+          }),
           cartDiscount: cart.cartDiscount || undefined,
           payments,
           notes: orderNotes.trim() || cart.notes || undefined,
@@ -306,6 +348,15 @@ export default function PaymentModal({
         0,
         Math.round((cart.grandTotal - amountPaidNow) * 100) / 100,
       );
+      // Tag each invoice line so the invoice template can group them
+      // into "Taking home today" vs "On Lay By" vs "On Backorder".
+      const invoiceItems = cart.items.map((item) => {
+        const isBack = !!backorderByProductId[item.productId];
+        const isHeld =
+          !!laybyHeldByProductId[item.productId] ||
+          (LAYBY_ALL_FROM_TOGGLE && !isBack);
+        return { ...item, isBackorder: isBack, isLaybyHeld: isHeld };
+      });
       const invoice = {
         orderNumber,
         date: new Date().toISOString(),
@@ -315,7 +366,7 @@ export default function PaymentModal({
         customerEmail: customerEmail.trim() || undefined,
         customerAddress: [customerStreet, customerCity, customerState, customerPostcode].filter(s => s.trim()).join(', ') || undefined,
         companyAbn: buyerType === 'retail' && companyAbn.trim() ? companyAbn.trim() : undefined,
-        items: cart.items,
+        items: invoiceItems,
         subtotal: cart.subtotal,
         itemDiscounts: cart.itemDiscounts,
         cartDiscount: cart.cartDiscountAmount,
@@ -325,10 +376,13 @@ export default function PaymentModal({
         cashTendered: method === 'cash' ? cashAmount : undefined,
         change: method === 'cash' ? change : undefined,
         // Deposit / balance metadata — absent means the whole total was paid
-        isLayby,
+        isLayby: isLayby || hasLaybyHeldLine,
         isBackorder: hasBackorderLine,
+        isMixed: hasLaybyHeldLine && takeNowSubtotal > 0,
         amountPaid: amountPaidNow,
         balanceDue: balanceOwing,
+        takeNowSubtotal,
+        deferredSubtotal,
       };
 
       setInvoiceData(invoice);
@@ -799,17 +853,18 @@ export default function PaymentModal({
                 : '(fill in customer name + phone, or pick an existing customer)'}
             </span>
           </label>
-          {hasBackorderLine && !isLayby && (
+          {(hasBackorderLine || hasLaybyHeldLine) && !isLayby && (
             <p className="text-xs text-cyan-300 mt-2">
-              Cart has backorder items — a deposit of at least {LAYBY_DEPOSIT_PERCENT}%
-              is required now, the balance is collected when stock arrives.
+              Cart mixes take-now and deferred items. Required now:
+              full price for take-now (${takeNowSubtotal.toFixed(2)}) +{' '}
+              {LAYBY_DEPOSIT_PERCENT}% of deferred (${deferredSubtotal.toFixed(2)}).
             </p>
           )}
           {isDepositOrder && (
             <div className="mt-3 grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1">
-                  Deposit (min {LAYBY_DEPOSIT_PERCENT}% = ${((total * LAYBY_DEPOSIT_PERCENT) / 100).toFixed(2)})
+                  Deposit (min ${minDepositForOrder.toFixed(2)})
                 </label>
                 <input
                   type="number"
@@ -820,6 +875,9 @@ export default function PaymentModal({
                   value={laybyDeposit}
                   onChange={(e) => setLaybyDeposit(e.target.value)}
                 />
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Take-now ${takeNowSubtotal.toFixed(2)} + {LAYBY_DEPOSIT_PERCENT}% of deferred ${deferredSubtotal.toFixed(2)}
+                </p>
               </div>
               <div>
                 <label className="block text-xs text-gray-400 mb-1">Balance owing</label>
@@ -846,10 +904,10 @@ export default function PaymentModal({
         >
           {isProcessing
             ? (demoMode ? 'Simulating...' : 'Processing...')
-            : isLayby
-              ? `Create Lay By — Take Deposit $${depositRemaining.toFixed(2)}${creditApplied > 0 ? ' + credit' : ''}`
+            : isLayby || hasLaybyHeldLine
+              ? `Create Lay By — Take $${depositRemaining.toFixed(2)}${creditApplied > 0 ? ' + credit' : ''}`
               : hasBackorderLine
-                ? `Create Backorder — Take Deposit $${depositRemaining.toFixed(2)}${creditApplied > 0 ? ' + credit' : ''}`
+                ? `Create Backorder — Take $${depositRemaining.toFixed(2)}${creditApplied > 0 ? ' + credit' : ''}`
                 : remainingDue === 0 && creditApplied > 0
                   ? `Pay with Store Credit`
                   : `Complete Payment${creditApplied > 0 ? ` ($${remainingDue.toFixed(2)} + credit)` : ''}`}
@@ -906,6 +964,28 @@ export default function PaymentModal({
                     />
                     <span>Backorder (not in stock yet)</span>
                   </label>
+                  {/* Hold on Lay By — tick for in-stock items the customer is
+                      leaving behind until balance is paid. Mixed orders can
+                      have some lines held and others handed over today. */}
+                  {!backorderByProductId[item.productId] && (
+                    <label className="flex items-center gap-1.5 mt-1 text-xs text-gray-400 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={
+                          !!laybyHeldByProductId[item.productId] ||
+                          LAYBY_ALL_FROM_TOGGLE
+                        }
+                        onChange={(e) =>
+                          setLaybyHeldByProductId((prev) => ({
+                            ...prev,
+                            [item.productId]: e.target.checked,
+                          }))
+                        }
+                        className="w-3.5 h-3.5"
+                      />
+                      <span>Hold on Lay By (customer leaves it here)</span>
+                    </label>
+                  )}
                 </div>
               ))
             )}

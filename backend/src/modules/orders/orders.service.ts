@@ -29,6 +29,11 @@ interface CreateOrderDto {
     // doesn't deduct inventory. Stock is decremented when the manager
     // marks the item as fulfilled.
     isBackorder?: boolean;
+    // Mark a line as held by the store on a layby. Stock IS deducted
+    // (reserved) but the customer doesn't take the item home until the
+    // layby balance is paid in full. Enables a single order to mix
+    // take-now items with layby-held items.
+    isLaybyHeld?: boolean;
     // Manual unit price override. Honoured only for backorder lines —
     // catalogue items must be sold at their DB price (use discountPercent
     // for adjustments instead).
@@ -139,8 +144,10 @@ export class OrdersService {
     // Check stock. Skip backorder lines — those are explicitly allowed to
     // exceed available stock and stock isn't deducted until fulfilment.
     const isBackorderByProductId = new Map<number, boolean>();
+    const isLaybyHeldByProductId = new Map<number, boolean>();
     for (const item of dto.items) {
       isBackorderByProductId.set(item.productId, !!item.isBackorder);
+      isLaybyHeldByProductId.set(item.productId, !!item.isLaybyHeld);
       if (item.isBackorder) continue;
       const product = products.find((p) => p.id === item.productId);
       if (product && product.manageStock && product.stockQty < item.quantity) {
@@ -155,11 +162,16 @@ export class OrdersService {
     }
 
     // Figure out what kind of order this is and how much the customer must
-    // actually pay now.
-    const isLayby = dto.orderType === 'layby';
+    // actually pay now. Any line flagged isLaybyHeld turns the whole
+    // order into a layby; any backorder line flags the order as
+    // backorder-pending; both can coexist on the same order.
     const hasBackorder = Array.from(isBackorderByProductId.values()).some(
       (b) => b,
     );
+    const hasLaybyHeld = Array.from(isLaybyHeldByProductId.values()).some(
+      (b) => b,
+    );
+    const isLayby = dto.orderType === 'layby' || hasLaybyHeld;
     const grandTotal = validation.calculatedTotals.grandTotal;
 
     // One-line breadcrumb so we can see in pm2 logs whether the layby flag
@@ -187,31 +199,55 @@ export class OrdersService {
       0,
     );
 
-    // Deposit-based orders: both laybys AND any order with backorder
-    // items let the customer pay a deposit now (>= 20%) with balance
-    // collected later (on pickup for laybys, on fulfilment for
-    // backorders). Full payment upfront is also fine — the deposit
-    // rule is only a minimum.
+    // Deposit-based orders: laybys OR any order with backorder items let
+    // the customer pay a deposit now (>= 20% of the deferred portion)
+    // with balance collected later. Take-now lines must be paid in
+    // full at the register; held / backorder lines only need their 20%
+    // share now.
     const isDepositOrder = isLayby || hasBackorder;
     if (isDepositOrder) {
-      const settingKey = isLayby
-        ? 'layby_min_deposit_percent'
-        : 'backorder_min_deposit_percent';
+      // Resolve the min deposit percent from settings (same 20% default
+      // for both layby and backorder — user asked for the same rule).
       const minPercent = Number(
         (await this.settingsService.getValue<number | string>(
-          settingKey,
+          isLayby ? 'layby_min_deposit_percent' : 'backorder_min_deposit_percent',
           20,
         )) || 20,
       );
-      const minDeposit = Math.round((grandTotal * minPercent) / 100 * 100) / 100;
+
+      // Split the cart by category to compute the split payment floor.
+      let takeNowSubtotal = 0;
+      let deferredSubtotal = 0;
+      for (const calc of validation.calculatedTotals.items) {
+        const deferred =
+          isBackorderByProductId.get(calc.productId) ||
+          isLaybyHeldByProductId.get(calc.productId);
+        if (deferred) {
+          deferredSubtotal += calc.rowTotal;
+        } else {
+          takeNowSubtotal += calc.rowTotal;
+        }
+      }
+      const minDeposit =
+        Math.round(
+          (takeNowSubtotal + (deferredSubtotal * minPercent) / 100) * 100,
+        ) / 100;
+
       const depositOverridden = !!userRole && [
         'admin',
         'manager',
       ].includes(userRole.name);
-      const label = isLayby ? 'Layby' : 'Backorder';
+      const label = hasLaybyHeld
+        ? 'Mixed Lay By'
+        : isLayby
+          ? 'Layby'
+          : 'Backorder';
       if (totalPayments + 0.01 < minDeposit && !depositOverridden) {
         throw new BadRequestException(
-          `${label} deposit of $${totalPayments.toFixed(2)} is below the ${minPercent}% minimum ($${minDeposit.toFixed(2)}). A manager can override this.`,
+          `${label} deposit of $${totalPayments.toFixed(2)} is below the minimum ` +
+          `(full payment for take-now items $${takeNowSubtotal.toFixed(2)} + ` +
+          `${minPercent}% on deferred items $${deferredSubtotal.toFixed(2)} = $${minDeposit.toFixed(2)}). ` +
+          `A manager can override.`,
         );
       }
       if (totalPayments > grandTotal + 0.01) {
@@ -318,6 +354,7 @@ export class OrdersService {
       for (const calcItem of validation.calculatedTotals.items) {
         const product = products.find((p) => p.id === calcItem.productId);
         const lineIsBackorder = !!isBackorderByProductId.get(calcItem.productId);
+        const lineIsLaybyHeld = !!isLaybyHeldByProductId.get(calcItem.productId);
         const orderItem = queryRunner.manager.create(OrderItem, {
           orderId: savedOrder.id,
           productId: calcItem.productId,
@@ -331,6 +368,7 @@ export class OrdersService {
           rowTotal: calcItem.rowTotal,
           costPrice: product?.cost || null,
           isBackorder: lineIsBackorder,
+          isLaybyHeld: lineIsLaybyHeld,
         });
         await queryRunner.manager.save(orderItem);
 
@@ -809,10 +847,17 @@ export class OrdersService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
     try {
-      // Release reserved stock for non-backorder items. Backorder items
-      // never took stock in the first place.
+      // Release stock for items the store is still holding. Backorder
+      // lines never took stock (so nothing to release). For mixed
+      // orders, take-now lines have already been handed to the
+      // customer — we can't reclaim their stock on cancel. Only the
+      // isLaybyHeld lines (and, for pure legacy laybys with no per-line
+      // flags, all non-backorder lines) get released.
+      const isPureLegacyLayby = !order.items.some((i) => i.isLaybyHeld);
       for (const item of order.items) {
         if (!item.productId || item.isBackorder) continue;
+        const shouldReleaseStock = isPureLegacyLayby || item.isLaybyHeld;
+        if (!shouldReleaseStock) continue;
         await queryRunner.manager.update(
           'products',
           { id: item.productId },

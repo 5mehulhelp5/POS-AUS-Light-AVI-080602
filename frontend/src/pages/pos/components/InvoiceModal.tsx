@@ -11,7 +11,10 @@ interface InvoiceData {
   customerPhone?: string;
   customerAddress?: string;
   companyAbn?: string;
-  items: CartItem[];
+  // Each item may be flagged as backorder (not in stock) or lay-by held
+  // (in stock but staying with the store). Used to group the lines on
+  // the printed invoice.
+  items: (CartItem & { isBackorder?: boolean; isLaybyHeld?: boolean })[];
   subtotal: number;
   itemDiscounts: number;
   cartDiscount: number;
@@ -25,8 +28,11 @@ interface InvoiceData {
   // prints as a regular fully-paid receipt.
   isLayby?: boolean;
   isBackorder?: boolean;
+  isMixed?: boolean; // has both take-now AND held lines
   amountPaid?: number;
   balanceDue?: number;
+  takeNowSubtotal?: number;
+  deferredSubtotal?: number;
 }
 
 interface InvoiceModalProps {
@@ -229,22 +235,83 @@ export default function InvoiceModal({ invoice, onClose }: InvoiceModalProps) {
               </tr>
             </thead>
             <tbody>
-              {invoice.items.map((item) => (
-                <tr key={item.productId}>
-                  <td style={{ padding: '12px', borderBottom: '1px solid #e5e7eb' }}>{item.name}</td>
-                  <td style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', color: '#666', fontSize: '14px' }}>{item.sku}</td>
-                  <td style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'right' }}>{item.quantity}</td>
-                  <td style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'right' }}>${item.unitPrice.toFixed(2)}</td>
-                  {invoice.itemDiscounts > 0 && (
-                    <td style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'right', color: '#dc2626' }}>
-                      {item.discountPercent > 0 ? `-${item.discountPercent}%` : '-'}
-                    </td>
-                  )}
-                  <td style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'right' }}>${item.rowTotal.toFixed(2)}</td>
-                </tr>
-              ))}
+              {/* Sort order: take-now first, then held, then backorder */}
+              {[...invoice.items]
+                .sort((a, b) => {
+                  const rank = (it: typeof a) =>
+                    it.isBackorder ? 2 : it.isLaybyHeld ? 1 : 0;
+                  return rank(a) - rank(b);
+                })
+                .map((item) => {
+                  const status = item.isBackorder
+                    ? { label: 'ON BACKORDER', color: '#155e75', bg: '#cffafe' }
+                    : item.isLaybyHeld
+                      ? { label: 'ON LAY BY', color: '#92400e', bg: '#fef3c7' }
+                      : { label: 'TAKING HOME', color: '#065f46', bg: '#d1fae5' };
+                  return (
+                    <tr key={item.productId}>
+                      <td style={{ padding: '12px', borderBottom: '1px solid #e5e7eb' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                          <span>{item.name}</span>
+                          <span
+                            style={{
+                              fontSize: '10px',
+                              fontWeight: 700,
+                              padding: '2px 6px',
+                              borderRadius: '10px',
+                              backgroundColor: status.bg,
+                              color: status.color,
+                            }}
+                          >
+                            {status.label}
+                          </span>
+                        </div>
+                      </td>
+                      <td style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', color: '#666', fontSize: '14px' }}>{item.sku}</td>
+                      <td style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'right' }}>{item.quantity}</td>
+                      <td style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'right' }}>${item.unitPrice.toFixed(2)}</td>
+                      {invoice.itemDiscounts > 0 && (
+                        <td style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'right', color: '#dc2626' }}>
+                          {item.discountPercent > 0 ? `-${item.discountPercent}%` : '-'}
+                        </td>
+                      )}
+                      <td style={{ padding: '12px', borderBottom: '1px solid #e5e7eb', textAlign: 'right' }}>${item.rowTotal.toFixed(2)}</td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
+
+          {/* Mixed-order split summary so the cashier and customer see at
+              a glance what's going home vs. what's staying behind. */}
+          {invoice.isMixed && (
+            <div
+              style={{
+                padding: '12px',
+                marginBottom: '16px',
+                background: '#f9fafb',
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                fontSize: '13px',
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: '12px',
+              }}
+            >
+              <div>
+                <strong style={{ color: '#065f46' }}>Taking home today</strong>
+                <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 700 }}>
+                  ${(invoice.takeNowSubtotal || 0).toFixed(2)}
+                </p>
+              </div>
+              <div>
+                <strong style={{ color: '#92400e' }}>On Lay By / Backorder</strong>
+                <p style={{ margin: '4px 0 0', fontSize: '18px', fontWeight: 700 }}>
+                  ${(invoice.deferredSubtotal || 0).toFixed(2)}
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Totals */}
           <div style={{ marginLeft: 'auto', width: '300px' }}>
