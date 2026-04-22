@@ -244,7 +244,11 @@ export default function InvoiceModal({ invoice, onClose }: InvoiceModalProps) {
                 })
                 .map((item) => {
                   const status = item.isBackorder
-                    ? { label: 'ON BACKORDER', color: '#155e75', bg: '#cffafe' }
+                    ? {
+                        label: 'BACKORDER · ORDERING FROM SUPPLIER',
+                        color: '#155e75',
+                        bg: '#cffafe',
+                      }
                     : item.isLaybyHeld
                       ? { label: 'ON LAY BY', color: '#92400e', bg: '#fef3c7' }
                       : { label: 'TAKING HOME', color: '#065f46', bg: '#d1fae5' };

@@ -234,8 +234,11 @@ export default function CartPanel({
                     <h3 className="font-medium text-sm truncate">{item.name}</h3>
                     <p className="text-xs text-gray-400 font-mono">{item.sku}</p>
                     {item.isBackorder && (
-                      <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-cyan-600/30 text-cyan-300">
-                        Backorder
+                      <span
+                        className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-cyan-600/30 text-cyan-300"
+                        title="Ordering from supplier"
+                      >
+                        Backorder · Ordering from supplier
                       </span>
                     )}
                     <div className="flex items-center justify-between mt-1">

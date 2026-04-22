@@ -962,7 +962,7 @@ export default function PaymentModal({
                       }
                       className="w-3.5 h-3.5"
                     />
-                    <span>Backorder (not in stock yet)</span>
+                    <span>Backorder — ordering from supplier</span>
                   </label>
                   {/* Hold on Lay By — tick for in-stock items the customer is
                       leaving behind until balance is paid. Mixed orders can

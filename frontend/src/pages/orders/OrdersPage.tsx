@@ -732,8 +732,11 @@ export default function OrdersPage() {
                           {item.quantity}x {item.name}
                         </span>
                         {item.isBackorder && !item.backorderFulfilledAt && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-cyan-600/30 text-cyan-300 whitespace-nowrap">
-                            Backorder
+                          <span
+                            className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-cyan-600/30 text-cyan-300 whitespace-nowrap"
+                            title="Ordering from supplier"
+                          >
+                            Backorder · Ordering from supplier
                           </span>
                         )}
                         {item.isBackorder && item.backorderFulfilledAt && (
