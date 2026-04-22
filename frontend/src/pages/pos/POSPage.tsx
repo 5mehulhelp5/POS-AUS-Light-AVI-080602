@@ -69,6 +69,13 @@ export default function POSPage() {
   const [searchSubcats, setSearchSubcats] = useState<any[]>([]);
   const [loadingSearchSubcats, setLoadingSearchSubcats] = useState(false);
 
+  // Default: hide out-of-stock items (treated as discontinued). Admin/
+  // manager can flip this on if they need to see them (e.g. to audit or
+  // to backorder a specific SKU they know exists but is currently OOS).
+  const [showOutOfStock, setShowOutOfStock] = useState(false);
+  const canToggleOutOfStock =
+    user?.role?.name === 'admin' || user?.role?.name === 'manager';
+
   useEffect(() => {
     dispatch(fetchCategories());
   }, [dispatch]);
@@ -105,6 +112,7 @@ export default function POSPage() {
             category: searchSubcatId ? Number(searchSubcatId) : Number(searchCatId),
             limit: pageSize,
             page: currentPage,
+            inStock: showOutOfStock ? undefined : true,
           })
         );
       }, 300);
@@ -121,12 +129,13 @@ export default function POSPage() {
           category: activeCategoryId || undefined,
           limit: pageSize,
           page: currentPage,
+          inStock: showOutOfStock ? undefined : true,
         })
       );
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, activeCategoryId, viewMode, currentPage, dispatch, searchCatId, searchSubcatId, searchSubcats.length]);
+  }, [searchQuery, activeCategoryId, viewMode, currentPage, dispatch, searchCatId, searchSubcatId, searchSubcats.length, showOutOfStock]);
 
   // Reset page on filter change
   useEffect(() => {
@@ -159,6 +168,7 @@ export default function POSPage() {
         category: subcat.id,
         limit: pageSize,
         page: 1,
+        inStock: showOutOfStock ? undefined : true,
       })
     );
   };
@@ -187,7 +197,13 @@ export default function POSPage() {
     setActiveCategoryId(null);
     setActiveCategoryName('');
     setViewMode('products');
-    dispatch(fetchProducts({ limit: pageSize, page: 1 }));
+    dispatch(
+      fetchProducts({
+        limit: pageSize,
+        page: 1,
+        inStock: showOutOfStock ? undefined : true,
+      }),
+    );
   };
 
   const handleAddToCart = (product: any, quantity: number = 1) => {
@@ -328,6 +344,21 @@ export default function POSPage() {
             <PlusCircleIcon className="h-5 w-5" />
             Custom Item
           </button>
+
+          {canToggleOutOfStock && (
+            <label
+              className="flex items-center gap-2 text-xs text-gray-400 whitespace-nowrap cursor-pointer px-2"
+              title="Out-of-stock items are hidden by default (treated as discontinued). Toggle to surface them for auditing or backorder lookup."
+            >
+              <input
+                type="checkbox"
+                checked={showOutOfStock}
+                onChange={(e) => setShowOutOfStock(e.target.checked)}
+                className="w-4 h-4"
+              />
+              Show discontinued
+            </label>
+          )}
         </div>
 
         {/* Navigation breadcrumb */}
@@ -388,7 +419,14 @@ export default function POSPage() {
                 className="bg-gradient-to-br from-primary-600 to-primary-800 rounded-xl p-6 text-center hover:from-primary-500 hover:to-primary-700 transition-all shadow-lg"
                 onClick={() => {
                   setViewMode('products');
-                  dispatch(fetchProducts({ category: activeCategoryId!, limit: pageSize, page: 1 }));
+                  dispatch(
+                    fetchProducts({
+                      category: activeCategoryId!,
+                      limit: pageSize,
+                      page: 1,
+                      inStock: showOutOfStock ? undefined : true,
+                    }),
+                  );
                 }}
               >
                 <div className="text-white font-semibold text-lg">All {activeCategoryName}</div>

@@ -75,11 +75,20 @@ export const fetchProducts = createAsyncThunk(
       category?: number;
       page?: number;
       limit?: number;
+      // Default true — out-of-stock (treated as discontinued) is hidden
+      // from the grid/search. Pass undefined or false to surface them
+      // (e.g. an admin "Show discontinued" toggle). Barcode and SKU
+      // lookups are unaffected and still return any product.
+      inStock?: boolean;
     },
     { rejectWithValue }
   ) => {
     try {
-      const response = await productsApi.getProducts(params);
+      const withDefault = {
+        inStock: true,
+        ...params,
+      };
+      const response = await productsApi.getProducts(withDefault);
       return response.data;
     } catch (error: any) {
       return rejectWithValue(
