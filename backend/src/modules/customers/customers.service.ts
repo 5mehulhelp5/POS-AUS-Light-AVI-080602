@@ -142,28 +142,43 @@ export class CustomersService {
     customersMerged: number;
     creditTransferred: number;
   }> {
+    // eslint-disable-next-line no-console
+    console.log('[customers.merge] starting merge-duplicates-by-phone');
+
     // First pass: rewrite every phone/mobile in the table to digits only,
     // so historical rows ("0434 310 130", "0434-310-130", null spaces…)
     // collapse onto the same canonical string. This makes the GROUP BY
     // below catch dupes that only differ by formatting.
-    await this.dataSource.query(
-      `UPDATE customers SET phone = REGEXP_REPLACE(phone, '\\D', '', 'g') WHERE phone IS NOT NULL`,
-    );
-    await this.dataSource.query(
-      `UPDATE customers SET mobile = REGEXP_REPLACE(mobile, '\\D', '', 'g') WHERE mobile IS NOT NULL`,
-    );
+    try {
+      await this.dataSource.query(
+        `UPDATE customers SET phone = REGEXP_REPLACE(phone, '\\D', '', 'g') WHERE phone IS NOT NULL`,
+      );
+      await this.dataSource.query(
+        `UPDATE customers SET mobile = REGEXP_REPLACE(mobile, '\\D', '', 'g') WHERE mobile IS NOT NULL`,
+      );
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('[customers.merge] phone normalisation failed:', err);
+      throw err;
+    }
 
     // Find all phone -> [ids...] groupings where there are duplicates.
+    // Plain SQL — TypeORM's QueryBuilder doesn't reliably hand `phone`
+    // through as a property name on a raw FROM clause.
     const rows: Array<{ phone: string; ids: number[] }> = await this.dataSource
-      .createQueryBuilder()
-      .from(Customer, 'c')
-      .select('c.phone', 'phone')
-      .addSelect('ARRAY_AGG(c.id ORDER BY c.id ASC)', 'ids')
-      .where('c.phone IS NOT NULL')
-      .andWhere("c.phone <> ''")
-      .groupBy('c.phone')
-      .having('COUNT(*) > 1')
-      .getRawMany();
+      .query(
+        `SELECT phone, ARRAY_AGG(id ORDER BY id ASC) AS ids
+         FROM customers
+         WHERE phone IS NOT NULL AND phone <> ''
+         GROUP BY phone
+         HAVING COUNT(*) > 1`,
+      );
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[customers.merge] found ${rows.length} duplicate group(s):`,
+      rows.map((r) => `${r.phone}=[${r.ids.join(',')}]`).join(' '),
+    );
 
     let customersMerged = 0;
     let creditTransferred = 0;
@@ -173,7 +188,12 @@ export class CustomersService {
       if (!ids || ids.length < 2) continue;
       const canonicalId = ids[0];
       const dupeIds = ids.slice(1);
+      // eslint-disable-next-line no-console
+      console.log(
+        `[customers.merge] merging dupes ${dupeIds.join(',')} into ${canonicalId} (phone=${group.phone})`,
+      );
 
+      try {
       await this.dataSource.transaction(async (manager) => {
         // Repoint all FK tables. We hit raw SQL here because some of
         // the entities live in other modules and importing them just
@@ -272,7 +292,20 @@ export class CustomersService {
       });
 
       customersMerged += dupeIds.length;
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `[customers.merge] failed to merge group phone=${group.phone} ids=${ids.join(',')}:`,
+          err,
+        );
+        throw err;
+      }
     }
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[customers.merge] done: ${rows.length} group(s), ${customersMerged} dupe(s) merged, $${creditTransferred.toFixed(2)} store credit consolidated`,
+    );
 
     return {
       groupsFound: rows.length,
@@ -327,32 +360,30 @@ export class CustomersService {
 
     // Layby commitments: count active + expired laybys for this
     // customer and sum what they still owe across them.
-    const laybyRows = await this.orderRepository
-      .createQueryBuilder('o')
-      .leftJoin(
-        'payments',
-        'p',
-        'p.order_id = o.id AND p.status = :paid',
-        { paid: 'completed' },
-      )
-      .where('o.customerId = :id', { id: customerId })
-      .andWhere('o.status IN (:...laybyStatuses)', {
-        laybyStatuses: [
-          OrderStatus.LAYBY_ACTIVE,
-          OrderStatus.LAYBY_EXPIRED,
-        ],
-      })
-      .select('o.id', 'id')
-      .addSelect('o.grandTotal', 'grandTotal')
-      .addSelect('COALESCE(SUM(p.amount), 0)', 'paid')
-      .groupBy('o.id')
-      .getRawMany();
+    // Plain SQL — TypeORM's QueryBuilder fights with raw-table left
+    // joins on aliases; this is unambiguous and keeps the query in
+    // one round-trip.
+    const laybyRows: Array<{ id: number; grand_total: string; paid: string }> =
+      await this.dataSource.query(
+        `SELECT o.id,
+                o.grand_total::text AS grand_total,
+                COALESCE((
+                  SELECT SUM(p.amount)
+                  FROM payments p
+                  WHERE p.order_id = o.id
+                    AND p.status = 'completed'
+                ), 0)::text AS paid
+         FROM orders o
+         WHERE o.customer_id = $1
+           AND o.status IN ($2, $3)`,
+        [customerId, OrderStatus.LAYBY_ACTIVE, OrderStatus.LAYBY_EXPIRED],
+      );
 
     const activeLaybyCount = laybyRows.length;
     const laybyBalanceOwing = Math.round(
       laybyRows.reduce(
         (sum, r) =>
-          sum + Math.max(0, Number(r.grandTotal) - Number(r.paid)),
+          sum + Math.max(0, Number(r.grand_total) - Number(r.paid)),
         0,
       ) * 100,
     ) / 100;
