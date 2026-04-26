@@ -694,6 +694,7 @@ export default function OrdersPage() {
       {selectedOrder && (
         <div className="modal-backdrop">
           <div className="modal-content">
+            <div className="max-w-4xl mx-auto">
             <div className="flex justify-between items-start mb-4">
               <button onClick={() => setSelectedOrder(null)} className="modal-back-btn">
                 <ArrowLeftIcon className="h-5 w-5" /> Back
@@ -842,6 +843,7 @@ export default function OrdersPage() {
                 </div>
               )}
             </div>
+            </div>
           </div>
         </div>
       )}
@@ -850,6 +852,7 @@ export default function OrdersPage() {
       {laybyPayOrder && (
         <div className="modal-backdrop-top">
           <div className="modal-content">
+            <div className="max-w-2xl mx-auto">
             <div className="flex justify-between items-start mb-4">
               <button
                 onClick={() => setLaybyPayOrder(null)}
@@ -948,6 +951,7 @@ export default function OrdersPage() {
                 {isTakingLaybyPayment ? 'Recording...' : 'Record Payment'}
               </button>
             </div>
+            </div>
           </div>
         </div>
       )}
@@ -956,6 +960,7 @@ export default function OrdersPage() {
       {refundOrder && (
         <div className="modal-backdrop">
           <div className="modal-content">
+            <div className="max-w-3xl mx-auto">
             <div className="flex justify-between items-start mb-4">
               <button
                 onClick={() => setRefundOrder(null)}
@@ -1170,6 +1175,7 @@ export default function OrdersPage() {
                   {isProcessingRefund ? 'Processing...' : 'Process Refund'}
                 </button>
               </div>
+            </div>
             </div>
           </div>
         </div>
