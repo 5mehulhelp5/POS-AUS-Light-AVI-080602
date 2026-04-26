@@ -12,6 +12,11 @@ export interface CustomerStats {
   activeQuoteCount: number;
   previousQuoteCount: number;
   lastPurchaseDate: Date | null;
+  // Active layby orders (LAYBY_ACTIVE or LAYBY_EXPIRED) and the total
+  // balance the customer still owes across them. Surfaces lay-by
+  // commitments on the customer profile so staff don't lose track.
+  activeLaybyCount: number;
+  laybyBalanceOwing: number;
 }
 
 /**
@@ -309,12 +314,46 @@ export class CustomersService {
       )
       .getCount();
 
+    // Layby commitments: count active + expired laybys for this
+    // customer and sum what they still owe across them.
+    const laybyRows = await this.orderRepository
+      .createQueryBuilder('o')
+      .leftJoin(
+        'payments',
+        'p',
+        'p.order_id = o.id AND p.status = :paid',
+        { paid: 'completed' },
+      )
+      .where('o.customerId = :id', { id: customerId })
+      .andWhere('o.status IN (:...laybyStatuses)', {
+        laybyStatuses: [
+          OrderStatus.LAYBY_ACTIVE,
+          OrderStatus.LAYBY_EXPIRED,
+        ],
+      })
+      .select('o.id', 'id')
+      .addSelect('o.grandTotal', 'grandTotal')
+      .addSelect('COALESCE(SUM(p.amount), 0)', 'paid')
+      .groupBy('o.id')
+      .getRawMany();
+
+    const activeLaybyCount = laybyRows.length;
+    const laybyBalanceOwing = Math.round(
+      laybyRows.reduce(
+        (sum, r) =>
+          sum + Math.max(0, Number(r.grandTotal) - Number(r.paid)),
+        0,
+      ) * 100,
+    ) / 100;
+
     return {
       totalSpent,
       orderCount,
       activeQuoteCount,
       previousQuoteCount,
       lastPurchaseDate: lastPurchaseDate ? new Date(lastPurchaseDate) : null,
+      activeLaybyCount,
+      laybyBalanceOwing,
     };
   }
 }

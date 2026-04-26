@@ -557,7 +557,7 @@ export default function CustomersPage() {
             </div>
 
             {/* Stats strip */}
-            <div className="grid grid-cols-6 gap-3 px-6 py-4 border-b border-gray-700">
+            <div className="grid grid-cols-7 gap-3 px-6 py-4 border-b border-gray-700">
               <div className="bg-pos-dark rounded p-3">
                 <div className="flex items-center gap-2 text-xs text-gray-400">
                   <BanknotesIcon className="h-4 w-4" />
@@ -574,6 +574,28 @@ export default function CustomersPage() {
                 </div>
                 <p className="text-lg font-bold mt-1">
                   {customerStats?.orderCount ?? '—'}
+                </p>
+              </div>
+              {/* Active layby commitments — flagged amber so it's obvious
+                  the customer has an outstanding lay-by balance with us. */}
+              <div
+                className={`rounded p-3 ${
+                  customerStats && customerStats.activeLaybyCount > 0
+                    ? 'border border-amber-500/40 bg-amber-500/5'
+                    : 'bg-pos-dark'
+                }`}
+              >
+                <div className="flex items-center gap-2 text-xs text-amber-300">
+                  <BanknotesIcon className="h-4 w-4" />
+                  Active Lay Bys
+                </div>
+                <p className="text-lg font-bold mt-1 text-amber-300">
+                  {customerStats?.activeLaybyCount ?? '—'}
+                  {customerStats && customerStats.laybyBalanceOwing > 0 && (
+                    <span className="text-xs text-amber-400/80 font-normal ml-1">
+                      · ${Number(customerStats.laybyBalanceOwing).toFixed(2)} owing
+                    </span>
+                  )}
                 </p>
               </div>
               <div className="bg-pos-dark rounded p-3 border border-purple-500/40 bg-purple-500/5">
@@ -685,9 +707,31 @@ export default function CustomersPage() {
                               ${o.grandTotal.toFixed(2)}
                             </td>
                             <td className="px-3 py-2">
-                              <span className="px-2 py-0.5 rounded text-xs bg-gray-700 uppercase">
-                                {o.status.replace(/_/g, ' ')}
-                              </span>
+                              {(() => {
+                                const colors: Record<string, string> = {
+                                  complete: 'bg-green-600',
+                                  pending: 'bg-yellow-600',
+                                  cancelled: 'bg-red-600',
+                                  refunded: 'bg-purple-600',
+                                  refund_in_process: 'bg-orange-600',
+                                  layby_active: 'bg-amber-600',
+                                  layby_expired: 'bg-red-700',
+                                  backorder_pending: 'bg-cyan-700',
+                                };
+                                const labels: Record<string, string> = {
+                                  refund_in_process: 'REFUND IN PROCESS',
+                                  layby_active: 'LAY BY',
+                                  layby_expired: 'LAY BY EXPIRED',
+                                  backorder_pending: 'BACKORDER',
+                                };
+                                return (
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-xs font-medium uppercase whitespace-nowrap ${colors[o.status] || 'bg-gray-700'}`}
+                                  >
+                                    {labels[o.status] || o.status.replace(/_/g, ' ')}
+                                  </span>
+                                );
+                              })()}
                             </td>
                             <td className="px-3 py-2 text-right text-gray-500">→</td>
                           </tr>
