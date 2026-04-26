@@ -149,12 +149,16 @@ export class CustomersService {
     // so historical rows ("0434 310 130", "0434-310-130", null spaces…)
     // collapse onto the same canonical string. This makes the GROUP BY
     // below catch dupes that only differ by formatting.
+    //
+    // MySQL syntax: REGEXP_REPLACE replaces all matches by default; the
+    // 4th-arg "flags" form is PostgreSQL-only. The pattern matches one
+    // or more non-digits.
     try {
       await this.dataSource.query(
-        `UPDATE customers SET phone = REGEXP_REPLACE(phone, '\\D', '', 'g') WHERE phone IS NOT NULL`,
+        `UPDATE customers SET phone = REGEXP_REPLACE(phone, '[^0-9]+', '') WHERE phone IS NOT NULL`,
       );
       await this.dataSource.query(
-        `UPDATE customers SET mobile = REGEXP_REPLACE(mobile, '\\D', '', 'g') WHERE mobile IS NOT NULL`,
+        `UPDATE customers SET mobile = REGEXP_REPLACE(mobile, '[^0-9]+', '') WHERE mobile IS NOT NULL`,
       );
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -163,16 +167,19 @@ export class CustomersService {
     }
 
     // Find all phone -> [ids...] groupings where there are duplicates.
-    // Plain SQL — TypeORM's QueryBuilder doesn't reliably hand `phone`
-    // through as a property name on a raw FROM clause.
-    const rows: Array<{ phone: string; ids: number[] }> = await this.dataSource
+    // MySQL: GROUP_CONCAT returns a CSV string; we split it in JS.
+    const rawRows: Array<{ phone: string; ids: string }> = await this.dataSource
       .query(
-        `SELECT phone, ARRAY_AGG(id ORDER BY id ASC) AS ids
+        `SELECT phone, GROUP_CONCAT(id ORDER BY id ASC) AS ids
          FROM customers
          WHERE phone IS NOT NULL AND phone <> ''
          GROUP BY phone
          HAVING COUNT(*) > 1`,
       );
+    const rows: Array<{ phone: string; ids: number[] }> = rawRows.map((r) => ({
+      phone: r.phone,
+      ids: String(r.ids).split(',').map((s) => Number(s.trim())).filter((n) => Number.isFinite(n)),
+    }));
 
     // eslint-disable-next-line no-console
     console.log(
@@ -198,50 +205,54 @@ export class CustomersService {
         // Repoint all FK tables. We hit raw SQL here because some of
         // the entities live in other modules and importing them just
         // for an UPDATE adds noise.
+        // MySQL syntax — `?` placeholders, expanded IN list.
+        const inPlaceholders = dupeIds.map(() => '?').join(',');
         await manager.query(
-          `UPDATE orders SET customer_id = $1 WHERE customer_id = ANY($2::int[])`,
-          [canonicalId, dupeIds],
+          `UPDATE orders SET customer_id = ? WHERE customer_id IN (${inPlaceholders})`,
+          [canonicalId, ...dupeIds],
         );
         await manager.query(
-          `UPDATE quotes SET customer_id = $1 WHERE customer_id = ANY($2::int[])`,
-          [canonicalId, dupeIds],
+          `UPDATE quotes SET customer_id = ? WHERE customer_id IN (${inPlaceholders})`,
+          [canonicalId, ...dupeIds],
         );
         await manager.query(
-          `UPDATE inquiries SET customer_id = $1 WHERE customer_id = ANY($2::int[])`,
-          [canonicalId, dupeIds],
+          `UPDATE inquiries SET customer_id = ? WHERE customer_id IN (${inPlaceholders})`,
+          [canonicalId, ...dupeIds],
         );
         await manager.query(
-          `UPDATE store_credit_transactions SET customer_id = $1 WHERE customer_id = ANY($2::int[])`,
-          [canonicalId, dupeIds],
+          `UPDATE store_credit_transactions SET customer_id = ? WHERE customer_id IN (${inPlaceholders})`,
+          [canonicalId, ...dupeIds],
         );
 
         // Store credit is unique per customer — sum the dupes' balances
         // into the canonical row, then delete the dupe rows.
         const dupeCredits: Array<{ balance: string }> = await manager.query(
-          `SELECT balance FROM store_credits WHERE customer_id = ANY($1::int[])`,
-          [dupeIds],
+          `SELECT balance FROM store_credits WHERE customer_id IN (${inPlaceholders})`,
+          [...dupeIds],
         );
         const transferAmount = dupeCredits.reduce(
           (sum, r) => sum + Number(r.balance || 0),
           0,
         );
         if (transferAmount > 0) {
-          // Make sure the canonical has a row, then add the transfer.
+          // Make sure the canonical has a row (no-op upsert), then add
+          // the transfer. ON DUPLICATE KEY UPDATE balance = balance is
+          // a MySQL idiom for "insert if missing, do nothing if there".
           await manager.query(
             `INSERT INTO store_credits (customer_id, balance)
-             VALUES ($1, 0)
-             ON CONFLICT (customer_id) DO NOTHING`,
+             VALUES (?, 0)
+             ON DUPLICATE KEY UPDATE balance = balance`,
             [canonicalId],
           );
           await manager.query(
-            `UPDATE store_credits SET balance = balance + $1 WHERE customer_id = $2`,
+            `UPDATE store_credits SET balance = balance + ? WHERE customer_id = ?`,
             [transferAmount, canonicalId],
           );
           creditTransferred += transferAmount;
         }
         await manager.query(
-          `DELETE FROM store_credits WHERE customer_id = ANY($1::int[])`,
-          [dupeIds],
+          `DELETE FROM store_credits WHERE customer_id IN (${inPlaceholders})`,
+          [...dupeIds],
         );
 
         // Backfill any missing fields on the canonical from a dupe so
@@ -360,22 +371,20 @@ export class CustomersService {
 
     // Layby commitments: count active + expired laybys for this
     // customer and sum what they still owe across them.
-    // Plain SQL — TypeORM's QueryBuilder fights with raw-table left
-    // joins on aliases; this is unambiguous and keeps the query in
-    // one round-trip.
+    // MySQL syntax — `?` placeholders, no PG-style casts.
     const laybyRows: Array<{ id: number; grand_total: string; paid: string }> =
       await this.dataSource.query(
         `SELECT o.id,
-                o.grand_total::text AS grand_total,
+                o.grand_total AS grand_total,
                 COALESCE((
                   SELECT SUM(p.amount)
                   FROM payments p
                   WHERE p.order_id = o.id
                     AND p.status = 'completed'
-                ), 0)::text AS paid
+                ), 0) AS paid
          FROM orders o
-         WHERE o.customer_id = $1
-           AND o.status IN ($2, $3)`,
+         WHERE o.customer_id = ?
+           AND o.status IN (?, ?)`,
         [customerId, OrderStatus.LAYBY_ACTIVE, OrderStatus.LAYBY_EXPIRED],
       );
 
