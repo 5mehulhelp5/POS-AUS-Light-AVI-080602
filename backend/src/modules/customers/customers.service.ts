@@ -142,6 +142,17 @@ export class CustomersService {
     customersMerged: number;
     creditTransferred: number;
   }> {
+    // First pass: rewrite every phone/mobile in the table to digits only,
+    // so historical rows ("0434 310 130", "0434-310-130", null spaces…)
+    // collapse onto the same canonical string. This makes the GROUP BY
+    // below catch dupes that only differ by formatting.
+    await this.dataSource.query(
+      `UPDATE customers SET phone = REGEXP_REPLACE(phone, '\\D', '', 'g') WHERE phone IS NOT NULL`,
+    );
+    await this.dataSource.query(
+      `UPDATE customers SET mobile = REGEXP_REPLACE(mobile, '\\D', '', 'g') WHERE mobile IS NOT NULL`,
+    );
+
     // Find all phone -> [ids...] groupings where there are duplicates.
     const rows: Array<{ phone: string; ids: number[] }> = await this.dataSource
       .createQueryBuilder()
