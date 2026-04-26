@@ -312,11 +312,18 @@ export default function PaymentModal({
         if (isLayby && !customerIdToUse) {
           const parts = customerName.trim().split(/\s+/);
           const firstName = parts.shift() || customerName.trim();
-          const lastName = parts.join(' ') || '—';
+          // Last name is optional now; only send it if the cashier
+          // typed a multi-word name. Phone is sent digits-only since
+          // server validates exactly 10.
+          const lastName = parts.join(' ') || null;
+          const phoneDigits = customerPhone.trim().replace(/\D+/g, '');
+          if (phoneDigits && phoneDigits.length !== 10) {
+            throw new Error('Phone must be exactly 10 digits to create a layby customer');
+          }
           const created = await customersApi.createCustomer({
             firstName,
             lastName,
-            phone: customerPhone.trim() || undefined,
+            phone: phoneDigits || undefined,
             email: customerEmail.trim() || undefined,
             street: customerStreet.trim() || undefined,
             city: customerCity.trim() || undefined,

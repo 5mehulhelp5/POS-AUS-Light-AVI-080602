@@ -91,6 +91,8 @@ export const customersApi = {
     api.post(`/customers/${id}/store-credit/adjust`, data),
 
   updateCustomer: (id: number, data: any) => api.put(`/customers/${id}`, data),
+
+  mergeDuplicates: () => api.post('/customers/merge-duplicates'),
 };
 
 // Orders API

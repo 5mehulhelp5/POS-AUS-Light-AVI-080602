@@ -166,4 +166,18 @@ export class CustomersController {
       data: { customer },
     };
   }
+
+  @Post('merge-duplicates')
+  @UseGuards(RolesGuard)
+  @Roles(RoleNames.ADMIN)
+  @ApiOperation({
+    summary: 'Merge customer rows that share a phone number into a single record',
+  })
+  async mergeDuplicates() {
+    const result = await this.customersService.mergeDuplicatesByPhone();
+    return {
+      success: true,
+      data: result,
+    };
+  }
 }

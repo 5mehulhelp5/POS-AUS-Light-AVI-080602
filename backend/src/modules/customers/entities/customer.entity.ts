@@ -39,8 +39,8 @@ export class Customer {
   firstName: string;
 
   @Index()
-  @Column({ name: 'last_name', type: 'varchar', length: 100 })
-  lastName: string;
+  @Column({ name: 'last_name', type: 'varchar', length: 100, nullable: true })
+  lastName: string | null;
 
   @Index()
   @Column({ type: 'varchar', length: 50, nullable: true })
@@ -162,7 +162,7 @@ export class Customer {
 
   // Virtual property
   get fullName(): string {
-    return `${this.firstName} ${this.lastName}`;
+    return `${this.firstName}${this.lastName ? ` ${this.lastName}` : ''}`;
   }
 
   get primaryPhone(): string | null {

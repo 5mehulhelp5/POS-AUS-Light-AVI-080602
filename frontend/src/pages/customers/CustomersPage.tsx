@@ -223,7 +223,7 @@ export default function CustomersPage() {
       state: {
         preselectCustomer: {
           id: selectedCustomer.id,
-          name: `${selectedCustomer.firstName} ${selectedCustomer.lastName}`,
+          name: [selectedCustomer.firstName, selectedCustomer.lastName].filter(Boolean).join(' '),
         },
       },
     });
@@ -259,18 +259,29 @@ export default function CustomersPage() {
   };
 
   const handleCreateCustomer = async () => {
-    if (!newCustomer.firstName.trim() || !newCustomer.lastName.trim()) {
-      toast.error('First and last name are required');
+    if (!newCustomer.firstName.trim()) {
+      toast.error('First name is required');
+      return;
+    }
+    // Phone must be exactly 10 digits when supplied (server enforces too).
+    const phoneDigits = (newCustomer.phone || '').replace(/\D+/g, '');
+    const mobileDigits = (newCustomer.mobile || '').replace(/\D+/g, '');
+    if (phoneDigits && phoneDigits.length !== 10) {
+      toast.error('Phone must be exactly 10 digits');
+      return;
+    }
+    if (mobileDigits && mobileDigits.length !== 10) {
+      toast.error('Mobile must be exactly 10 digits');
       return;
     }
     setIsCreating(true);
     try {
       await customersApi.createCustomer({
         firstName: newCustomer.firstName.trim(),
-        lastName: newCustomer.lastName.trim(),
+        lastName: newCustomer.lastName.trim() || null,
         email: newCustomer.email.trim() || null,
-        phone: newCustomer.phone.trim() || null,
-        mobile: newCustomer.mobile.trim() || null,
+        phone: phoneDigits || null,
+        mobile: mobileDigits || null,
         company: newCustomer.company.trim() || null,
         taxNumber: newCustomer.taxNumber.trim() || null,
         isTrade: newCustomer.isTrade,
@@ -349,6 +360,48 @@ export default function CustomersPage() {
         <h1 className="text-2xl font-bold">Customers</h1>
         <div className="flex items-center gap-4">
           <span className="text-sm text-gray-400">Total: {pagination.total} customers</span>
+          {currentAuthUser?.role?.name === 'admin' && (
+            <button
+              className="btn-secondary flex items-center gap-2"
+              onClick={async () => {
+                if (
+                  !window.confirm(
+                    'Find every customer record sharing a phone number and merge them? Orders, quotes, store credit, and contact info will be repointed to the oldest record. The duplicates will be deleted. Cannot be undone.',
+                  )
+                )
+                  return;
+                try {
+                  const res = await customersApi.mergeDuplicates();
+                  const { groupsFound, customersMerged, creditTransferred } =
+                    res.data.data;
+                  if (groupsFound === 0) {
+                    toast.success('No duplicates found.');
+                  } else {
+                    toast.success(
+                      `Merged ${customersMerged} duplicate(s) across ${groupsFound} phone number(s). $${creditTransferred.toFixed(2)} store credit consolidated.`,
+                    );
+                  }
+                  // Refresh the list
+                  fetchIdRef.current++;
+                  const refreshed = await customersApi.getCustomers({
+                    page: 1,
+                    limit: 20,
+                  });
+                  setCustomers(refreshed.data.data.customers);
+                  setPagination(refreshed.data.data.pagination);
+                  setCurrentPage(1);
+                } catch (e: any) {
+                  toast.error(
+                    e.response?.data?.error?.message ||
+                      e.response?.data?.message ||
+                      'Merge failed',
+                  );
+                }
+              }}
+            >
+              Merge Duplicates
+            </button>
+          )}
           <button
             className="btn-primary flex items-center gap-2"
             onClick={() => { resetNewCustomer(); setShowCreateModal(true); }}
@@ -1008,7 +1061,7 @@ export default function CustomersPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Last Name *</label>
+                <label className="block text-xs text-gray-400 mb-1">Last Name</label>
                 <input
                   type="text"
                   className="input"
@@ -1026,19 +1079,27 @@ export default function CustomersPage() {
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Phone</label>
+                <label className="block text-xs text-gray-400 mb-1">
+                  Phone <span className="text-gray-500">(10 digits)</span>
+                </label>
                 <input
                   type="tel"
                   className="input"
+                  inputMode="numeric"
+                  placeholder="0434310130"
                   value={newCustomer.phone}
                   onChange={(e) => setNewCustomer({ ...newCustomer, phone: e.target.value })}
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Mobile</label>
+                <label className="block text-xs text-gray-400 mb-1">
+                  Mobile <span className="text-gray-500">(10 digits)</span>
+                </label>
                 <input
                   type="tel"
                   className="input"
+                  inputMode="numeric"
+                  placeholder="0434310130"
                   value={newCustomer.mobile}
                   onChange={(e) => setNewCustomer({ ...newCustomer, mobile: e.target.value })}
                 />

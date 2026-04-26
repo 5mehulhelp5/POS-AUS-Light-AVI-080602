@@ -795,11 +795,11 @@ export default function CartPanel({
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-400 mb-1">Last Name *</label>
+                      <label className="block text-xs text-gray-400 mb-1">Last Name</label>
                       <input
                         type="text"
                         className="input"
-                        placeholder="Last name"
+                        placeholder="Last name (optional)"
                         value={newCustLastName}
                         onChange={(e) => setNewCustLastName(e.target.value)}
                       />
@@ -816,11 +816,14 @@ export default function CartPanel({
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1">Phone Number *</label>
+                    <label className="block text-xs text-gray-400 mb-1">
+                      Phone Number * <span className="text-gray-500">(10 digits)</span>
+                    </label>
                     <input
                       type="tel"
                       className="input"
-                      placeholder="04XX XXX XXX"
+                      inputMode="numeric"
+                      placeholder="0434310130"
                       value={newCustPhone}
                       onChange={(e) => setNewCustPhone(e.target.value)}
                     />
@@ -843,30 +846,37 @@ export default function CartPanel({
                   <button
                     className="btn-primary flex-1"
                     onClick={async () => {
-                      if (!newCustFirstName.trim() || !newCustLastName.trim()) {
-                        setCreateCustError('First and last name are required');
+                      if (!newCustFirstName.trim()) {
+                        setCreateCustError('First name is required');
                         return;
                       }
-                      if (!newCustPhone.trim()) {
+                      const phoneDigits = newCustPhone.replace(/\D+/g, '');
+                      if (!phoneDigits) {
                         setCreateCustError('Phone number is required');
+                        return;
+                      }
+                      if (phoneDigits.length !== 10) {
+                        setCreateCustError('Phone must be exactly 10 digits');
                         return;
                       }
                       try {
                         const res = await customersApi.createCustomer({
                           firstName: newCustFirstName.trim(),
-                          lastName: newCustLastName.trim(),
+                          lastName: newCustLastName.trim() || null,
                           email: newCustEmail.trim() || null,
-                          phone: newCustPhone.trim(),
+                          phone: phoneDigits,
                         });
                         const created = res.data.data?.customer || res.data.data;
                         onSetCustomer({
                           id: created.id,
-                          name: `${created.firstName} ${created.lastName}`,
+                          name: [created.firstName, created.lastName].filter(Boolean).join(' '),
                         });
                         setShowCustomerModal(false);
                       } catch (err: any) {
                         setCreateCustError(
-                          err.response?.data?.message || 'Failed to create customer'
+                          err.response?.data?.message ||
+                            err.response?.data?.error?.message ||
+                            'Failed to create customer'
                         );
                       }
                     }}

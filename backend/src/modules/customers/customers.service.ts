@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Customer, SyncStatus } from './entities';
 import { Order, OrderStatus } from '../orders/entities/order.entity';
 import { Refund } from '../orders/entities/refund.entity';
@@ -14,6 +14,16 @@ export interface CustomerStats {
   lastPurchaseDate: Date | null;
 }
 
+/**
+ * Strip everything that isn't a digit. Used for de-dupe matching and
+ * for storage so "0434 310 130", "0434-310-130", and "0434310130" all
+ * collide on the same customer.
+ */
+function normalisePhone(raw: string | null | undefined): string {
+  if (!raw) return '';
+  return String(raw).replace(/\D+/g, '');
+}
+
 @Injectable()
 export class CustomersService {
   constructor(
@@ -25,7 +35,42 @@ export class CustomersService {
     private readonly refundRepository: Repository<Refund>,
     @InjectRepository(Quote)
     private readonly quoteRepository: Repository<Quote>,
+    private readonly dataSource: DataSource,
   ) {}
+
+  /**
+   * Normalise + validate a customer payload before save. Mutates the
+   * passed object so create/update use the cleaned values.
+   * Rules:
+   *   - phone (or mobile) must be exactly 10 digits when supplied
+   *   - lastName is optional
+   *   - phone is stored as digits only (so "0434 310 130" -> "0434310130")
+   */
+  private validateAndNormalise(data: Partial<Customer>): void {
+    if (data.phone !== undefined && data.phone !== null) {
+      const digits = normalisePhone(data.phone);
+      if (digits && digits.length !== 10) {
+        throw new BadRequestException(
+          `Phone number must be exactly 10 digits (got ${digits.length}: "${data.phone}")`,
+        );
+      }
+      data.phone = digits || null;
+    }
+    if (data.mobile !== undefined && data.mobile !== null) {
+      const digits = normalisePhone(data.mobile);
+      if (digits && digits.length !== 10) {
+        throw new BadRequestException(
+          `Mobile number must be exactly 10 digits (got ${digits.length}: "${data.mobile}")`,
+        );
+      }
+      data.mobile = digits || null;
+    }
+    if (data.lastName !== undefined) {
+      // empty/whitespace -> null so the optional column stays clean
+      const trimmed = data.lastName?.trim() || '';
+      data.lastName = trimmed || null;
+    }
+  }
 
   async findAll(options?: {
     search?: string;
@@ -60,6 +105,7 @@ export class CustomersService {
   }
 
   async create(data: Partial<Customer>): Promise<Customer> {
+    this.validateAndNormalise(data);
     const customer = this.customerRepository.create({
       ...data,
       syncStatus: SyncStatus.PENDING,
@@ -72,9 +118,151 @@ export class CustomersService {
     if (!customer) {
       throw new NotFoundException('Customer not found');
     }
-
+    this.validateAndNormalise(data);
     await this.customerRepository.update(id, data);
     return this.findById(id) as Promise<Customer>;
+  }
+
+  /**
+   * Find groups of customer rows that share a phone number (after
+   * normalisation) and collapse each group into a single canonical
+   * record. The oldest row by id wins. All foreign-key references
+   * (orders, quotes, inquiries, store credit + transactions) are
+   * repointed to the canonical row before the duplicates are deleted.
+   *
+   * Returns a summary so the caller can show the cashier what changed.
+   */
+  async mergeDuplicatesByPhone(): Promise<{
+    groupsFound: number;
+    customersMerged: number;
+    creditTransferred: number;
+  }> {
+    // Find all phone -> [ids...] groupings where there are duplicates.
+    const rows: Array<{ phone: string; ids: number[] }> = await this.dataSource
+      .createQueryBuilder()
+      .from(Customer, 'c')
+      .select('c.phone', 'phone')
+      .addSelect('ARRAY_AGG(c.id ORDER BY c.id ASC)', 'ids')
+      .where('c.phone IS NOT NULL')
+      .andWhere("c.phone <> ''")
+      .groupBy('c.phone')
+      .having('COUNT(*) > 1')
+      .getRawMany();
+
+    let customersMerged = 0;
+    let creditTransferred = 0;
+
+    for (const group of rows) {
+      const ids: number[] = group.ids;
+      if (!ids || ids.length < 2) continue;
+      const canonicalId = ids[0];
+      const dupeIds = ids.slice(1);
+
+      await this.dataSource.transaction(async (manager) => {
+        // Repoint all FK tables. We hit raw SQL here because some of
+        // the entities live in other modules and importing them just
+        // for an UPDATE adds noise.
+        await manager.query(
+          `UPDATE orders SET customer_id = $1 WHERE customer_id = ANY($2::int[])`,
+          [canonicalId, dupeIds],
+        );
+        await manager.query(
+          `UPDATE quotes SET customer_id = $1 WHERE customer_id = ANY($2::int[])`,
+          [canonicalId, dupeIds],
+        );
+        await manager.query(
+          `UPDATE inquiries SET customer_id = $1 WHERE customer_id = ANY($2::int[])`,
+          [canonicalId, dupeIds],
+        );
+        await manager.query(
+          `UPDATE store_credit_transactions SET customer_id = $1 WHERE customer_id = ANY($2::int[])`,
+          [canonicalId, dupeIds],
+        );
+
+        // Store credit is unique per customer — sum the dupes' balances
+        // into the canonical row, then delete the dupe rows.
+        const dupeCredits: Array<{ balance: string }> = await manager.query(
+          `SELECT balance FROM store_credits WHERE customer_id = ANY($1::int[])`,
+          [dupeIds],
+        );
+        const transferAmount = dupeCredits.reduce(
+          (sum, r) => sum + Number(r.balance || 0),
+          0,
+        );
+        if (transferAmount > 0) {
+          // Make sure the canonical has a row, then add the transfer.
+          await manager.query(
+            `INSERT INTO store_credits (customer_id, balance)
+             VALUES ($1, 0)
+             ON CONFLICT (customer_id) DO NOTHING`,
+            [canonicalId],
+          );
+          await manager.query(
+            `UPDATE store_credits SET balance = balance + $1 WHERE customer_id = $2`,
+            [transferAmount, canonicalId],
+          );
+          creditTransferred += transferAmount;
+        }
+        await manager.query(
+          `DELETE FROM store_credits WHERE customer_id = ANY($1::int[])`,
+          [dupeIds],
+        );
+
+        // Backfill any missing fields on the canonical from a dupe so
+        // we don't lose contact info just because the oldest record
+        // was sparse.
+        const dupes = await manager.find(Customer, {
+          where: dupeIds.map((id) => ({ id })),
+        });
+        const canonical = await manager.findOne(Customer, {
+          where: { id: canonicalId },
+        });
+        if (canonical) {
+          const fields: (keyof Customer)[] = [
+            'email',
+            'mobile',
+            'company',
+            'taxNumber',
+            'lastName',
+            'billingStreet',
+            'billingCity',
+            'billingState',
+            'billingPostcode',
+            'shippingStreet',
+            'shippingCity',
+            'shippingState',
+            'shippingPostcode',
+          ];
+          let touched = false;
+          for (const f of fields) {
+            if (!canonical[f]) {
+              const fromDupe = dupes.find((d) => !!d[f]);
+              if (fromDupe) {
+                (canonical as any)[f] = fromDupe[f];
+                touched = true;
+              }
+            }
+          }
+          // If any dupe was marked trade, the canonical inherits it.
+          if (!canonical.isTrade && dupes.some((d) => d.isTrade)) {
+            canonical.isTrade = true;
+            touched = true;
+          }
+          if (touched) await manager.save(canonical);
+        }
+
+        // Finally, drop the duplicate customer rows.
+        await manager.delete(Customer, dupeIds);
+      });
+
+      customersMerged += dupeIds.length;
+    }
+
+    return {
+      groupsFound: rows.length,
+      customersMerged,
+      creditTransferred: Math.round(creditTransferred * 100) / 100,
+    };
   }
 
   async getStats(customerId: number): Promise<CustomerStats> {
