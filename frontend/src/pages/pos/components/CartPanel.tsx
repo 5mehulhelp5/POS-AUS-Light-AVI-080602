@@ -545,10 +545,11 @@ export default function CartPanel({
         </button>
       </div>
 
-      {/* Cart Discount Modal */}
+      {/* Cart Discount Modal — compact popup so it doesn't take over the
+          screen for what is essentially a single-field input. */}
       {showDiscountModal && (
-        <div className="modal-backdrop" onClick={() => setShowDiscountModal(false)}>
-          <div className="modal-content max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-backdrop-small" onClick={() => setShowDiscountModal(false)}>
+          <div className="modal-content-small max-w-sm" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold">Apply Further Discount</h3>
               <button

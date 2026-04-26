@@ -112,6 +112,28 @@ body {
            font-medium text-sm;
   }
 
+  /* Small dialog backdrop — for compact prompts (discount entry, confirms,
+     quick lookups) where a full-screen takeover would feel heavy. Uses a
+     lighter dim, centres the panel, and sits at the same z as the regular
+     backdrop. */
+  .modal-backdrop-small {
+    @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-50
+           flex items-center justify-center p-4;
+  }
+  .modal-backdrop-small-top {
+    @apply fixed inset-0 bg-black/70 backdrop-blur-sm z-[60]
+           flex items-center justify-center p-4;
+  }
+
+  /* Small dialog body — bounded width, scrolls if content overflows.
+     Use the `!` overrides to keep the panel compact even though `.card`
+     and Tailwind utilities might try to grow it. Pair with max-w-sm /
+     max-w-md / max-w-lg on the same element to size it. */
+  .modal-content-small {
+    @apply bg-pos-card rounded-lg shadow-2xl border border-gray-700
+           p-6 w-full max-h-[85vh] overflow-y-auto;
+  }
+
   /* Badge */
   .badge {
     @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
