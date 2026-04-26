@@ -29,6 +29,11 @@ export default function PaymentModal({
   onComplete,
 }: PaymentModalProps) {
   const cart = useSelector((state: RootState) => state.cart);
+  const { user } = useSelector((state: RootState) => state.auth);
+  // Manager / admin can override the layby/backorder deposit minimum
+  // — including dropping it to $0 for established customers.
+  const canOverrideDeposit =
+    user?.role?.name === 'admin' || user?.role?.name === 'manager';
 
   const [method, setMethod] = useState<PaymentMethod>('eftpos');
   const [buyerType, setBuyerType] = useState<BuyerType>('customer');
@@ -117,6 +122,17 @@ export default function PaymentModal({
         100,
     ) / 100;
 
+  // Trade buyers can't lay by or backorder. If the cashier flips to
+  // Trade after ticking those flags, clear them so the order doesn't
+  // submit with stale state.
+  useEffect(() => {
+    if (buyerType === 'retail') {
+      setIsLayby(false);
+      setBackorderByProductId({});
+      setLaybyHeldByProductId({});
+    }
+  }, [buyerType]);
+
   // Default the deposit input to the split minimum whenever a deposit-
   // based order is active. The minimum = full price for take-now lines
   // + 20% of held/backorder lines.
@@ -182,7 +198,13 @@ export default function PaymentModal({
     Math.round((depositDue - creditApplied) * 100) / 100,
   );
 
-  const handlePayment = async () => {
+  // Confirm-before-submit popup: when the cashier clicks Complete Payment
+  // we validate, then ask "Has the customer paid $X via Y?" instead of
+  // submitting straight away. Prevents accidental double-clicks and
+  // forces a deliberate yes-paid confirmation.
+  const [showPayConfirm, setShowPayConfirm] = useState(false);
+
+  const handlePayment = async (skipConfirm: boolean = false) => {
     // Cash-at-register must cover the amount being collected right now
     // (deposit for laybys/backorders, full total otherwise), minus any
     // store credit.
@@ -216,10 +238,11 @@ export default function PaymentModal({
     }
 
     // Block deposits that fall below the minimum = full price for
-    // take-now items + 20% of held / backorder items. Server enforces
-    // too; fail fast on the client.
+    // take-now items + 20% of held / backorder items. Manager / admin
+    // can override (including dropping the deposit all the way to $0
+    // for trusted customers). Server enforces the same rule.
     if (isDepositOrder) {
-      if (depositDue + 0.01 < minDepositForOrder) {
+      if (depositDue + 0.01 < minDepositForOrder && !canOverrideDeposit) {
         toast.error(
           `Deposit of $${depositDue.toFixed(2)} is below the minimum $${minDepositForOrder.toFixed(2)} ` +
             `(take-now $${takeNowSubtotal.toFixed(2)} + ${LAYBY_DEPOSIT_PERCENT}% on deferred $${deferredSubtotal.toFixed(2)}). ` +
@@ -243,6 +266,15 @@ export default function PaymentModal({
         toast.error('Please enter customer phone number');
         return;
       }
+    }
+
+    // All validations passed — pause and ask the cashier to confirm
+    // they've actually received payment before we hit the API. The
+    // confirm dialog calls handlePayment(true) on Yes which skips this
+    // gate.
+    if (!skipConfirm && !demoMode) {
+      setShowPayConfirm(true);
+      return;
     }
 
     setIsProcessing(true);
@@ -828,8 +860,10 @@ export default function PaymentModal({
 
         {/* Lay By toggle. A DB customer record is required — if the cashier
             filled in ad-hoc customer details above, we auto-create one on
-            submit, so allow the checkbox as long as we have a name + phone. */}
-        {(() => {
+            submit, so allow the checkbox as long as we have a name + phone.
+            Trade buyers (buyerType === 'retail') don't get a Lay By option —
+            trade is account-based, billed/paid separately. */}
+        {buyerType !== 'retail' && (() => {
           const hasLinkedCustomer = !!cart.customerId;
           const hasAdHocCustomer =
             !!customerName.trim() && !!customerPhone.trim();
@@ -864,7 +898,8 @@ export default function PaymentModal({
             <div className="mt-3 grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-gray-400 mb-1">
-                  Deposit (min ${minDepositForOrder.toFixed(2)})
+                  Deposit (min ${minDepositForOrder.toFixed(2)}
+                  {canOverrideDeposit ? ', manager can drop to $0' : ''})
                 </label>
                 <input
                   type="number"
@@ -877,6 +912,7 @@ export default function PaymentModal({
                 />
                 <p className="text-[11px] text-gray-500 mt-1">
                   Take-now ${takeNowSubtotal.toFixed(2)} + {LAYBY_DEPOSIT_PERCENT}% of deferred ${deferredSubtotal.toFixed(2)}
+                  {canOverrideDeposit && ' · admin/manager override allowed'}
                 </p>
               </div>
               <div>
@@ -894,7 +930,7 @@ export default function PaymentModal({
         {/* Complete Button */}
         <button
           className="btn-success w-full btn-lg text-lg"
-          onClick={handlePayment}
+          onClick={() => handlePayment()}
           disabled={
             isProcessing ||
             (isDepositOrder
@@ -947,44 +983,51 @@ export default function PaymentModal({
                       <span className="text-green-400">-{item.discountPercent}%</span>
                     )}
                   </div>
-                  {/* Backorder toggle — tick for items not in stock that the
-                      customer is happy to wait for. Stock isn't deducted and
-                      the order is flagged for fulfilment when it arrives. */}
-                  <label className="flex items-center gap-1.5 mt-2 text-xs text-gray-400 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={!!backorderByProductId[item.productId]}
-                      onChange={(e) =>
-                        setBackorderByProductId((prev) => ({
-                          ...prev,
-                          [item.productId]: e.target.checked,
-                        }))
-                      }
-                      className="w-3.5 h-3.5"
-                    />
-                    <span>Backorder — ordering from supplier</span>
-                  </label>
-                  {/* Hold on Lay By — tick for in-stock items the customer is
-                      leaving behind until balance is paid. Mixed orders can
-                      have some lines held and others handed over today. */}
-                  {!backorderByProductId[item.productId] && (
-                    <label className="flex items-center gap-1.5 mt-1 text-xs text-gray-400 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={
-                          !!laybyHeldByProductId[item.productId] ||
-                          LAYBY_ALL_FROM_TOGGLE
-                        }
-                        onChange={(e) =>
-                          setLaybyHeldByProductId((prev) => ({
-                            ...prev,
-                            [item.productId]: e.target.checked,
-                          }))
-                        }
-                        className="w-3.5 h-3.5"
-                      />
-                      <span>Hold on Lay By (customer leaves it here)</span>
-                    </label>
+                  {/* Backorder + Hold-on-LayBy controls. Trade buyers
+                      don't see these — trade orders are full-price take-now
+                      transactions, fulfilment is handled outside the POS. */}
+                  {buyerType !== 'retail' && (
+                    <>
+                      {/* Backorder toggle — tick for items not in stock that the
+                          customer is happy to wait for. Stock isn't deducted and
+                          the order is flagged for fulfilment when it arrives. */}
+                      <label className="flex items-center gap-1.5 mt-2 text-xs text-gray-400 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={!!backorderByProductId[item.productId]}
+                          onChange={(e) =>
+                            setBackorderByProductId((prev) => ({
+                              ...prev,
+                              [item.productId]: e.target.checked,
+                            }))
+                          }
+                          className="w-3.5 h-3.5"
+                        />
+                        <span>Backorder — ordering from supplier</span>
+                      </label>
+                      {/* Hold on Lay By — tick for in-stock items the customer is
+                          leaving behind until balance is paid. Mixed orders can
+                          have some lines held and others handed over today. */}
+                      {!backorderByProductId[item.productId] && (
+                        <label className="flex items-center gap-1.5 mt-1 text-xs text-gray-400 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={
+                              !!laybyHeldByProductId[item.productId] ||
+                              LAYBY_ALL_FROM_TOGGLE
+                            }
+                            onChange={(e) =>
+                              setLaybyHeldByProductId((prev) => ({
+                                ...prev,
+                                [item.productId]: e.target.checked,
+                              }))
+                            }
+                            className="w-3.5 h-3.5"
+                          />
+                          <span>Hold on Lay By (customer leaves it here)</span>
+                        </label>
+                      )}
+                    </>
                   )}
                 </div>
               ))
@@ -1018,6 +1061,66 @@ export default function PaymentModal({
           </div>
         </aside>
       </div>
+
+      {/* Payment confirmation popup. Stops accidental clicks on
+          Complete Payment from closing out an order before the cashier
+          has actually received money. */}
+      {showPayConfirm && (
+        <div
+          className="modal-backdrop-small-top"
+          onClick={() => setShowPayConfirm(false)}
+        >
+          <div
+            className="modal-content-small max-w-sm text-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold mb-2">Has the customer paid?</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              Confirm you've received{' '}
+              <span className="font-bold text-primary-400">
+                ${(isDepositOrder ? depositRemaining : remainingDue).toFixed(2)}
+              </span>{' '}
+              via{' '}
+              <span className="font-semibold text-gray-200 uppercase">
+                {method === 'eftpos'
+                  ? 'EFTPOS'
+                  : method === 'cash'
+                    ? 'Cash'
+                    : 'Bank Transfer'}
+              </span>
+              {creditApplied > 0 && (
+                <>
+                  {' '}+ <span className="text-purple-300 font-medium">${creditApplied.toFixed(2)} store credit</span>
+                </>
+              )}
+              .
+              {isDepositOrder && (
+                <span className="block mt-2 text-amber-300 text-xs">
+                  Deposit only — balance ${(total - depositDue).toFixed(2)} owing.
+                </span>
+              )}
+            </p>
+            <div className="flex gap-3">
+              <button
+                className="btn-secondary flex-1"
+                onClick={() => setShowPayConfirm(false)}
+              >
+                No, go back
+              </button>
+              <button
+                className="btn-success flex-1"
+                onClick={() => {
+                  setShowPayConfirm(false);
+                  handlePayment(true);
+                }}
+                autoFocus
+              >
+                Yes, complete order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
