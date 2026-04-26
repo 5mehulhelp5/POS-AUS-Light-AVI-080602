@@ -1129,7 +1129,7 @@ export default function OrdersPage() {
                   }`}
                   onClick={() => setRefundAsCash(true)}
                 >
-                  Cash
+                  Refund
                 </button>
               </div>
               {!refundOrder.customer && (
