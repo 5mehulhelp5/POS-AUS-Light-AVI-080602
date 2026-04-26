@@ -588,21 +588,34 @@ export default function CartPanel({
               </button>
             </div>
 
-            {/* Discount Value */}
+            {/* Discount Value — show a % or $ suffix glued to the input
+                so the cashier can see at a glance which mode they're in. */}
             <div className="mb-4">
               <label className="block text-sm text-gray-400 mb-1">
                 {discountType === 'percent' ? (maxDiscountPercent >= 100 ? 'Discount % (No Limit)' : `Discount % (max ${maxDiscountPercent}%)`) : 'Discount Amount ($)'}
               </label>
-              <input
-                type="number"
-                className="input"
-                placeholder={discountType === 'percent' ? '10' : '50.00'}
-                value={discountValue}
-                onChange={(e) => setDiscountValue(e.target.value)}
-                max={discountType === 'percent' ? maxDiscountPercent : undefined}
-                min={0}
-                autoFocus
-              />
+              <div className="relative">
+                {discountType === 'fixed' && (
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none">
+                    $
+                  </span>
+                )}
+                <input
+                  type="number"
+                  className={`input ${discountType === 'percent' ? 'pr-10' : 'pl-7'}`}
+                  placeholder={discountType === 'percent' ? '10' : '50.00'}
+                  value={discountValue}
+                  onChange={(e) => setDiscountValue(e.target.value)}
+                  max={discountType === 'percent' ? maxDiscountPercent : undefined}
+                  min={0}
+                  autoFocus
+                />
+                {discountType === 'percent' && (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 font-semibold pointer-events-none">
+                    %
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Reason */}
