@@ -21,6 +21,12 @@ import { SettingsService } from '../settings/settings.service';
 
 interface CreateOrderDto {
   customerId?: number;
+  // When true, per-item `unitPrice` overrides are honoured even for
+  // non-backorder lines. Used by the quote-conversion path so locked-in
+  // quoted prices (especially trade prices) flow through to the order.
+  // Untrusted callers (POS PaymentModal) should leave this unset — the
+  // discount flow is how cashiers adjust prices on normal sales.
+  trustItemUnitPrices?: boolean;
   items: Array<{
     productId: number;
     quantity: number;
@@ -113,12 +119,17 @@ export class OrdersService {
         product.specialPrice && Number(product.specialPrice) > 0
           ? product.specialPrice
           : product.price;
-      // For backorder lines, let the cashier override the unit price —
-      // catalogue price may be $0 (new SKU, pre-order) or out of date.
-      // Non-backorder lines must use the catalogue price; cashiers have
-      // the discount flow for adjustments.
+      // Honour a per-line unitPrice override when:
+      //   1. the line is a backorder (catalogue may be $0 / out of date), OR
+      //   2. the caller is trusted (dto.trustItemUnitPrices) — used by
+      //      the quote-conversion flow so the locked-in quoted price
+      //      flows through to the order. Without this, the backend
+      //      rebuilds the order at current catalogue price and the
+      //      payment-mismatch check rejects the conversion.
+      // Non-backorder, untrusted lines always use the catalogue price;
+      // cashiers should use the discount flow for adjustments.
       const resolvedUnitPrice =
-        item.isBackorder &&
+        (item.isBackorder || dto.trustItemUnitPrices) &&
         item.unitPrice != null &&
         Number(item.unitPrice) >= 0
           ? Number(item.unitPrice)

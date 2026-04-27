@@ -55,6 +55,24 @@ export default function ProductGrid({
                   src={product.thumbnailUrl}
                   alt={product.name}
                   className="w-full h-full object-contain p-1"
+                  loading="lazy"
+                  onError={(e) => {
+                    // Magento occasionally returns a stale or unreachable
+                    // image URL; swap to a neutral placeholder so the
+                    // tile still looks intentional.
+                    const img = e.currentTarget;
+                    img.onerror = null;
+                    img.style.display = 'none';
+                    const parent = img.parentElement;
+                    if (parent && !parent.querySelector('[data-img-fallback]')) {
+                      const fb = document.createElement('div');
+                      fb.dataset.imgFallback = 'true';
+                      fb.className =
+                        'w-full h-full flex items-center justify-center text-xs text-gray-500 text-center px-2';
+                      fb.textContent = 'Image unavailable';
+                      parent.appendChild(fb);
+                    }
+                  }}
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-gray-500">

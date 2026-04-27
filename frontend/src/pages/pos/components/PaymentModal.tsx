@@ -53,6 +53,11 @@ export default function PaymentModal({
   const [customerState, setCustomerState] = useState('');
   const [customerPostcode, setCustomerPostcode] = useState('');
   const [companyAbn, setCompanyAbn] = useState('');
+  // Trade buyers get separate Company / First Name / Last Name fields.
+  // For non-trade orders we keep using `customerName` as a single field.
+  const [tradeCompanyName, setTradeCompanyName] = useState('');
+  const [tradeFirstName, setTradeFirstName] = useState('');
+  const [tradeLastName, setTradeLastName] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
   const [walkIn, setWalkIn] = useState(false);
 
@@ -660,32 +665,102 @@ export default function PaymentModal({
           }`}>
             {buyerType === 'retail' ? 'Company/Customer Details (Optional)' : 'Customer Details (for Invoice)'}
           </h3>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">
-                {buyerType === 'retail' ? 'Company/Name' : 'Name *'}
-              </label>
-              <input
-                type="text"
-                className="input text-sm"
-                placeholder={buyerType === 'retail' ? 'Company or customer name' : 'Customer name'}
-                value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
-              />
+          {buyerType === 'retail' ? (
+            <>
+              {/* Trade buyers: Company name on its own row, then First /
+                  Last name + Phone underneath. customerName is kept in
+                  sync as "Company — First Last" so downstream invoice
+                  / order code that reads customerName still works. */}
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Company Name</label>
+                <input
+                  type="text"
+                  className="input text-sm"
+                  placeholder="ABC Trading Pty Ltd"
+                  value={tradeCompanyName}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setTradeCompanyName(v);
+                    const contact = [tradeFirstName, tradeLastName]
+                      .filter(Boolean)
+                      .join(' ');
+                    setCustomerName(
+                      [v, contact].filter(Boolean).join(' — ').trim(),
+                    );
+                  }}
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">First Name</label>
+                  <input
+                    type="text"
+                    className="input text-sm"
+                    placeholder="First name"
+                    value={tradeFirstName}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setTradeFirstName(v);
+                      const contact = [v, tradeLastName].filter(Boolean).join(' ');
+                      setCustomerName(
+                        [tradeCompanyName, contact].filter(Boolean).join(' — ').trim(),
+                      );
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Last Name</label>
+                  <input
+                    type="text"
+                    className="input text-sm"
+                    placeholder="Last name"
+                    value={tradeLastName}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setTradeLastName(v);
+                      const contact = [tradeFirstName, v].filter(Boolean).join(' ');
+                      setCustomerName(
+                        [tradeCompanyName, contact].filter(Boolean).join(' — ').trim(),
+                      );
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Phone</label>
+                  <input
+                    type="tel"
+                    className="input text-sm"
+                    placeholder="Phone number"
+                    value={customerPhone}
+                    onChange={(e) => setCustomerPhone(e.target.value)}
+                  />
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Name *</label>
+                <input
+                  type="text"
+                  className="input text-sm"
+                  placeholder="Customer name"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Phone *</label>
+                <input
+                  type="tel"
+                  className="input text-sm"
+                  placeholder="Phone number"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1">
-                {buyerType === 'retail' ? 'Phone' : 'Phone *'}
-              </label>
-              <input
-                type="tel"
-                className="input text-sm"
-                placeholder="Phone number"
-                value={customerPhone}
-                onChange={(e) => setCustomerPhone(e.target.value)}
-              />
-            </div>
-          </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs text-gray-400 mb-1">Email</label>

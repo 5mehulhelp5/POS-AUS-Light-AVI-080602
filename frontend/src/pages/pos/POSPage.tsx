@@ -157,11 +157,23 @@ export default function POSPage() {
     setViewMode('subcategories');
   };
 
-  const handleSubcategorySelect = (subcat: { id: number; name: string }) => {
+  const handleSubcategorySelect = async (subcat: { id: number; name: string }) => {
     setActiveCategoryId(subcat.id);
     setActiveCategoryName(subcat.name);
-    // Check if this subcategory has its own children
-    dispatch(fetchSubcategories(subcat.id));
+    // If this subcategory has its own children (3rd-level / leaf categories),
+    // stay in the subcategories view and show them. Only drop into the
+    // products view once we've reached a leaf with no further children.
+    try {
+      const result: any = await dispatch(fetchSubcategories(subcat.id)).unwrap();
+      const children =
+        result?.subcategories || result?.data?.subcategories || [];
+      if (children.length > 0) {
+        setViewMode('subcategories');
+        return;
+      }
+    } catch {
+      // Ignore — fall through to products view
+    }
     setViewMode('products');
     dispatch(
       fetchProducts({

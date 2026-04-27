@@ -221,6 +221,21 @@ export default function CartPanel({
                         src={item.imageUrl}
                         alt={item.name}
                         className="w-full h-full object-cover"
+                        loading="lazy"
+                        onError={(e) => {
+                          const img = e.currentTarget;
+                          img.onerror = null;
+                          img.style.display = 'none';
+                          const parent = img.parentElement;
+                          if (parent && !parent.querySelector('[data-img-fallback]')) {
+                            const fb = document.createElement('div');
+                            fb.dataset.imgFallback = 'true';
+                            fb.className =
+                              'w-full h-full flex items-center justify-center text-gray-500 text-xs';
+                            fb.textContent = 'N/A';
+                            parent.appendChild(fb);
+                          }
+                        }}
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-gray-500 text-xs">
@@ -444,33 +459,41 @@ export default function CartPanel({
                           )}
                         </div>
                       )}
-                      {/* Item discount input */}
+                      {/* Item discount input — laid out compactly so it
+                          fits inside the cart panel without overflowing
+                          to the right. The % suffix sits inside the
+                          input so the cashier can see the unit. */}
                       {editingItemDiscount === item.productId && (
-                        <div className="mt-2 flex gap-2">
-                          <input
-                            type="number"
-                            className="input flex-1 text-sm py-1"
-                            placeholder={maxDiscountPercent >= 100 ? 'No Limit' : `Max ${maxDiscountPercent}%`}
-                            value={itemDiscountValue}
-                            onChange={(e) => setItemDiscountValue(e.target.value)}
-                            max={maxDiscountPercent}
-                            min={0}
-                            autoFocus
-                          />
+                        <div className="mt-2 flex items-center gap-1">
+                          <div className="relative flex-1 min-w-0">
+                            <input
+                              type="number"
+                              className="input w-full text-sm py-1 pr-6"
+                              placeholder={maxDiscountPercent >= 100 ? 'No limit' : `Max ${maxDiscountPercent}`}
+                              value={itemDiscountValue}
+                              onChange={(e) => setItemDiscountValue(e.target.value)}
+                              max={maxDiscountPercent}
+                              min={0}
+                              autoFocus
+                            />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 text-xs font-semibold pointer-events-none">
+                              %
+                            </span>
+                          </div>
                           <button
-                            className="btn-sm bg-green-600 text-white px-3"
+                            className="btn-sm bg-green-600 text-white px-2 py-1 text-xs whitespace-nowrap"
                             onClick={() => handleApplyItemDiscount(item.productId)}
                           >
                             Apply
                           </button>
                           <button
-                            className="btn-sm bg-gray-600 text-white px-2"
+                            className="btn-sm bg-gray-600 text-white px-1.5 py-1"
                             onClick={() => {
                               setEditingItemDiscount(null);
                               setItemDiscountValue('');
                             }}
                           >
-                            <XMarkIcon className="h-4 w-4" />
+                            <XMarkIcon className="h-3.5 w-3.5" />
                           </button>
                         </div>
                       )}

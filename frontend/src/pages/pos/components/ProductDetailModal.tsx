@@ -192,6 +192,19 @@ export default function ProductDetailModal({
                   src={gallery[galleryIdx]}
                   alt={product.name}
                   className="max-h-[340px] w-auto object-contain"
+                  onError={(e) => {
+                    const img = e.currentTarget;
+                    img.onerror = null;
+                    img.style.display = 'none';
+                    const parent = img.parentElement;
+                    if (parent && !parent.querySelector('[data-img-fallback]')) {
+                      const fb = document.createElement('span');
+                      fb.dataset.imgFallback = 'true';
+                      fb.className = 'text-gray-500';
+                      fb.textContent = 'Image unavailable';
+                      parent.appendChild(fb);
+                    }
+                  }}
                 />
               ) : (
                 <span className="text-gray-500">No Image</span>

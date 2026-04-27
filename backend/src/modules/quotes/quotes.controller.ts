@@ -156,10 +156,17 @@ export class QuotesController {
     const order = await this.ordersService.create(
       {
         customerId: body.customerId ?? quote.customerId ?? undefined,
+        // Quote prices are locked in at quote-creation time (especially
+        // for trade quotes where the cashier may have negotiated a
+        // custom price). Pass them through and tell the orders service
+        // to trust them, otherwise the order is rebuilt at the current
+        // catalogue price and the payment doesn't match.
+        trustItemUnitPrices: true,
         items: items.map((i) => ({
           productId: i.productId,
           quantity: i.quantity,
           discountPercent: i.discountPercent,
+          unitPrice: i.unitPriceOverride,
         })),
         payments: body.payments,
         notes: body.notes || `Converted from quote ${quote.quoteNumber}`,
