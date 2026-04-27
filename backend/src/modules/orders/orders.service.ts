@@ -29,6 +29,12 @@ interface CreateOrderDto {
     // doesn't deduct inventory. Stock is decremented when the manager
     // marks the item as fulfilled.
     isBackorder?: boolean;
+    // Partial-backorder split. When `isBackorder` is true and
+    // `backorderQty` is set to a value less than `quantity`, the server
+    // splits the line into two order_items: a take-now item with qty
+    // `quantity - backorderQty` and a backorder item with qty
+    // `backorderQty`. Default = full quantity (entire line is backorder).
+    backorderQty?: number;
     // Mark a line as held by the store on a layby. Stock IS deducted
     // (reserved) but the customer doesn't take the item home until the
     // layby balance is paid in full. Enables a single order to mix
@@ -141,19 +147,41 @@ export class OrdersService {
       });
     }
 
-    // Check stock. Skip backorder lines — those are explicitly allowed to
-    // exceed available stock and stock isn't deducted until fulfilment.
+    // Check stock. Skip backorder lines — those are explicitly allowed
+    // to exceed available stock and stock isn't deducted until fulfilment.
+    // For partial backorders ("ordered 4, take 2, backorder 2") only the
+    // take-now portion needs to be in stock right now.
     const isBackorderByProductId = new Map<number, boolean>();
     const isLaybyHeldByProductId = new Map<number, boolean>();
+    const backorderQtyByProductId = new Map<number, number>();
     for (const item of dto.items) {
       isBackorderByProductId.set(item.productId, !!item.isBackorder);
       isLaybyHeldByProductId.set(item.productId, !!item.isLaybyHeld);
-      if (item.isBackorder) continue;
+      if (item.isBackorder) {
+        // Default split = the entire line is backordered. Clamp to the
+        // line quantity so a misuse can't create negative take-now.
+        const split = Math.min(
+          Number(item.quantity) || 0,
+          Math.max(
+            0,
+            item.backorderQty != null
+              ? Number(item.backorderQty)
+              : Number(item.quantity) || 0,
+          ),
+        );
+        backorderQtyByProductId.set(item.productId, split);
+        const takeNowQty = (Number(item.quantity) || 0) - split;
+        if (takeNowQty <= 0) continue; // entire line is backorder, skip stock check
+        const product = products.find((p) => p.id === item.productId);
+        if (product && product.manageStock && product.stockQty < takeNowQty) {
+          throw new BadRequestException(
+            `Insufficient stock for ${product.name} (take-now portion). Available: ${product.stockQty}, requested: ${takeNowQty}.`,
+          );
+        }
+        continue;
+      }
       const product = products.find((p) => p.id === item.productId);
       if (product && product.manageStock && product.stockQty < item.quantity) {
-        // Include the isBackorder flag we received in the error so it's
-        // obvious whether the issue is "not ticked" vs "backend on stale
-        // code" vs "flag got lost in transit".
         throw new BadRequestException(
           `Insufficient stock for ${product.name}. Available: ${product.stockQty}. ` +
           `(isBackorder flag received from client: ${JSON.stringify(item.isBackorder)})`,
@@ -336,57 +364,97 @@ export class OrdersService {
 
       const savedOrder = await queryRunner.manager.save(order);
 
-      // Create order items
+      // Create order items. A partial backorder ("4 ordered, 2 taken
+      // home, 2 ordered from supplier") is split here into TWO order_item
+      // rows so refunds, fulfilment, and reporting can all treat the
+      // halves independently. Quantities + line totals are pro-rated.
       for (const calcItem of validation.calculatedTotals.items) {
         const product = products.find((p) => p.id === calcItem.productId);
         const lineIsBackorder = !!isBackorderByProductId.get(calcItem.productId);
         const lineIsLaybyHeld = !!isLaybyHeldByProductId.get(calcItem.productId);
-        const orderItem = queryRunner.manager.create(OrderItem, {
-          orderId: savedOrder.id,
-          productId: calcItem.productId,
-          sku: product?.sku || calcItem.sku,
-          name: product?.name || calcItem.name,
-          quantity: calcItem.quantity,
-          unitPrice: calcItem.unitPrice,
-          discountPercent: calcItem.discountPercent,
-          discountAmount: calcItem.discountAmount,
-          taxAmount: calcItem.taxAmount,
-          rowTotal: calcItem.rowTotal,
-          costPrice: product?.cost || null,
-          isBackorder: lineIsBackorder,
-          isLaybyHeld: lineIsLaybyHeld,
-        });
-        await queryRunner.manager.save(orderItem);
+        const totalQty = Number(calcItem.quantity);
+        const backQtyRaw = backorderQtyByProductId.get(calcItem.productId);
+        // For non-backorder lines or backorder lines with no/full split,
+        // backQty defaults to either 0 or totalQty.
+        const backQty = lineIsBackorder
+          ? backQtyRaw == null
+            ? totalQty
+            : Math.min(totalQty, Math.max(0, backQtyRaw))
+          : 0;
+        const takeNowQty = totalQty - backQty;
+        const perUnit =
+          totalQty > 0 ? calcItem.rowTotal / totalQty : calcItem.unitPrice;
 
-        // Log product discount if applied
-        if (calcItem.discountPercent > 0) {
-          await this.discountsService.logAppliedDiscount(
-            savedOrder.id,
-            orderItem.id,
-            userId,
-            userRole.name,
-            DiscountType.PRODUCT,
-            calcItem.discountPercent,
-            calcItem.discountAmount,
-            calcItem.unitPrice * calcItem.quantity,
-            calcItem.rowTotal,
-            dto.cartDiscount ? true : false,
-          );
-        }
+        // Helper to actually create + save an order_item row + log
+        // discount + decrement stock (when applicable).
+        const createRow = async (
+          qty: number,
+          flagBackorder: boolean,
+        ): Promise<OrderItem | null> => {
+          if (qty <= 0) return null;
+          const rowTotal = Math.round(perUnit * qty * 100) / 100;
+          const lineDiscountAmount = Math.round(
+            (Number(calcItem.discountAmount) / Math.max(1, totalQty)) * qty * 100,
+          ) / 100;
+          const lineTaxAmount = Math.round(
+            (Number(calcItem.taxAmount) / Math.max(1, totalQty)) * qty * 100,
+          ) / 100;
+          const orderItem = queryRunner.manager.create(OrderItem, {
+            orderId: savedOrder.id,
+            productId: calcItem.productId,
+            sku: product?.sku || calcItem.sku,
+            name: product?.name || calcItem.name,
+            quantity: qty,
+            unitPrice: calcItem.unitPrice,
+            discountPercent: calcItem.discountPercent,
+            discountAmount: lineDiscountAmount,
+            taxAmount: lineTaxAmount,
+            rowTotal,
+            costPrice: product?.cost || null,
+            isBackorder: flagBackorder,
+            isLaybyHeld: lineIsLaybyHeld && !flagBackorder,
+          });
+          await queryRunner.manager.save(orderItem);
 
-        // Update stock — except for backorder lines (not yet in hand) and
-        // layby orders (stock is held on paper but we still decrement so
-        // it's reserved against other sales).
-        if (product && !lineIsBackorder) {
-          await queryRunner.manager.update(
-            'products',
-            { id: product.id },
-            {
-              stockQty: () => `stock_qty - ${calcItem.quantity}`,
-              isInStock: () =>
-                `CASE WHEN stock_qty - ${calcItem.quantity} > 0 THEN 1 ELSE 0 END`,
-            },
-          );
+          if (calcItem.discountPercent > 0) {
+            await this.discountsService.logAppliedDiscount(
+              savedOrder.id,
+              orderItem.id,
+              userId,
+              userRole.name,
+              DiscountType.PRODUCT,
+              calcItem.discountPercent,
+              lineDiscountAmount,
+              calcItem.unitPrice * qty,
+              rowTotal,
+              dto.cartDiscount ? true : false,
+            );
+          }
+
+          // Decrement stock for everything except the backorder portion
+          // (those items aren't on the shelf yet — stock comes off when
+          // the manager fulfills).
+          if (product && !flagBackorder) {
+            await queryRunner.manager.update(
+              'products',
+              { id: product.id },
+              {
+                stockQty: () => `stock_qty - ${qty}`,
+                isInStock: () =>
+                  `CASE WHEN stock_qty - ${qty} > 0 THEN 1 ELSE 0 END`,
+              },
+            );
+          }
+          return orderItem;
+        };
+
+        if (lineIsBackorder && takeNowQty > 0 && backQty > 0) {
+          // Mixed split — create both halves
+          await createRow(takeNowQty, false);
+          await createRow(backQty, true);
+        } else {
+          // Whole line is one or the other
+          await createRow(totalQty, lineIsBackorder);
         }
       }
 

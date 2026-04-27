@@ -88,6 +88,14 @@ export default function PaymentModal({
     Record<number, boolean>
   >({});
 
+  // Per-item backorder QUANTITY. When set and less than the cart line's
+  // total quantity, the line splits at submit time: e.g. cart shows
+  // 4 × Airbus, backorder ticked, backorderQty=2 -> 2 take-now + 2
+  // backorder. Default = full quantity (entire line is backorder).
+  const [backorderQtyByProductId, setBackorderQtyByProductId] = useState<
+    Record<number, number>
+  >({});
+
   // Does the current cart include at least one backorder / held line?
   const hasBackorderLine = Object.values(backorderByProductId).some((v) => v);
   const hasLaybyHeldLine = Object.values(laybyHeldByProductId).some((v) => v);
@@ -107,8 +115,24 @@ export default function PaymentModal({
       const isHeld =
         !!laybyHeldByProductId[it.productId] ||
         (LAYBY_ALL_FROM_TOGGLE && !isBack);
-      if (isBack || isHeld) deferred += it.rowTotal;
-      else takeNow += it.rowTotal;
+      if (isBack) {
+        // Backorder may be a partial split (e.g. 2 of 4 backordered).
+        // Default to full quantity if no split was set.
+        const backQty = Math.min(
+          it.quantity,
+          Math.max(
+            0,
+            backorderQtyByProductId[it.productId] ?? it.quantity,
+          ),
+        );
+        const perUnit = it.quantity > 0 ? it.rowTotal / it.quantity : 0;
+        deferred += perUnit * backQty;
+        takeNow += perUnit * (it.quantity - backQty);
+      } else if (isHeld) {
+        deferred += it.rowTotal;
+      } else {
+        takeNow += it.rowTotal;
+      }
     }
     return {
       takeNowSubtotal: Math.round(takeNow * 100) / 100,
@@ -129,6 +153,7 @@ export default function PaymentModal({
       setIsLayby(false);
       setBackorderByProductId({});
       setLaybyHeldByProductId({});
+      setBackorderQtyByProductId({});
     }
   }, [buyerType]);
 
@@ -345,11 +370,22 @@ export default function PaymentModal({
             const isHeld =
               !!laybyHeldByProductId[item.productId] ||
               (LAYBY_ALL_FROM_TOGGLE && !isBack);
+            // For partial backorders (e.g. order 4, take 2, backorder 2)
+            // pass the split count. Server splits the line into two
+            // order_items: one take-now, one backorder.
+            const splitQty =
+              isBack && backorderQtyByProductId[item.productId] != null
+                ? Math.min(
+                    item.quantity,
+                    Math.max(0, backorderQtyByProductId[item.productId]),
+                  )
+                : undefined;
             return {
               productId: item.productId,
               quantity: item.quantity,
               discountPercent: item.discountPercent,
               isBackorder: isBack,
+              backorderQty: splitQty,
               isLaybyHeld: isHeld,
               // Pass unitPrice so the server can honour manual overrides on
               // backorder lines (e.g. catalogue price is $0).
@@ -1002,16 +1038,66 @@ export default function PaymentModal({
                         <input
                           type="checkbox"
                           checked={!!backorderByProductId[item.productId]}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            const checked = e.target.checked;
                             setBackorderByProductId((prev) => ({
                               ...prev,
-                              [item.productId]: e.target.checked,
-                            }))
-                          }
+                              [item.productId]: checked,
+                            }));
+                            // Default split to "all of this line is backorder"
+                            // when toggled on; clear when toggled off.
+                            setBackorderQtyByProductId((prev) => {
+                              const next = { ...prev };
+                              if (checked) next[item.productId] = item.quantity;
+                              else delete next[item.productId];
+                              return next;
+                            });
+                          }}
                           className="w-3.5 h-3.5"
                         />
                         <span>Backorder — ordering from supplier</span>
                       </label>
+                      {/* Per-line backorder quantity split. Only relevant
+                          when qty > 1 — otherwise the line is all-or-
+                          nothing. Defaults to the full quantity. */}
+                      {backorderByProductId[item.productId] &&
+                        item.quantity > 1 && (
+                          <div className="flex items-center gap-2 mt-1 ml-5 text-xs text-cyan-300">
+                            <span>How many on backorder?</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={item.quantity}
+                              step={1}
+                              className="input py-0.5 px-1.5 text-xs w-14"
+                              value={
+                                backorderQtyByProductId[item.productId] ??
+                                item.quantity
+                              }
+                              onChange={(e) => {
+                                const n = Math.min(
+                                  item.quantity,
+                                  Math.max(1, parseInt(e.target.value, 10) || 1),
+                                );
+                                setBackorderQtyByProductId((prev) => ({
+                                  ...prev,
+                                  [item.productId]: n,
+                                }));
+                              }}
+                            />
+                            <span>of {item.quantity}</span>
+                            {(backorderQtyByProductId[item.productId] ??
+                              item.quantity) <
+                              item.quantity && (
+                              <span className="text-gray-500">
+                                · {item.quantity -
+                                  (backorderQtyByProductId[item.productId] ??
+                                    item.quantity)}{' '}
+                                taking home today
+                              </span>
+                            )}
+                          </div>
+                        )}
                       {/* Hold on Lay By — tick for in-stock items the customer is
                           leaving behind until balance is paid. Mixed orders can
                           have some lines held and others handed over today. */}
