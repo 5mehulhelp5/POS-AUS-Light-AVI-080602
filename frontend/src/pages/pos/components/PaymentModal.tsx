@@ -115,12 +115,11 @@ export default function PaymentModal({
       deferredSubtotal: Math.round(deferred * 100) / 100,
     };
   })();
-  // Minimum deposit = full take-now total + 20% of deferred.
+  // Minimum deposit = a flat 20% of the whole order total (covers take-
+  // now AND deferred items together). Cashier can take more — even the
+  // full amount — but never less without manager override.
   const minDepositForOrder =
-    Math.round(
-      (takeNowSubtotal + (deferredSubtotal * LAYBY_DEPOSIT_PERCENT) / 100) *
-        100,
-    ) / 100;
+    Math.round((total * LAYBY_DEPOSIT_PERCENT) / 100 * 100) / 100;
 
   // Trade buyers can't lay by or backorder. If the cashier flips to
   // Trade after ticking those flags, clear them so the order doesn't
@@ -422,6 +421,9 @@ export default function PaymentModal({
         balanceDue: balanceOwing,
         takeNowSubtotal,
         deferredSubtotal,
+        salesPerson: user
+          ? [user.firstName, user.lastName].filter(Boolean).join(' ')
+          : undefined,
       };
 
       setInvoiceData(invoice);
@@ -896,9 +898,7 @@ export default function PaymentModal({
           </label>
           {(hasBackorderLine || hasLaybyHeldLine) && !isLayby && (
             <p className="text-xs text-cyan-300 mt-2">
-              Cart mixes take-now and deferred items. Required now:
-              full price for take-now (${takeNowSubtotal.toFixed(2)}) +{' '}
-              {LAYBY_DEPOSIT_PERCENT}% of deferred (${deferredSubtotal.toFixed(2)}).
+              A minimum {LAYBY_DEPOSIT_PERCENT}% deposit is required.
             </p>
           )}
           {isDepositOrder && (
@@ -918,8 +918,8 @@ export default function PaymentModal({
                   onChange={(e) => setLaybyDeposit(e.target.value)}
                 />
                 <p className="text-[11px] text-gray-500 mt-1">
-                  Take-now ${takeNowSubtotal.toFixed(2)} + {LAYBY_DEPOSIT_PERCENT}% of deferred ${deferredSubtotal.toFixed(2)}
-                  {canOverrideDeposit && ' · admin/manager override allowed'}
+                  A minimum {LAYBY_DEPOSIT_PERCENT}% deposit on the total ${total.toFixed(2)}
+                  {canOverrideDeposit && ' · manager can override'}
                 </p>
               </div>
               <div>

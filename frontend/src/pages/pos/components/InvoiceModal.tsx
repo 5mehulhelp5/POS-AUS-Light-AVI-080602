@@ -33,6 +33,9 @@ interface InvoiceData {
   balanceDue?: number;
   takeNowSubtotal?: number;
   deferredSubtotal?: number;
+  // Optional name of the cashier/sales person who served the customer
+  // — printed on the invoice so the store knows who closed the sale.
+  salesPerson?: string;
 }
 
 interface InvoiceModalProps {
@@ -194,6 +197,9 @@ export default function InvoiceModal({ invoice, onClose }: InvoiceModalProps) {
               <p style={{ margin: '4px 0' }}><strong>Invoice #:</strong> {invoice.orderNumber}</p>
               <p style={{ margin: '4px 0' }}><strong>Date:</strong> {formatDate(invoice.date)}</p>
               <p style={{ margin: '4px 0' }}><strong>Payment:</strong> {invoice.paymentMethod.toUpperCase()}</p>
+              {invoice.salesPerson && (
+                <p style={{ margin: '4px 0' }}><strong>Sales:</strong> {invoice.salesPerson}</p>
+              )}
             </div>
             <div style={{ flex: 1, textAlign: 'right' }}>
               <h3 style={{ fontSize: '14px', color: '#666', marginBottom: '8px', textTransform: 'uppercase' }}>

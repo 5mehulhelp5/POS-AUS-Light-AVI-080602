@@ -382,7 +382,7 @@ export default function ProductDetailModal({
               <PlusIcon className="h-4 w-4" />
             </button>
             <span className="text-sm text-gray-400 ml-4">
-              Line total: ${(ourPrice * qty).toFixed(2)}
+              Price: ${(ourPrice * qty).toFixed(2)}
             </span>
           </div>
           <div className="flex gap-2">

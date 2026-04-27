@@ -955,7 +955,9 @@ export default function QuotesPage() {
                     <tr>
                       <th className="px-3 py-2 text-left text-gray-300">Product</th>
                       <th className="px-3 py-2 text-center text-gray-300 w-20">Qty</th>
-                      <th className="px-3 py-2 text-right text-gray-300 w-24">Price</th>
+                      <th className="px-3 py-2 text-right text-gray-300 w-24">
+                        {quoteBuyerType === 'trade' ? 'Trade Price *' : 'Price *'}
+                      </th>
                       <th className="px-3 py-2 text-center text-gray-300 w-24">Disc %</th>
                       <th className="px-3 py-2 text-right text-gray-300 w-24">Total</th>
                       <th className="px-3 py-2 w-10"></th>

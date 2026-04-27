@@ -207,7 +207,7 @@ export class OrdersService {
     const isDepositOrder = isLayby || hasBackorder;
     if (isDepositOrder) {
       // Resolve the min deposit percent from settings (same 20% default
-      // for both layby and backorder — user asked for the same rule).
+      // for both layby and backorder).
       const minPercent = Number(
         (await this.settingsService.getValue<number | string>(
           isLayby ? 'layby_min_deposit_percent' : 'backorder_min_deposit_percent',
@@ -215,23 +215,12 @@ export class OrdersService {
         )) || 20,
       );
 
-      // Split the cart by category to compute the split payment floor.
-      let takeNowSubtotal = 0;
-      let deferredSubtotal = 0;
-      for (const calc of validation.calculatedTotals.items) {
-        const deferred =
-          isBackorderByProductId.get(calc.productId) ||
-          isLaybyHeldByProductId.get(calc.productId);
-        if (deferred) {
-          deferredSubtotal += calc.rowTotal;
-        } else {
-          takeNowSubtotal += calc.rowTotal;
-        }
-      }
+      // Minimum deposit is a flat percentage of the whole order total
+      // (covers take-now AND deferred items together). Cashier can
+      // collect more, even the full amount, but never less without a
+      // manager override.
       const minDeposit =
-        Math.round(
-          (takeNowSubtotal + (deferredSubtotal * minPercent) / 100) * 100,
-        ) / 100;
+        Math.round((grandTotal * minPercent) / 100 * 100) / 100;
 
       const depositOverridden = !!userRole && [
         'admin',
@@ -244,10 +233,7 @@ export class OrdersService {
           : 'Backorder';
       if (totalPayments + 0.01 < minDeposit && !depositOverridden) {
         throw new BadRequestException(
-          `${label} deposit of $${totalPayments.toFixed(2)} is below the minimum ` +
-          `(full payment for take-now items $${takeNowSubtotal.toFixed(2)} + ` +
-          `${minPercent}% on deferred items $${deferredSubtotal.toFixed(2)} = $${minDeposit.toFixed(2)}). ` +
-          `A manager can override.`,
+          `${label} deposit of $${totalPayments.toFixed(2)} is below the ${minPercent}% minimum ($${minDeposit.toFixed(2)} of $${grandTotal.toFixed(2)}). A manager can override.`,
         );
       }
       if (totalPayments > grandTotal + 0.01) {
@@ -594,10 +580,12 @@ export class OrdersService {
   }
 
   private async generateOrderNumber(): Promise<string> {
-    const year = new Date().getFullYear();
-    const prefix = `POS-${year}-`;
+    // Short, readable invoice number — POS-NNNN. Drops the year and
+    // padding from 6 digits to 4 to keep printed invoices compact.
+    // Sequence comes from the highest existing POS-* number so we
+    // don't collide with existing orders that used the longer format.
+    const prefix = 'POS-';
 
-    // Get last order number for this year
     const lastOrder = await this.orderRepository
       .createQueryBuilder('order')
       .where('order.orderNumber LIKE :prefix', { prefix: `${prefix}%` })
@@ -606,14 +594,13 @@ export class OrdersService {
 
     let sequence = 1;
     if (lastOrder) {
-      const lastSequence = parseInt(
-        lastOrder.orderNumber.replace(prefix, ''),
-        10,
-      );
-      sequence = lastSequence + 1;
+      // Pull the trailing run of digits — works for both the new
+      // POS-0007 format and the legacy POS-2026-000007 format.
+      const match = lastOrder.orderNumber.match(/(\d+)$/);
+      if (match) sequence = parseInt(match[1], 10) + 1;
     }
 
-    return `${prefix}${sequence.toString().padStart(6, '0')}`;
+    return `${prefix}${sequence.toString().padStart(4, '0')}`;
   }
 
   /**
