@@ -202,4 +202,23 @@ body {
   .print-only {
     display: block !important;
   }
+
+  /* Print isolation: when a printable receipt/invoice is open, hide
+     everything in the document except its contents. Prevents the page
+     underneath the modal (e.g. the Orders list behind a Refund Receipt)
+     from being printed alongside the receipt. Wrap the printable
+     element with className="printable-root" to opt in. */
+  body:has(.printable-root) * {
+    visibility: hidden;
+  }
+  body:has(.printable-root) .printable-root,
+  body:has(.printable-root) .printable-root * {
+    visibility: visible;
+  }
+  body:has(.printable-root) .printable-root {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    background: white;
+  }
 }

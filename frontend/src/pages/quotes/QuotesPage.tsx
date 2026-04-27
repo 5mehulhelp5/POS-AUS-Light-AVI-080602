@@ -1234,7 +1234,7 @@ export default function QuotesPage() {
       {/* Print view (full invoice-style) */}
       {printingQuote && (
         <div className="modal-backdrop-top print:bg-white print:static" style={{ zIndex: 70 }}>
-          <div className="modal-content bg-white text-black !p-0 print:shadow-none">
+          <div className="modal-content bg-white text-black !p-0 print:shadow-none printable-root">
             <div className="p-8">
               {/* Store header */}
               <div className="flex justify-between items-start mb-6 border-b-2 border-gray-800 pb-4">

@@ -19,6 +19,10 @@ export interface CreateRefundDto {
   // When true, refund goes back as cash (no store credit is issued).
   // Defaults to false (store credit).
   asCash?: boolean;
+  // When true, deduct a 20% restocking fee from the refund total.
+  // Customer-changed-mind returns and the like — store keeps 20%.
+  // Recorded in the reasonText so it shows on the refund history.
+  applyRestockingFee?: boolean;
 }
 
 @Injectable()
@@ -141,6 +145,17 @@ export class RefundsService {
 
       refundAmount = Math.round(refundAmount * 100) / 100;
 
+      // Apply 20% restocking fee if requested. Store keeps the fee;
+      // customer is refunded the rest. Recorded in reasonText for the
+      // refund history view.
+      const RESTOCKING_FEE_PERCENT = 20;
+      let restockingFee = 0;
+      if (dto.applyRestockingFee) {
+        restockingFee =
+          Math.round((refundAmount * RESTOCKING_FEE_PERCENT) / 100 * 100) / 100;
+        refundAmount = Math.round((refundAmount - restockingFee) * 100) / 100;
+      }
+
       // Compute total refunded amount for this order after this refund
       const previousRefundTotalRows = await queryRunner.manager
         .createQueryBuilder(Refund, 'r')
@@ -151,15 +166,32 @@ export class RefundsService {
       const newTotalRefunded = previousRefundedTotal + refundAmount;
       const orderGrandTotal = Number(order.grandTotal);
 
-      // Determine if this refund fully completes the order refund
-      const isFullRefund = newTotalRefunded >= orderGrandTotal - 0.01; // tolerance for float rounding
+      // Determine if this refund fully completes the order refund.
+      // When a restocking fee is taken, "full" means the customer can't
+      // claim more items — even though they don't get the full $ back.
+      const allItemsRefunded = order.items.every((oi) => {
+        const alreadyRef = alreadyRefundedMap.get(oi.id) || 0;
+        const newRef = dto.items.find((di) => di.orderItemId === oi.id)?.quantity || 0;
+        return alreadyRef + newRef >= Number(oi.quantity);
+      });
+      const isFullRefund = dto.applyRestockingFee
+        ? allItemsRefunded
+        : newTotalRefunded >= orderGrandTotal - 0.01;
 
-      // Create refund + items. Prepend "[CASH REFUND]" to reasonText for
-      // cash refunds so it's visible on the refund list without needing a
-      // new schema column.
-      const combinedReasonText = dto.asCash
-        ? `[CASH REFUND] ${dto.reasonText?.trim() || ''}`.trim()
-        : dto.reasonText?.trim() || null;
+      // Create refund + items. Prepend "[CASH REFUND]" / "[20% RESTOCK FEE]"
+      // tags to reasonText so they're visible on the refund list without
+      // needing new schema columns.
+      const tags: string[] = [];
+      if (dto.asCash) tags.push('[CASH REFUND]');
+      if (dto.applyRestockingFee) {
+        tags.push(
+          `[20% RESTOCK FEE: $${restockingFee.toFixed(2)} retained]`,
+        );
+      }
+      const combinedReasonText =
+        tags.length > 0
+          ? `${tags.join(' ')} ${dto.reasonText?.trim() || ''}`.trim()
+          : dto.reasonText?.trim() || null;
       const refund = queryRunner.manager.create(Refund, {
         orderId: order.id,
         userId,

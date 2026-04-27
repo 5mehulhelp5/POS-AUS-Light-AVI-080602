@@ -124,6 +124,7 @@ export const ordersApi = {
       reasonText?: string;
       items: Array<{ orderItemId: number; quantity: number; restock: boolean }>;
       asCash?: boolean;
+      applyRestockingFee?: boolean;
     },
   ) => api.post(`/orders/${orderId}/refund`, data),
 

@@ -122,6 +122,7 @@ export default function OrdersPage() {
   const [refundReason, setRefundReason] = useState<string>('damaged');
   const [refundReasonText, setRefundReasonText] = useState('');
   const [refundAsCash, setRefundAsCash] = useState(false);
+  const [refundRestockingFee, setRefundRestockingFee] = useState(false);
   const [isProcessingRefund, setIsProcessingRefund] = useState(false);
   const [completedRefund, setCompletedRefund] = useState<any>(null);
 
@@ -231,6 +232,7 @@ export default function OrdersPage() {
       setRefundReasonText('');
       // Walk-ins with no customer default to cash (can't issue credit to no-one)
       setRefundAsCash(!fullOrder.customer);
+      setRefundRestockingFee(false);
       // Default restock off for damaged/faulty on open
       setRefundItems((prev) =>
         prev.map((it) => ({ ...it, restock: !NON_RESTOCKABLE_REASONS.has('damaged') })),
@@ -286,6 +288,7 @@ export default function OrdersPage() {
         reasonText: refundReasonText.trim() || undefined,
         items,
         asCash: refundAsCash || !refundOrder.customer,
+        applyRestockingFee: refundRestockingFee,
       });
       toast.success('Refund processed successfully');
       setCompletedRefund({
@@ -1151,13 +1154,35 @@ export default function OrdersPage() {
               )}
             </div>
 
+            {/* 20% restocking fee toggle — store keeps 20% of the refund
+                amount, customer gets the rest. */}
+            <div className="mb-4 p-3 rounded-lg border border-gray-600 bg-pos-accent/40">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={refundRestockingFee}
+                  onChange={(e) => setRefundRestockingFee(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <span className="text-sm font-medium">Apply 20% restocking fee</span>
+                {refundRestockingFee && (
+                  <span className="text-xs text-gray-400 ml-auto">
+                    Fee retained: ${(refundTotal * 0.2).toFixed(2)} · Refund to customer: ${(refundTotal * 0.8).toFixed(2)}
+                  </span>
+                )}
+              </label>
+            </div>
+
             {/* Total + Actions */}
             <div className="flex justify-between items-center border-t border-gray-700 pt-4">
               <div>
                 <p className="text-sm text-gray-400">
                   Refund total ({refundAsCash || !refundOrder.customer ? 'cash' : 'store credit'})
+                  {refundRestockingFee && ' — after 20% fee'}
                 </p>
-                <p className="text-2xl font-bold text-orange-400">${refundTotal.toFixed(2)}</p>
+                <p className="text-2xl font-bold text-orange-400">
+                  ${(refundRestockingFee ? refundTotal * 0.8 : refundTotal).toFixed(2)}
+                </p>
               </div>
               <div className="flex gap-3">
                 <button
@@ -1267,7 +1292,7 @@ export default function OrdersPage() {
       {/* Refund Receipt (print view) */}
       {completedRefund && (
         <div className="modal-backdrop print:bg-white print:static">
-          <div className="modal-content bg-white text-black p-8 print:shadow-none">
+          <div className="modal-content bg-white text-black p-8 print:shadow-none printable-root">
             <div className="text-center mb-4">
               <h2 className="text-2xl font-bold">REFUND RECEIPT</h2>
               <p className="text-sm text-gray-600">Australian Lighting & Fans</p>
