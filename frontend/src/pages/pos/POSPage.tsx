@@ -68,6 +68,13 @@ export default function POSPage() {
   const [searchSubcatId, setSearchSubcatId] = useState<string>('');
   const [searchSubcats, setSearchSubcats] = useState<any[]>([]);
   const [loadingSearchSubcats, setLoadingSearchSubcats] = useState(false);
+  // Optional third-level dropdown — only appears if the selected
+  // subcategory has children of its own (e.g. Fans → DC Ceiling Fans →
+  // With Light / Without Light). When the subcategory is a leaf, this
+  // stays empty and the user goes straight to products.
+  const [searchSubsubcatId, setSearchSubsubcatId] = useState<string>('');
+  const [searchSubsubcats, setSearchSubsubcats] = useState<any[]>([]);
+  const [loadingSearchSubsubcats, setLoadingSearchSubsubcats] = useState(false);
 
   // Default: hide out-of-stock items (treated as discontinued). Admin/
   // manager can flip this on if they need to see them (e.g. to audit or
@@ -85,9 +92,13 @@ export default function POSPage() {
     if (!searchCatId) {
       setSearchSubcats([]);
       setSearchSubcatId('');
+      setSearchSubsubcats([]);
+      setSearchSubsubcatId('');
       return;
     }
     setSearchSubcatId('');
+    setSearchSubsubcats([]);
+    setSearchSubsubcatId('');
     setLoadingSearchSubcats(true);
     productsApi.getSubcategories(Number(searchCatId))
       .then(res => {
@@ -98,18 +109,51 @@ export default function POSPage() {
       .finally(() => setLoadingSearchSubcats(false));
   }, [searchCatId]);
 
+  // Fetch 3rd-level subcategories when a subcategory is picked.
+  useEffect(() => {
+    if (!searchSubcatId) {
+      setSearchSubsubcats([]);
+      setSearchSubsubcatId('');
+      return;
+    }
+    setSearchSubsubcatId('');
+    setLoadingSearchSubsubcats(true);
+    productsApi.getSubcategories(Number(searchSubcatId))
+      .then(res => {
+        const data = res.data?.data || res.data;
+        setSearchSubsubcats(data?.subcategories || []);
+      })
+      .catch(() => setSearchSubsubcats([]))
+      .finally(() => setLoadingSearchSubsubcats(false));
+  }, [searchSubcatId]);
+
   // Fetch products only when in product view or searching via dropdowns
   useEffect(() => {
     // If searching via dropdowns, category is required
     if (searchCatId) {
       // If subcats exist but none selected, don't fetch yet
       if (searchSubcats.length > 0 && !searchSubcatId) return;
+      // Same gate at the 3rd level: if the selected subcategory has
+      // children, wait for the user to pick one before showing products.
+      if (
+        searchSubcatId &&
+        searchSubsubcats.length > 0 &&
+        !searchSubsubcatId
+      )
+        return;
+
+      // Pick the deepest selected category id for the products query
+      const categoryId = searchSubsubcatId
+        ? Number(searchSubsubcatId)
+        : searchSubcatId
+          ? Number(searchSubcatId)
+          : Number(searchCatId);
 
       const timer = setTimeout(() => {
         dispatch(
           fetchProducts({
             search: searchQuery || undefined,
-            category: searchSubcatId ? Number(searchSubcatId) : Number(searchCatId),
+            category: categoryId,
             limit: pageSize,
             page: currentPage,
             inStock: showOutOfStock ? undefined : true,
@@ -135,12 +179,12 @@ export default function POSPage() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [searchQuery, activeCategoryId, viewMode, currentPage, dispatch, searchCatId, searchSubcatId, searchSubcats.length, showOutOfStock]);
+  }, [searchQuery, activeCategoryId, viewMode, currentPage, dispatch, searchCatId, searchSubcatId, searchSubcats.length, searchSubsubcatId, searchSubsubcats.length, showOutOfStock]);
 
   // Reset page on filter change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, activeCategoryId, searchCatId, searchSubcatId]);
+  }, [searchQuery, activeCategoryId, searchCatId, searchSubcatId, searchSubsubcatId]);
 
   // When search dropdowns are used, switch to products view
   useEffect(() => {
@@ -148,7 +192,7 @@ export default function POSPage() {
       setViewMode('products');
       setActiveCategoryId(null);
     }
-  }, [searchCatId, searchSubcatId]);
+  }, [searchCatId, searchSubcatId, searchSubsubcatId]);
 
   const handleCategorySelect = (cat: { id: number; name: string }) => {
     setActiveCategoryId(cat.id);
@@ -313,6 +357,25 @@ export default function POSPage() {
             </select>
           )}
 
+          {/* Third-level dropdown — only appears if the chosen subcategory
+              has children of its own. Otherwise the user goes straight to
+              products with the subcategory as the deepest filter. */}
+          {searchSubcatId && (loadingSearchSubsubcats || searchSubsubcats.length > 0) && (
+            <select
+              className="input w-48 shrink-0"
+              value={searchSubsubcatId}
+              onChange={(e) => setSearchSubsubcatId(e.target.value)}
+              disabled={loadingSearchSubsubcats}
+            >
+              <option value="">
+                {loadingSearchSubsubcats ? 'Loading...' : 'Select Type *'}
+              </option>
+              {searchSubsubcats.map((sc: any) => (
+                <option key={sc.id} value={sc.id}>{sc.name}</option>
+              ))}
+            </select>
+          )}
+
           {/* Text search (optional) */}
           <div className="relative flex-1">
             <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
@@ -340,6 +403,7 @@ export default function POSPage() {
               onClick={() => {
                 setSearchCatId('');
                 setSearchSubcatId('');
+                setSearchSubsubcatId('');
                 setSearchQuery('');
                 setViewMode('categories');
                 setActiveCategoryId(null);
@@ -467,9 +531,14 @@ export default function POSPage() {
             <p className="text-gray-400 text-lg">Please select a subcategory to view products</p>
           </div>
         )}
+        {searchSubcatId && !loadingSearchSubsubcats && searchSubsubcats.length > 0 && !searchSubsubcatId && (
+          <div className="flex-1 flex items-center justify-center">
+            <p className="text-gray-400 text-lg">Please select a type to view products</p>
+          </div>
+        )}
 
         {/* PRODUCTS VIEW */}
-        {(viewMode === 'products' || searchCatId) && !loadingSearchSubcats && !(searchCatId && searchSubcats.length > 0 && !searchSubcatId) && (
+        {(viewMode === 'products' || searchCatId) && !loadingSearchSubcats && !loadingSearchSubsubcats && !(searchCatId && searchSubcats.length > 0 && !searchSubcatId) && !(searchSubcatId && searchSubsubcats.length > 0 && !searchSubsubcatId) && (
           <>
             <ProductGrid
               products={products}
