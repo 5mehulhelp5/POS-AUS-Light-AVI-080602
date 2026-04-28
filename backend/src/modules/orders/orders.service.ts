@@ -46,6 +46,12 @@ interface CreateOrderDto {
     // layby balance is paid in full. Enables a single order to mix
     // take-now items with layby-held items.
     isLaybyHeld?: boolean;
+    // Partial-layby split. When `isLaybyHeld` is true and `laybyHeldQty`
+    // is set to a value less than `quantity`, the server splits the
+    // line into two order_items: a take-now item with qty
+    // `quantity - laybyHeldQty` and a held item with qty `laybyHeldQty`.
+    // Default = full quantity (entire line is held).
+    laybyHeldQty?: number;
     // Manual unit price override. Honoured only for backorder lines —
     // catalogue items must be sold at their DB price (use discountPercent
     // for adjustments instead).
@@ -165,9 +171,22 @@ export class OrdersService {
     const isBackorderByProductId = new Map<number, boolean>();
     const isLaybyHeldByProductId = new Map<number, boolean>();
     const backorderQtyByProductId = new Map<number, number>();
+    const laybyHeldQtyByProductId = new Map<number, number>();
     for (const item of dto.items) {
       isBackorderByProductId.set(item.productId, !!item.isBackorder);
       isLaybyHeldByProductId.set(item.productId, !!item.isLaybyHeld);
+      if (item.isLaybyHeld) {
+        const split = Math.min(
+          Number(item.quantity) || 0,
+          Math.max(
+            0,
+            item.laybyHeldQty != null
+              ? Number(item.laybyHeldQty)
+              : Number(item.quantity) || 0,
+          ),
+        );
+        laybyHeldQtyByProductId.set(item.productId, split);
+      }
       if (item.isBackorder) {
         // Default split = the entire line is backordered. Clamp to the
         // line quantity so a misuse can't create negative take-now.
@@ -275,7 +294,15 @@ export class OrdersService {
           deferredSubtotal += perUnit * backQty;
           takeNowSubtotal += perUnit * (qty - backQty);
         } else if (isHeld) {
-          deferredSubtotal += rowTotal;
+          // Same partial-split treatment for lay-by held lines.
+          const rawSplit = laybyHeldQtyByProductId.get(calc.productId);
+          const heldQty = Math.min(
+            qty,
+            Math.max(0, rawSplit != null ? Number(rawSplit) : qty),
+          );
+          const perUnit = qty > 0 ? rowTotal / qty : 0;
+          deferredSubtotal += perUnit * heldQty;
+          takeNowSubtotal += perUnit * (qty - heldQty);
         } else {
           takeNowSubtotal += rowTotal;
         }
@@ -414,14 +441,17 @@ export class OrdersService {
         const lineIsLaybyHeld = !!isLaybyHeldByProductId.get(calcItem.productId);
         const totalQty = Number(calcItem.quantity);
         const backQtyRaw = backorderQtyByProductId.get(calcItem.productId);
-        // For non-backorder lines or backorder lines with no/full split,
-        // backQty defaults to either 0 or totalQty.
+        const heldQtyRaw = laybyHeldQtyByProductId.get(calcItem.productId);
         const backQty = lineIsBackorder
           ? backQtyRaw == null
             ? totalQty
             : Math.min(totalQty, Math.max(0, backQtyRaw))
           : 0;
-        const takeNowQty = totalQty - backQty;
+        const heldQty = lineIsLaybyHeld
+          ? heldQtyRaw == null
+            ? totalQty
+            : Math.min(totalQty, Math.max(0, heldQtyRaw))
+          : 0;
         const perUnit =
           totalQty > 0 ? calcItem.rowTotal / totalQty : calcItem.unitPrice;
 
@@ -430,6 +460,7 @@ export class OrdersService {
         const createRow = async (
           qty: number,
           flagBackorder: boolean,
+          flagHeld: boolean,
         ): Promise<OrderItem | null> => {
           if (qty <= 0) return null;
           const rowTotal = Math.round(perUnit * qty * 100) / 100;
@@ -452,7 +483,7 @@ export class OrdersService {
             rowTotal,
             costPrice: product?.cost || null,
             isBackorder: flagBackorder,
-            isLaybyHeld: lineIsLaybyHeld && !flagBackorder,
+            isLaybyHeld: flagHeld && !flagBackorder,
           });
           await queryRunner.manager.save(orderItem);
 
@@ -473,7 +504,8 @@ export class OrdersService {
 
           // Decrement stock for everything except the backorder portion
           // (those items aren't on the shelf yet — stock comes off when
-          // the manager fulfills).
+          // the manager fulfills). Lay-by held items DO take stock —
+          // they're physically reserved on the shelf.
           if (product && !flagBackorder) {
             await queryRunner.manager.update(
               'products',
@@ -488,13 +520,18 @@ export class OrdersService {
           return orderItem;
         };
 
-        if (lineIsBackorder && takeNowQty > 0 && backQty > 0) {
-          // Mixed split — create both halves
-          await createRow(takeNowQty, false);
-          await createRow(backQty, true);
+        // Three split cases:
+        //   1. Backorder split (some take-now, some on backorder)
+        //   2. Lay-by held split (some take-now, some held on shelf)
+        //   3. Whole-line single row (no split, or fully one or fully other)
+        if (lineIsBackorder && backQty < totalQty && backQty > 0) {
+          await createRow(totalQty - backQty, false, false);
+          await createRow(backQty, true, false);
+        } else if (lineIsLaybyHeld && heldQty < totalQty && heldQty > 0) {
+          await createRow(totalQty - heldQty, false, false);
+          await createRow(heldQty, false, true);
         } else {
-          // Whole line is one or the other
-          await createRow(totalQty, lineIsBackorder);
+          await createRow(totalQty, lineIsBackorder, lineIsLaybyHeld);
         }
       }
 
