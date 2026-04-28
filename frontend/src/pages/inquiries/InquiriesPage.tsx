@@ -76,6 +76,13 @@ export default function InquiriesPage() {
 
   const handleAddInquiry = async () => {
     if (!newInquiry.subject.trim()) return;
+    // 10-digit phone gate. Cashiers commonly drop a digit; fail fast
+    // before hitting the API.
+    const phoneDigits = (newInquiry.contactPhone || '').replace(/\D+/g, '');
+    if (newInquiry.contactPhone.trim() && phoneDigits.length !== 10) {
+      alert(`Phone must be exactly 10 digits — you entered ${phoneDigits.length}`);
+      return;
+    }
     try {
       setIsSubmitting(true);
       await inquiriesApi.createInquiry({
@@ -83,7 +90,7 @@ export default function InquiriesPage() {
         subject: newInquiry.subject,
         description: newInquiry.description || undefined,
         contactName: newInquiry.contactName || undefined,
-        contactPhone: newInquiry.contactPhone || undefined,
+        contactPhone: phoneDigits || undefined,
         contactEmail: newInquiry.contactEmail || undefined,
         followUpDate: newInquiry.followUpDate || undefined,
       });
@@ -349,11 +356,14 @@ export default function InquiriesPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">Contact Phone</label>
+                  <label className="block text-xs text-gray-400 mb-1">
+                    Contact Phone <span className="text-gray-500">(10 digits)</span>
+                  </label>
                   <input
-                    type="text"
+                    type="tel"
                     className="input w-full"
-                    placeholder="04xx xxx xxx"
+                    inputMode="numeric"
+                    placeholder="0434310130"
                     value={newInquiry.contactPhone}
                     onChange={(e) => setNewInquiry({ ...newInquiry, contactPhone: e.target.value })}
                   />

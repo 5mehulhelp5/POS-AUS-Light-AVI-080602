@@ -132,17 +132,20 @@ export default function CartPanel({
 
   const handleApplyCartDiscount = () => {
     const value = parseFloat(discountValue);
-    if (value > 0) {
-      if (discountType === 'percent' && value > maxDiscountPercent) {
-        alert(`Maximum discount is ${maxDiscountPercent}%`);
-        return;
-      }
-      onSetCartDiscount({
-        type: discountType,
-        value,
-        reason: discountReason || undefined,
-      });
+    if (!(value > 0)) return;
+    if (discountType === 'percent' && value > maxDiscountPercent) {
+      alert(`Maximum discount is ${maxDiscountPercent}%`);
+      return;
     }
+    if (!discountReason.trim()) {
+      alert('Please enter a reason for the discount');
+      return;
+    }
+    onSetCartDiscount({
+      type: discountType,
+      value,
+      reason: discountReason.trim(),
+    });
     setShowDiscountModal(false);
     setDiscountValue('');
     setDiscountReason('');
@@ -641,11 +644,10 @@ export default function CartPanel({
               </div>
             </div>
 
-            {/* Reason */}
+            {/* Reason — required so the audit log shows why the
+                discount was given. */}
             <div className="mb-4">
-              <label className="block text-sm text-gray-400 mb-1">
-                Reason (optional)
-              </label>
+              <label className="block text-sm text-gray-400 mb-1">Reason *</label>
               <input
                 type="text"
                 className="input"
@@ -659,7 +661,11 @@ export default function CartPanel({
             <button
               className="btn-primary w-full"
               onClick={handleApplyCartDiscount}
-              disabled={!discountValue || parseFloat(discountValue) <= 0}
+              disabled={
+                !discountValue ||
+                parseFloat(discountValue) <= 0 ||
+                !discountReason.trim()
+              }
             >
               Apply Discount
             </button>

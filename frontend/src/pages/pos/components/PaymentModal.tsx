@@ -297,6 +297,20 @@ export default function PaymentModal({
       }
     }
 
+    // Phone, if entered for any buyer type, must be exactly 10 digits.
+    // Strip spaces/dashes before counting. Cashiers commonly drop a
+    // digit when typing fast — server enforces too but we want to fail
+    // fast on the client.
+    if (customerPhone.trim()) {
+      const phoneDigits = customerPhone.replace(/\D+/g, '');
+      if (phoneDigits.length !== 10) {
+        toast.error(
+          `Phone must be exactly 10 digits — you entered ${phoneDigits.length}`,
+        );
+        return;
+      }
+    }
+
     // All validations passed — pause and ask the cashier to confirm
     // they've actually received payment before we hit the API. The
     // confirm dialog calls handlePayment(true) on Yes which skips this
@@ -726,11 +740,14 @@ export default function PaymentModal({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-400 mb-1">Phone</label>
+                  <label className="block text-xs text-gray-400 mb-1">
+                    Phone <span className="text-gray-500">(10 digits)</span>
+                  </label>
                   <input
                     type="tel"
                     className="input text-sm"
-                    placeholder="Phone number"
+                    inputMode="numeric"
+                    placeholder="0434310130"
                     value={customerPhone}
                     onChange={(e) => setCustomerPhone(e.target.value)}
                   />
@@ -750,11 +767,14 @@ export default function PaymentModal({
                 />
               </div>
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Phone *</label>
+                <label className="block text-xs text-gray-400 mb-1">
+                  Phone * <span className="text-gray-500">(10 digits)</span>
+                </label>
                 <input
                   type="tel"
                   className="input text-sm"
-                  placeholder="Phone number"
+                  inputMode="numeric"
+                  placeholder="0434310130"
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
                 />
