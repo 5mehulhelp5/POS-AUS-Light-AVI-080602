@@ -254,12 +254,38 @@ export class OrdersService {
         )) || 20,
       );
 
-      // Minimum deposit is a flat percentage of the whole order total
-      // (covers take-now AND deferred items together). Cashier can
-      // collect more, even the full amount, but never less without a
-      // manager override.
+      // Split the cart into take-now and deferred portions, honouring
+      // the per-line backorder qty split. Customer must pay full price
+      // for take-now items (they're walking out with them) plus 20% of
+      // the deferred items (lay-by held + remaining-on-backorder).
+      let takeNowSubtotal = 0;
+      let deferredSubtotal = 0;
+      for (const calc of validation.calculatedTotals.items) {
+        const isBack = !!isBackorderByProductId.get(calc.productId);
+        const isHeld = !!isLaybyHeldByProductId.get(calc.productId);
+        const qty = Number(calc.quantity) || 0;
+        const rowTotal = Number(calc.rowTotal) || 0;
+        if (isBack) {
+          const rawSplit = backorderQtyByProductId.get(calc.productId);
+          const backQty = Math.min(
+            qty,
+            Math.max(0, rawSplit != null ? Number(rawSplit) : qty),
+          );
+          const perUnit = qty > 0 ? rowTotal / qty : 0;
+          deferredSubtotal += perUnit * backQty;
+          takeNowSubtotal += perUnit * (qty - backQty);
+        } else if (isHeld) {
+          deferredSubtotal += rowTotal;
+        } else {
+          takeNowSubtotal += rowTotal;
+        }
+      }
+      takeNowSubtotal = Math.round(takeNowSubtotal * 100) / 100;
+      deferredSubtotal = Math.round(deferredSubtotal * 100) / 100;
       const minDeposit =
-        Math.round((grandTotal * minPercent) / 100 * 100) / 100;
+        Math.round(
+          (takeNowSubtotal + (deferredSubtotal * minPercent) / 100) * 100,
+        ) / 100;
 
       const depositOverridden = !!userRole && [
         'admin',
@@ -272,7 +298,10 @@ export class OrdersService {
           : 'Backorder';
       if (totalPayments + 0.01 < minDeposit && !depositOverridden) {
         throw new BadRequestException(
-          `${label} deposit of $${totalPayments.toFixed(2)} is below the ${minPercent}% minimum ($${minDeposit.toFixed(2)} of $${grandTotal.toFixed(2)}). A manager can override.`,
+          `${label} deposit of $${totalPayments.toFixed(2)} is below the minimum: ` +
+          `take-now $${takeNowSubtotal.toFixed(2)} (paid in full) + ` +
+          `${minPercent}% of deferred $${deferredSubtotal.toFixed(2)} = $${minDeposit.toFixed(2)}. ` +
+          `A manager can override.`,
         );
       }
       if (totalPayments > grandTotal + 0.01) {

@@ -144,11 +144,16 @@ export default function PaymentModal({
       deferredSubtotal: Math.round(deferred * 100) / 100,
     };
   })();
-  // Minimum deposit = a flat 20% of the whole order total (covers take-
-  // now AND deferred items together). Cashier can take more — even the
-  // full amount — but never less without manager override.
+  // Minimum deposit when there's a mix of take-now and deferred items:
+  //   full price for the items the customer is walking out with today
+  //   + 20% on the items the store is holding (lay-by held / backorder).
+  // Pure layby with no take-now items becomes 20% of the whole order;
+  // pure take-now becomes the full amount.
   const minDepositForOrder =
-    Math.round((total * LAYBY_DEPOSIT_PERCENT) / 100 * 100) / 100;
+    Math.round(
+      (takeNowSubtotal + (deferredSubtotal * LAYBY_DEPOSIT_PERCENT) / 100) *
+        100,
+    ) / 100;
 
   // Trade buyers can't lay by or backorder. If the cashier flips to
   // Trade after ticking those flags, clear them so the order doesn't
@@ -1029,7 +1034,8 @@ export default function PaymentModal({
           </label>
           {(hasBackorderLine || hasLaybyHeldLine) && !isLayby && (
             <p className="text-xs text-cyan-300 mt-2">
-              A minimum {LAYBY_DEPOSIT_PERCENT}% deposit is required.
+              Take-now items must be paid in full; a minimum {LAYBY_DEPOSIT_PERCENT}%
+              deposit is required on the items left behind.
             </p>
           )}
           {isDepositOrder && (
@@ -1049,7 +1055,8 @@ export default function PaymentModal({
                   onChange={(e) => setLaybyDeposit(e.target.value)}
                 />
                 <p className="text-[11px] text-gray-500 mt-1">
-                  A minimum {LAYBY_DEPOSIT_PERCENT}% deposit on the total ${total.toFixed(2)}
+                  Take-now ${takeNowSubtotal.toFixed(2)} + {LAYBY_DEPOSIT_PERCENT}% of
+                  deferred ${deferredSubtotal.toFixed(2)} = ${minDepositForOrder.toFixed(2)}
                   {canOverrideDeposit && ' · manager can override'}
                 </p>
               </div>
