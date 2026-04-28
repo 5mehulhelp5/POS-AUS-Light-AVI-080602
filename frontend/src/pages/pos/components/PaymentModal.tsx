@@ -188,15 +188,14 @@ export default function PaymentModal({
     }
   }, [buyerType]);
 
-  // Default the deposit input to the split minimum whenever a deposit-
-  // based order is active. The minimum = full price for take-now lines
-  // + 20% of held/backorder lines.
+  // Snap the deposit input to the live minimum whenever the cart split
+  // changes. Without this, the field keeps a stale value (e.g. cashier
+  // changes layby qty and the box still shows the old $880 deposit
+  // instead of the new $489 minimum). If the cashier wants to take a
+  // bigger deposit, they re-type AFTER making qty changes.
   useEffect(() => {
     if (isDepositOrder) {
-      setLaybyDeposit((prev) => {
-        if (prev && parseFloat(prev) > 0) return prev;
-        return minDepositForOrder.toFixed(2);
-      });
+      setLaybyDeposit(minDepositForOrder.toFixed(2));
     } else {
       setLaybyDeposit('');
     }
@@ -703,6 +702,21 @@ export default function PaymentModal({
           )}
         </div>
 
+        {/* Order Notes — placed above customer details so the cashier
+            can jot a quick note before getting into invoice fields. */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-400 mb-2">
+            Order Notes (optional)
+          </label>
+          <textarea
+            className="input"
+            rows={2}
+            placeholder="Internal notes for this order..."
+            value={orderNotes}
+            onChange={(e) => setOrderNotes(e.target.value)}
+          />
+        </div>
+
         {/* Customer/Company Details (for Invoice) */}
         {!walkIn && (
         <div className={`mb-6 p-4 rounded-lg space-y-3 ${
@@ -1019,20 +1033,6 @@ export default function PaymentModal({
             </p>
           </div>
         )}
-
-        {/* Order Notes */}
-        <div className="mb-6">
-          <label className="block text-sm font-medium text-gray-400 mb-2">
-            Order Notes (optional)
-          </label>
-          <textarea
-            className="input"
-            rows={2}
-            placeholder="Internal notes for this order..."
-            value={orderNotes}
-            onChange={(e) => setOrderNotes(e.target.value)}
-          />
-        </div>
 
         {/* Lay By toggle. A DB customer record is required — if the cashier
             filled in ad-hoc customer details above, we auto-create one on
