@@ -77,6 +77,9 @@ export default function QuotesPage() {
   // Convert / cancel / print state
   const [convertData, setConvertData] = useState<any>(null); // { quote, check }
   const [isConverting, setIsConverting] = useState(false);
+  // "Has the customer paid?" gate before actually firing the convert
+  // request. Same pattern as the POS Complete Payment confirm.
+  const [showConvertConfirm, setShowConvertConfirm] = useState(false);
   const [convertPaymentMethod, setConvertPaymentMethod] = useState<'cash' | 'eftpos' | 'bank_transfer'>('eftpos');
   const [convertPaymentRef, setConvertPaymentRef] = useState('');
   const [allowBackorder, setAllowBackorder] = useState(false);
@@ -312,7 +315,7 @@ export default function QuotesPage() {
     }
   };
 
-  const handleConvertSubmit = async () => {
+  const handleConvertSubmit = async (skipConfirm: boolean = false) => {
     if (!convertData) return;
     const { quote, check } = convertData;
     // Prefer the server-calculated payable amount (gross / GST-inclusive
@@ -323,6 +326,13 @@ export default function QuotesPage() {
       typeof check.payableAmount === 'number'
         ? check.payableAmount
         : parseFloat(quote.grandTotal);
+
+    // Pause and confirm before hitting the API so the cashier doesn't
+    // accidentally close out a quote with no money received.
+    if (!skipConfirm) {
+      setShowConvertConfirm(true);
+      return;
+    }
 
     setIsConverting(true);
     try {
@@ -1205,7 +1215,7 @@ export default function QuotesPage() {
                 </button>
                 <button
                   className="btn-primary"
-                  onClick={handleConvertSubmit}
+                  onClick={() => handleConvertSubmit()}
                   disabled={
                     isConverting ||
                     pastGrace ||
@@ -1213,6 +1223,66 @@ export default function QuotesPage() {
                   }
                 >
                   {isConverting ? 'Processing...' : `Convert & Pay $${grandTotal.toFixed(2)}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Convert payment confirmation — fires before the actual API
+          call so the cashier has to deliberately confirm payment. */}
+      {showConvertConfirm && convertData && (() => {
+        const { quote, check } = convertData;
+        const payable =
+          typeof check.payableAmount === 'number'
+            ? check.payableAmount
+            : parseFloat(quote.grandTotal);
+        const methodLabel =
+          convertPaymentMethod === 'eftpos'
+            ? 'EFTPOS'
+            : convertPaymentMethod === 'cash'
+              ? 'Cash'
+              : 'Bank Transfer';
+        return (
+          <div
+            className="modal-backdrop-small-top"
+            onClick={() => setShowConvertConfirm(false)}
+          >
+            <div
+              className="modal-content-small max-w-sm text-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-lg font-bold mb-2">Has the customer paid?</h3>
+              <p className="text-sm text-gray-400 mb-4">
+                Confirm you've received{' '}
+                <span className="font-bold text-primary-400">
+                  ${payable.toFixed(2)}
+                </span>{' '}
+                via{' '}
+                <span className="font-semibold text-gray-200 uppercase">
+                  {methodLabel}
+                </span>{' '}
+                for quote {quote.quoteNumber}.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  className="btn-secondary flex-1"
+                  onClick={() => setShowConvertConfirm(false)}
+                  disabled={isConverting}
+                >
+                  No, go back
+                </button>
+                <button
+                  className="btn-success flex-1"
+                  onClick={() => {
+                    setShowConvertConfirm(false);
+                    handleConvertSubmit(true);
+                  }}
+                  autoFocus
+                  disabled={isConverting}
+                >
+                  Yes, convert order
                 </button>
               </div>
             </div>
