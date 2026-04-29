@@ -33,7 +33,9 @@ export interface ConvertQuoteResult {
 
 @Injectable()
 export class QuotesService {
-  private readonly TAX_RATE = 0.10; // 10% GST
+  // GST is extracted from gross prices (gross / 11) — see createQuote /
+  // updateQuote. The legacy +10%-on-top calculation was removed because
+  // it caused payment mismatches when converting a quote to an order.
 
   constructor(
     @InjectRepository(Quote)
@@ -112,8 +114,12 @@ export class QuotesService {
       const discountPercent = item.discountPercent || 0;
       const discountAmount = this.round(lineSubtotal * (discountPercent / 100));
       const lineAfterDiscount = lineSubtotal - discountAmount;
-      const lineTax = this.round(lineAfterDiscount * this.TAX_RATE);
-      const rowTotal = this.round(lineAfterDiscount + lineTax);
+      // AU prices are GST-inclusive. Extract the GST component
+      // (gross / 11) instead of adding 10% on top — this matches the
+      // convention used by the cart slice and the orders / discount
+      // service so quote conversion doesn't trigger a total mismatch.
+      const lineTax = this.round(lineAfterDiscount / 11);
+      const rowTotal = this.round(lineAfterDiscount); // already gross
 
       subtotal += lineSubtotal;
       totalDiscount += discountAmount;
@@ -132,8 +138,8 @@ export class QuotesService {
     }
 
     const afterDiscount = subtotal - totalDiscount;
-    const taxAmount = this.round(afterDiscount * this.TAX_RATE);
-    const grandTotal = this.round(afterDiscount + taxAmount);
+    const taxAmount = this.round(afterDiscount / 11);
+    const grandTotal = this.round(afterDiscount); // gross — GST already included
 
     const buyerType = dto.buyerType || QuoteBuyerType.CUSTOMER;
     // Default expiry: 90 days for trade, 30 days for customer
@@ -218,8 +224,11 @@ export class QuotesService {
       const discountPercent = item.discountPercent || 0;
       const discountAmount = this.round(lineSubtotal * (discountPercent / 100));
       const lineAfterDiscount = lineSubtotal - discountAmount;
-      const lineTax = this.round(lineAfterDiscount * this.TAX_RATE);
-      const rowTotal = this.round(lineAfterDiscount + lineTax);
+      // AU prices are GST-inclusive — extract the component, don't add
+      // 10% on top. Matches the order/discount convention so converting
+      // a quote produces the same total it shows.
+      const lineTax = this.round(lineAfterDiscount / 11);
+      const rowTotal = this.round(lineAfterDiscount); // already gross
 
       subtotal += lineSubtotal;
       totalDiscount += discountAmount;
@@ -239,8 +248,8 @@ export class QuotesService {
     }
 
     const afterDiscount = subtotal - totalDiscount;
-    const taxAmount = this.round(afterDiscount * this.TAX_RATE);
-    const grandTotal = this.round(afterDiscount + taxAmount);
+    const taxAmount = this.round(afterDiscount / 11);
+    const grandTotal = this.round(afterDiscount); // gross — GST already included
 
     const buyerType = dto.buyerType || existing.buyerType || QuoteBuyerType.CUSTOMER;
     // If expiry explicitly passed, use it; if buyerType changed, reset from the buyerType default; else keep existing expiry

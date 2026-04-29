@@ -73,6 +73,18 @@ export class QuotesController {
     const { quote, blockers, expiredWithinGrace } =
       await this.quotesService.validateConvert(id);
     const priceRows = await this.quotesService.computeConversionPrices(quote);
+    // Compute the amount the resulting order will require, using the
+    // SAME gross / GST-inclusive convention the orders service uses.
+    // Old quotes have a wrong stored grandTotal (legacy +10%-on-top
+    // calc), so the frontend can't trust quote.grandTotal as the
+    // payment amount — it has to use this value instead.
+    let payableAmount = 0;
+    for (const r of priceRows) {
+      const lineSubtotal = r.effectiveUnitPrice * r.quantity;
+      const discount = lineSubtotal * (r.discountPercent / 100);
+      payableAmount += lineSubtotal - discount;
+    }
+    payableAmount = Math.round(payableAmount * 100) / 100;
     return {
       success: true,
       data: {
@@ -80,6 +92,7 @@ export class QuotesController {
         expiredWithinGrace,
         blockers,
         prices: priceRows,
+        payableAmount,
       },
     };
   }

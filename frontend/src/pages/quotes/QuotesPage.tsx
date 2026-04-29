@@ -315,7 +315,14 @@ export default function QuotesPage() {
   const handleConvertSubmit = async () => {
     if (!convertData) return;
     const { quote, check } = convertData;
-    const grandTotal = parseFloat(quote.grandTotal);
+    // Prefer the server-calculated payable amount (gross / GST-inclusive
+    // convention used by the orders service). Falls back to the quote's
+    // stored grandTotal for safety. Old quotes that pre-date the GST
+    // fix had grandTotal stored at +10% on top, which would mismatch.
+    const payable =
+      typeof check.payableAmount === 'number'
+        ? check.payableAmount
+        : parseFloat(quote.grandTotal);
 
     setIsConverting(true);
     try {
@@ -323,10 +330,10 @@ export default function QuotesPage() {
         payments: [
           {
             method: convertPaymentMethod,
-            amount: grandTotal,
+            amount: payable,
             reference: convertPaymentRef || undefined,
             amountTendered:
-              convertPaymentMethod === 'cash' ? grandTotal : undefined,
+              convertPaymentMethod === 'cash' ? payable : undefined,
           },
         ],
         allowBackorder: allowBackorder && !!check.blockers.outOfStock,
@@ -1080,7 +1087,12 @@ export default function QuotesPage() {
       {/* Convert to Order Modal */}
       {convertData && (() => {
         const { quote, check } = convertData;
-        const grandTotal = parseFloat(quote.grandTotal);
+        // Use the server's recomputed payable amount when available
+        // (handles legacy quotes whose stored grandTotal was wrong).
+        const grandTotal =
+          typeof check.payableAmount === 'number'
+            ? check.payableAmount
+            : parseFloat(quote.grandTotal);
         const hasOutOfStock = !!check.blockers?.outOfStock;
         const pastGrace = !!check.blockers?.expiredPastGrace;
         const expiredWithinGrace = !!check.expiredWithinGrace;
