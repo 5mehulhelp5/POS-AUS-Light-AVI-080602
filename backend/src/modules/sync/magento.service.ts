@@ -200,7 +200,19 @@ export class MagentoService {
       return this.adminToken;
     }
 
-    this.logger.log('Fetching new Magento admin token...');
+    this.logger.log(
+      `Fetching Magento admin token from ${this.baseUrl} as user "${this.adminUsername}"...`,
+    );
+
+    if (!this.baseUrl || !this.adminUsername || !this.adminPassword) {
+      const missing: string[] = [];
+      if (!this.baseUrl) missing.push('MAGENTO_BASE_URL');
+      if (!this.adminUsername) missing.push('MAGENTO_ADMIN_USERNAME');
+      if (!this.adminPassword) missing.push('MAGENTO_ADMIN_PASSWORD');
+      const msg = `Magento auth env vars not set: ${missing.join(', ')}`;
+      this.logger.error(msg);
+      throw new Error(msg);
+    }
 
     try {
       const response = await this.httpClient.post(
@@ -217,9 +229,27 @@ export class MagentoService {
 
       this.logger.log('Successfully obtained Magento admin token');
       return this.adminToken as string;
-    } catch (error) {
-      this.logger.error('Failed to get Magento admin token', error);
-      throw new Error('Failed to authenticate with Magento');
+    } catch (error: any) {
+      // Surface what Magento actually said. Status + payload usually
+      // identifies the problem: 401 = bad creds, 400 with a "validation"
+      // payload = 2FA / locked account, network errors = wrong base URL
+      // or VPS IP blocked.
+      const status = error?.response?.status;
+      const data = error?.response?.data;
+      const detail =
+        typeof data === 'string'
+          ? data
+          : data?.message
+            ? data.message
+            : data?.errors
+              ? JSON.stringify(data.errors)
+              : error?.code || error?.message || 'unknown';
+      this.logger.error(
+        `Magento admin/token failed (status=${status ?? 'no response'}): ${detail}`,
+      );
+      throw new Error(
+        `Failed to authenticate with Magento (status ${status ?? 'no response'}): ${detail}`,
+      );
     }
   }
 
