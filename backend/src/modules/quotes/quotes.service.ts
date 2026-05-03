@@ -10,6 +10,7 @@ import { Quote, QuoteStatus, QuoteBuyerType } from './entities/quote.entity';
 import { QuoteItem } from './entities/quote-item.entity';
 import { Product } from '../products/entities/product.entity';
 import { Customer } from '../customers/entities/customer.entity';
+import { TradeDiscountsService } from './trade-discounts.service';
 
 export interface CreateQuoteDto {
   customerId?: number;
@@ -47,6 +48,7 @@ export class QuotesService {
     @InjectRepository(Customer)
     private readonly customerRepository: Repository<Customer>,
     private readonly dataSource: DataSource,
+    private readonly tradeDiscounts: TradeDiscountsService,
   ) {}
 
   private round(value: number): number {
@@ -87,6 +89,11 @@ export class QuotesService {
       }
     }
 
+    // Determine buyer type up front — trade buyers get the auto
+    // category-based discounts (Magento rules 88/89/92).
+    const buyerType = dto.buyerType || QuoteBuyerType.CUSTOMER;
+    const isTrade = buyerType === QuoteBuyerType.TRADE;
+
     // Build quote items and calculate totals
     let subtotal = 0;
     let totalDiscount = 0;
@@ -95,6 +102,7 @@ export class QuotesService {
     for (const item of dto.items) {
       const product = await this.productRepository.findOne({
         where: { id: item.productId },
+        relations: isTrade ? ['categories'] : [],
       });
       if (!product) {
         throw new NotFoundException(`Product with ID ${item.productId} not found`);
@@ -111,7 +119,14 @@ export class QuotesService {
       const quantity = item.quantity;
       const lineSubtotal = unitPrice * quantity;
 
-      const discountPercent = item.discountPercent || 0;
+      const manualDiscount = item.discountPercent || 0;
+      // Trade auto-discount is the floor; cashier override only wins
+      // when it's higher. Keeps the trade customer's entitled rate even
+      // if the cashier forgets to apply anything.
+      const autoTrade = isTrade
+        ? (await this.tradeDiscounts.getAutoDiscount(product)).percent
+        : 0;
+      const discountPercent = Math.max(manualDiscount, autoTrade);
       const discountAmount = this.round(lineSubtotal * (discountPercent / 100));
       const lineAfterDiscount = lineSubtotal - discountAmount;
       // AU prices are GST-inclusive. Extract the GST component
@@ -140,8 +155,6 @@ export class QuotesService {
     const afterDiscount = subtotal - totalDiscount;
     const taxAmount = this.round(afterDiscount / 11);
     const grandTotal = this.round(afterDiscount); // gross — GST already included
-
-    const buyerType = dto.buyerType || QuoteBuyerType.CUSTOMER;
     // Default expiry: 90 days for trade, 30 days for customer
     const defaultExpiry = buyerType === QuoteBuyerType.TRADE ? 90 : 30;
     const expiryDays = dto.expiryDays || defaultExpiry;
@@ -200,6 +213,12 @@ export class QuotesService {
     // Delete existing items (cascade on relation) and recompute
     await this.quoteItemRepository.delete({ quoteId: id });
 
+    // Same trade-discount gating as create() — a quote that's edited
+    // into a trade quote should pick up the auto rules too.
+    const updatedBuyerType =
+      dto.buyerType || existing.buyerType || QuoteBuyerType.CUSTOMER;
+    const isTrade = updatedBuyerType === QuoteBuyerType.TRADE;
+
     let subtotal = 0;
     let totalDiscount = 0;
     const quoteItems: Partial<QuoteItem>[] = [];
@@ -207,6 +226,7 @@ export class QuotesService {
     for (const item of dto.items) {
       const product = await this.productRepository.findOne({
         where: { id: item.productId },
+        relations: isTrade ? ['categories'] : [],
       });
       if (!product) {
         throw new NotFoundException(`Product with ID ${item.productId} not found`);
@@ -221,7 +241,11 @@ export class QuotesService {
           : defaultPrice;
       const quantity = item.quantity;
       const lineSubtotal = unitPrice * quantity;
-      const discountPercent = item.discountPercent || 0;
+      const manualDiscount = item.discountPercent || 0;
+      const autoTrade = isTrade
+        ? (await this.tradeDiscounts.getAutoDiscount(product)).percent
+        : 0;
+      const discountPercent = Math.max(manualDiscount, autoTrade);
       const discountAmount = this.round(lineSubtotal * (discountPercent / 100));
       const lineAfterDiscount = lineSubtotal - discountAmount;
       // AU prices are GST-inclusive — extract the component, don't add
@@ -251,7 +275,7 @@ export class QuotesService {
     const taxAmount = this.round(afterDiscount / 11);
     const grandTotal = this.round(afterDiscount); // gross — GST already included
 
-    const buyerType = dto.buyerType || existing.buyerType || QuoteBuyerType.CUSTOMER;
+    const buyerType = updatedBuyerType;
     // If expiry explicitly passed, use it; if buyerType changed, reset from the buyerType default; else keep existing expiry
     let expiresAt = existing.expiresAt;
     if (dto.expiryDays) {
