@@ -44,33 +44,69 @@ export class SyncController {
 
   @Post('categories')
   @Roles(RoleNames.ADMIN)
-  @ApiOperation({ summary: 'Sync categories from Magento' })
+  @ApiOperation({
+    summary: 'Sync categories from Magento (runs in background)',
+  })
   async syncCategories() {
-    const result = await this.syncService.syncCategories();
+    // Fire-and-forget — large catalog syncs blow past nginx/CF gateway
+    // timeouts (~60-100s) when waited on synchronously. Results land
+    // in sync_logs; check pm2 logs or the Settings page for status.
+    this.syncService
+      .syncCategories()
+      .then((result) => {
+        if (!result.success) {
+          // eslint-disable-next-line no-console
+          console.error(
+            '[syncCategories] failed:',
+            result.message,
+            result.errors,
+          );
+        } else {
+          // eslint-disable-next-line no-console
+          console.log('[syncCategories] done:', result.message);
+        }
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('[syncCategories] threw:', err);
+      });
     return {
-      success: result.success,
-      message: result.message,
-      data: {
-        categoriesCreated: result.categoriesCreated,
-        categoriesUpdated: result.categoriesUpdated,
-      },
-      errors: result.errors,
+      success: true,
+      message:
+        'Category sync started in background. Refresh the Settings / Products page in a couple of minutes.',
     };
   }
 
   @Post('products')
   @Roles(RoleNames.ADMIN)
-  @ApiOperation({ summary: 'Sync products from Magento' })
+  @ApiOperation({
+    summary: 'Sync products from Magento (runs in background)',
+  })
   async syncProducts() {
-    const result = await this.syncService.syncProducts();
+    // Fire-and-forget — see syncCategories for rationale.
+    this.syncService
+      .syncProducts()
+      .then((result) => {
+        if (!result.success) {
+          // eslint-disable-next-line no-console
+          console.error(
+            '[syncProducts] failed:',
+            result.message,
+            result.errors,
+          );
+        } else {
+          // eslint-disable-next-line no-console
+          console.log('[syncProducts] done:', result.message);
+        }
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('[syncProducts] threw:', err);
+      });
     return {
-      success: result.success,
-      message: result.message,
-      data: {
-        productsCreated: result.productsCreated,
-        productsUpdated: result.productsUpdated,
-      },
-      errors: result.errors,
+      success: true,
+      message:
+        'Product sync started in background. With ~15k SKUs this can take 5-15 minutes. Refresh the Products page periodically; check pm2 logs for completion.',
     };
   }
 
@@ -134,55 +170,94 @@ export class SyncController {
 
   @Post('customers')
   @Roles(RoleNames.ADMIN)
-  @ApiOperation({ summary: 'Sync customers from Magento' })
+  @ApiOperation({
+    summary: 'Sync customers from Magento (runs in background)',
+  })
   async syncCustomers() {
-    const result = await this.syncService.syncCustomers();
+    this.syncService
+      .syncCustomers()
+      .then((result) => {
+        if (!result.success) {
+          // eslint-disable-next-line no-console
+          console.error(
+            '[syncCustomers] failed:',
+            result.message,
+            result.errors,
+          );
+        } else {
+          // eslint-disable-next-line no-console
+          console.log('[syncCustomers] done:', result.message);
+        }
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('[syncCustomers] threw:', err);
+      });
     return {
-      success: result.success,
-      message: result.message,
-      data: {
-        customersCreated: result.customersCreated,
-        customersUpdated: result.customersUpdated,
-      },
-      errors: result.errors,
+      success: true,
+      message:
+        'Customer sync started in background. Check pm2 logs or refresh the Customers page.',
     };
   }
 
   @Post('full')
   @Roles(RoleNames.ADMIN)
-  @ApiOperation({ summary: 'Full sync - categories, products, and customers' })
+  @ApiOperation({
+    summary:
+      'Full sync — categories, products, customers (runs in background)',
+  })
   async fullSync() {
-    const result = await this.syncService.fullSync();
+    this.syncService
+      .fullSync()
+      .then((result) => {
+        if (!result.success) {
+          // eslint-disable-next-line no-console
+          console.error('[fullSync] failed:', result.message, result.errors);
+        } else {
+          // eslint-disable-next-line no-console
+          console.log('[fullSync] done:', result.message);
+        }
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('[fullSync] threw:', err);
+      });
     return {
-      success: result.success,
-      message: result.message,
-      data: {
-        productsCreated: result.productsCreated,
-        productsUpdated: result.productsUpdated,
-        categoriesCreated: result.categoriesCreated,
-        categoriesUpdated: result.categoriesUpdated,
-        customersCreated: result.customersCreated,
-        customersUpdated: result.customersUpdated,
-      },
-      errors: result.errors,
+      success: true,
+      message:
+        'Full sync started in background. Expect 10-20 minutes for the full catalog. Check pm2 logs for completion.',
     };
   }
 
   @Post('clear-and-sync')
   @Roles(RoleNames.ADMIN)
-  @ApiOperation({ summary: 'Clear all data and sync fresh from Magento' })
+  @ApiOperation({
+    summary: 'Clear all data and sync fresh from Magento (runs in background)',
+  })
   async clearAndSync() {
-    const result = await this.syncService.clearAndSync();
+    this.syncService
+      .clearAndSync()
+      .then((result) => {
+        if (!result.success) {
+          // eslint-disable-next-line no-console
+          console.error(
+            '[clearAndSync] failed:',
+            result.message,
+            result.errors,
+          );
+        } else {
+          // eslint-disable-next-line no-console
+          console.log('[clearAndSync] done:', result.message);
+        }
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('[clearAndSync] threw:', err);
+      });
     return {
-      success: result.success,
-      message: result.message,
-      data: {
-        productsCreated: result.productsCreated,
-        productsUpdated: result.productsUpdated,
-        categoriesCreated: result.categoriesCreated,
-        categoriesUpdated: result.categoriesUpdated,
-      },
-      errors: result.errors,
+      success: true,
+      message:
+        'Clear-and-resync started in background. Catalog will be empty briefly while it rebuilds. Check pm2 logs for completion.',
     };
   }
 
@@ -199,15 +274,30 @@ export class SyncController {
 
   @Post('stock')
   @Roles(RoleNames.ADMIN)
-  @ApiOperation({ summary: 'Sync stock quantities only (faster than full sync)' })
+  @ApiOperation({
+    summary:
+      'Sync stock quantities only (runs in background, faster than full sync)',
+  })
   async syncStock() {
-    const result = await this.syncService.syncStockOnly();
+    this.syncService
+      .syncStockOnly()
+      .then((result) => {
+        if (!result.success) {
+          // eslint-disable-next-line no-console
+          console.error('[syncStock] failed:', result.message, result.errors);
+        } else {
+          // eslint-disable-next-line no-console
+          console.log('[syncStock] done:', result.message);
+        }
+      })
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('[syncStock] threw:', err);
+      });
     return {
-      success: result.success,
-      message: result.message,
-      data: {
-        productsUpdated: result.productsUpdated,
-      },
+      success: true,
+      message:
+        'Stock sync started in background. Check pm2 logs for completion.',
     };
   }
 }
