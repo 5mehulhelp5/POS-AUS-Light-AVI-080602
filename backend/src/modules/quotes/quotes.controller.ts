@@ -13,10 +13,14 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { QuotesService, CreateQuoteDto, UpdateQuoteDto } from './quotes.service';
+import { TradeDiscountsService } from './trade-discounts.service';
 import { OrdersService } from '../orders/orders.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { QuoteStatus } from './entities/quote.entity';
+import { Product } from '../products/entities/product.entity';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository, In } from 'typeorm';
 
 @ApiTags('quotes')
 @Controller('quotes')
@@ -26,7 +30,38 @@ export class QuotesController {
   constructor(
     private readonly quotesService: QuotesService,
     private readonly ordersService: OrdersService,
+    private readonly tradeDiscounts: TradeDiscountsService,
+    @InjectRepository(Product)
+    private readonly productRepository: Repository<Product>,
   ) {}
+
+  // Preview-only: returns the auto trade discount the server would
+  // apply to each productId on save. Used by the Quotes create form
+  // (and POS cart) to show the discount in real time.
+  @Post('trade-discount-preview')
+  @ApiOperation({
+    summary: 'Compute the trade auto-discount for a list of product IDs',
+  })
+  async tradeDiscountPreview(
+    @Body() body: { productIds: number[] },
+  ) {
+    const ids = Array.isArray(body?.productIds)
+      ? body.productIds.filter((n) => Number.isFinite(n) && n > 0)
+      : [];
+    if (ids.length === 0) {
+      return { success: true, data: { discounts: {} } };
+    }
+    const products = await this.productRepository.find({
+      where: { id: In(ids) },
+      relations: ['categories'],
+    });
+    const discounts: Record<number, { percent: number; label: string | null }> =
+      {};
+    for (const p of products) {
+      discounts[p.id] = await this.tradeDiscounts.getAutoDiscount(p);
+    }
+    return { success: true, data: { discounts } };
+  }
 
   @Post()
   @ApiOperation({ summary: 'Create a new quote' })

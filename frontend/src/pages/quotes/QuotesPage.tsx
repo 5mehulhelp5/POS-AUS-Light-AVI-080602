@@ -45,7 +45,12 @@ interface QuoteLineItem {
   sku: string;
   price: number;
   quantity: number;
+  // What the cashier typed in the Disc% box (manual override)
   discountPercent: number;
+  // Server-computed trade auto-discount (0 when buyerType=customer or
+  // no rule matches). Effective per-line discount = max(manual, auto).
+  autoDiscountPercent?: number;
+  autoDiscountLabel?: string | null;
 }
 
 export default function QuotesPage() {
@@ -98,6 +103,76 @@ export default function QuotesPage() {
   useEffect(() => {
     settingsApi.getStoreSettings().then((r) => setStoreSettings(r.data.data || {})).catch(() => {});
   }, []);
+
+  // Refresh per-line trade auto-discount whenever the buyer flips
+  // between trade/customer or the set of productIds in the quote
+  // changes. Customer mode → all autos go to 0 instantly; trade mode
+  // → server tells us the % per product.
+  useEffect(() => {
+    if (lineItems.length === 0) return;
+    if (quoteBuyerType !== 'trade') {
+      // Clear any previously-applied auto values so total recomputes.
+      setLineItems((prev) =>
+        prev.some((li) => (li.autoDiscountPercent || 0) > 0)
+          ? prev.map((li) => ({
+              ...li,
+              autoDiscountPercent: 0,
+              autoDiscountLabel: null,
+            }))
+          : prev,
+      );
+      return;
+    }
+    // Trade: only ask the server about productIds we haven't priced yet
+    // OR if the buyerType just flipped to trade (autoDiscountPercent
+    // undefined). Send all real productIds; backend ignores customs.
+    const ids = Array.from(
+      new Set(
+        lineItems
+          .filter((li) => Number.isFinite(li.productId) && li.productId > 0)
+          .map((li) => li.productId),
+      ),
+    );
+    if (ids.length === 0) return;
+    let cancelled = false;
+    quotesApi
+      .tradeDiscountPreview(ids)
+      .then((r) => {
+        if (cancelled) return;
+        const map: Record<
+          number,
+          { percent: number; label: string | null }
+        > = r.data?.data?.discounts || {};
+        setLineItems((prev) =>
+          prev.map((li) => {
+            const hit = map[li.productId];
+            return {
+              ...li,
+              autoDiscountPercent: hit ? hit.percent : 0,
+              autoDiscountLabel: hit ? hit.label : null,
+            };
+          }),
+        );
+      })
+      .catch(() => {
+        // Preview is non-essential — silently fall back to no auto so
+        // the user can still build the quote. Backend re-applies on
+        // save anyway.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Re-run whenever buyer type or the product-id set changes. We
+    // intentionally compare ids by joined string so adding/removing a
+    // line refetches but per-quantity edits don't.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    quoteBuyerType,
+    lineItems
+      .map((li) => li.productId)
+      .sort()
+      .join(','),
+  ]);
 
   const fetchQuotes = async () => {
     try {
@@ -219,14 +294,23 @@ export default function QuotesPage() {
     setLineItems(lineItems.filter((_, i) => i !== index));
   };
 
+  // Effective discount per line — cashier override wins when higher,
+  // trade auto-discount wins otherwise. Mirrors the backend save logic.
+  const effectiveDiscount = (item: QuoteLineItem) =>
+    Math.max(item.discountPercent || 0, item.autoDiscountPercent || 0);
+
   const getLineTotal = (item: QuoteLineItem) => {
     const sub = item.price * item.quantity;
-    const disc = sub * (item.discountPercent / 100);
+    const disc = sub * (effectiveDiscount(item) / 100);
     return sub - disc;
   };
 
   const getQuoteSubtotal = () => lineItems.reduce((sum, li) => sum + li.price * li.quantity, 0);
-  const getQuoteDiscount = () => lineItems.reduce((sum, li) => sum + (li.price * li.quantity * (li.discountPercent / 100)), 0);
+  const getQuoteDiscount = () =>
+    lineItems.reduce(
+      (sum, li) => sum + li.price * li.quantity * (effectiveDiscount(li) / 100),
+      0,
+    );
   const getQuoteTax = () => (getQuoteSubtotal() - getQuoteDiscount()) * 0.1;
   const getQuoteTotal = () => getQuoteSubtotal() - getQuoteDiscount() + getQuoteTax();
 
@@ -1027,9 +1111,19 @@ export default function QuotesPage() {
                             min={0}
                             max={100}
                             className="input text-center py-1 px-2 w-16 mx-auto block"
-                            value={item.discountPercent}
+                            value={effectiveDiscount(item)}
                             onChange={(e) => updateLineItem(idx, 'discountPercent', Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)))}
                           />
+                          {(item.autoDiscountPercent || 0) > 0 &&
+                            (item.autoDiscountPercent || 0) >=
+                              (item.discountPercent || 0) && (
+                              <p
+                                className="text-[10px] text-orange-400 mt-1 text-center"
+                                title={item.autoDiscountLabel || ''}
+                              >
+                                trade auto
+                              </p>
+                            )}
                         </td>
                         <td className="px-3 py-2 text-right font-medium">
                           ${getLineTotal(item).toFixed(2)}

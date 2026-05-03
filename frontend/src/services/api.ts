@@ -203,6 +203,12 @@ export const quotesApi = {
       allowBackorder?: boolean;
     },
   ) => api.post(`/quotes/${id}/convert`, data),
+
+  // Returns the auto trade discount the server would apply per product
+  // ID — used by the Quotes form / POS cart for live preview when the
+  // buyer is trade.
+  tradeDiscountPreview: (productIds: number[]) =>
+    api.post('/quotes/trade-discount-preview', { productIds }),
 };
 
 // Users API (Admin only)

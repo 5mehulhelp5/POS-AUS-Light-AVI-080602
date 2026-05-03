@@ -174,19 +174,10 @@ export default function PaymentModal({
         100,
     ) / 100;
 
-  // Trade buyers can't lay by or backorder. If the cashier flips to
-  // Trade after ticking those flags, clear them so the order doesn't
-  // submit with stale state.
-  useEffect(() => {
-    if (buyerType === 'retail') {
-      setIsLayby(false);
-      setBackorderByProductId({});
-      setBackorderQtyByProductId({});
-      setLaybyHeldByProductId({});
-      setLaybyHeldQtyByProductId({});
-      setBackorderQtyByProductId({});
-    }
-  }, [buyerType]);
+  // (Trade buyers can lay by / backorder too — Avi reversed the
+  // earlier "trade is take-now only" rule. The clear-on-flip effect was
+  // removed so flags stick when the cashier toggles between trade and
+  // retail.)
 
   // Snap the deposit input to the live minimum whenever the cart split
   // changes. Without this, the field keeps a stale value (e.g. cashier
@@ -1037,9 +1028,9 @@ export default function PaymentModal({
         {/* Lay By toggle. A DB customer record is required — if the cashier
             filled in ad-hoc customer details above, we auto-create one on
             submit, so allow the checkbox as long as we have a name + phone.
-            Trade buyers (buyerType === 'retail') don't get a Lay By option —
-            trade is account-based, billed/paid separately. */}
-        {buyerType !== 'retail' && (() => {
+            (Trade buyers can lay by too — Avi reversed the earlier
+            "trade is take-now only" rule.) */}
+        {(() => {
           const hasLinkedCustomer = !!cart.customerId;
           const hasAdHocCustomer =
             !!customerName.trim() && !!customerPhone.trim();
@@ -1159,10 +1150,10 @@ export default function PaymentModal({
                       <span className="text-green-400">-{item.discountPercent}%</span>
                     )}
                   </div>
-                  {/* Backorder + Hold-on-LayBy controls. Trade buyers
-                      don't see these — trade orders are full-price take-now
-                      transactions, fulfilment is handled outside the POS. */}
-                  {buyerType !== 'retail' && (
+                  {/* Backorder + Hold-on-LayBy controls. Available to both
+                      retail and trade — trade can also stage backorder /
+                      lay-by lines (rule changed by Avi). */}
+                  {true && (
                     <>
                       {/* Backorder toggle — tick for items not in stock that the
                           customer is happy to wait for. Stock isn't deducted and
