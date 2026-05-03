@@ -6,7 +6,14 @@ export interface CartItem {
   name: string;
   quantity: number;
   unitPrice: number;
+  // What the cashier typed (manual override). Effective discount is
+  // max(discountPercent, autoDiscountPercent) — see recalculateTotals.
   discountPercent: number;
+  // Trade auto-discount fetched from the server when the selected
+  // customer has isTrade=true. 0 when there's no trade customer or no
+  // rule matches. The label is shown on the cart line for transparency.
+  autoDiscountPercent?: number;
+  autoDiscountLabel?: string | null;
   discountAmount: number;
   taxAmount: number;
   rowTotal: number;
@@ -29,6 +36,10 @@ interface CartState {
   items: CartItem[];
   customerId: number | null;
   customerName: string | null;
+  // Mirrors customer.isTrade. When true, POSPage fetches the trade
+  // auto-discount per line and stores it on each CartItem. Cart math
+  // then uses max(manual, auto) per line.
+  customerIsTrade: boolean;
   cartDiscount: CartDiscount | null;
   subtotal: number;
   itemDiscounts: number;
@@ -42,6 +53,7 @@ const initialState: CartState = {
   items: [],
   customerId: null,
   customerName: null,
+  customerIsTrade: false,
   cartDiscount: null,
   subtotal: 0,
   itemDiscounts: 0,
@@ -61,7 +73,11 @@ function recalculateTotals(state: CartState): void {
 
   state.items.forEach((item) => {
     const lineSubtotal = item.unitPrice * item.quantity;
-    const discount = lineSubtotal * (item.discountPercent / 100);
+    const effectivePercent = Math.max(
+      item.discountPercent || 0,
+      item.autoDiscountPercent || 0,
+    );
+    const discount = lineSubtotal * (effectivePercent / 100);
     const afterDiscount = lineSubtotal - discount;
     // GST is included in the price, extract it: GST = inclusive / 11
     const tax = afterDiscount / GST_DIVISOR;
@@ -205,15 +221,41 @@ const cartSlice = createSlice({
 
     setCustomer: (
       state,
-      action: PayloadAction<{ id: number; name: string } | null>
+      action: PayloadAction<{ id: number; name: string; isTrade?: boolean } | null>
     ) => {
       if (action.payload) {
         state.customerId = action.payload.id;
         state.customerName = action.payload.name;
+        state.customerIsTrade = !!action.payload.isTrade;
       } else {
         state.customerId = null;
         state.customerName = null;
+        state.customerIsTrade = false;
+        // Clear any previously-applied auto discount so totals snap
+        // back when the cashier clears / swaps the customer.
+        state.items.forEach((it) => {
+          it.autoDiscountPercent = 0;
+          it.autoDiscountLabel = null;
+        });
+        recalculateTotals(state);
       }
+    },
+
+    // Bulk-set auto discounts for the current cart from the backend
+    // preview response. Items not in the map keep their existing auto.
+    setTradeAutoDiscounts: (
+      state,
+      action: PayloadAction<
+        Record<number, { percent: number; label: string | null }>
+      >,
+    ) => {
+      const map = action.payload || {};
+      state.items.forEach((it) => {
+        const hit = map[it.productId];
+        it.autoDiscountPercent = hit ? hit.percent : 0;
+        it.autoDiscountLabel = hit ? hit.label : null;
+      });
+      recalculateTotals(state);
     },
 
     setNotes: (state, action: PayloadAction<string>) => {
@@ -224,6 +266,7 @@ const cartSlice = createSlice({
       state.items = [];
       state.customerId = null;
       state.customerName = null;
+      state.customerIsTrade = false;
       state.cartDiscount = null;
       state.subtotal = 0;
       state.itemDiscounts = 0;
@@ -266,6 +309,7 @@ export const {
   setItemUnitPrice,
   setCartDiscount,
   setCustomer,
+  setTradeAutoDiscounts,
   setNotes,
   clearCart,
   applyCalculatedTotals,

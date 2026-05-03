@@ -101,6 +101,15 @@ export class ProductsService {
     });
   }
 
+  // Same as findByIds but eager-loads categories — needed by the trade
+  // discount engine (rules check by category subtree).
+  async findByIdsWithCategories(ids: number[]): Promise<Product[]> {
+    return this.productRepository.find({
+      where: { id: In(ids) },
+      relations: ['categories'],
+    });
+  }
+
   async updateStock(productId: number, quantity: number): Promise<void> {
     const product = await this.findById(productId);
     if (!product) {

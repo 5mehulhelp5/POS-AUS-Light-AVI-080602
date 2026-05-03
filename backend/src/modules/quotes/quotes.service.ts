@@ -10,7 +10,7 @@ import { Quote, QuoteStatus, QuoteBuyerType } from './entities/quote.entity';
 import { QuoteItem } from './entities/quote-item.entity';
 import { Product } from '../products/entities/product.entity';
 import { Customer } from '../customers/entities/customer.entity';
-import { TradeDiscountsService } from './trade-discounts.service';
+import { TradeDiscountsService } from '../products/trade-discounts.service';
 
 export interface CreateQuoteDto {
   customerId?: number;

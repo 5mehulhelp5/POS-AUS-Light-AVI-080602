@@ -11,8 +11,18 @@ import {
   isProductOnSale,
   effectiveProductPrice,
 } from '../../store/slices/productsSlice';
-import { productsApi } from '../../services/api';
-import { addItem, removeItem, updateQuantity, clearCart, setItemDiscount, setItemUnitPrice, setCartDiscount, setCustomer } from '../../store/slices/cartSlice';
+import { productsApi, quotesApi } from '../../services/api';
+import {
+  addItem,
+  removeItem,
+  updateQuantity,
+  clearCart,
+  setItemDiscount,
+  setItemUnitPrice,
+  setCartDiscount,
+  setCustomer,
+  setTradeAutoDiscounts,
+} from '../../store/slices/cartSlice';
 import ProductGrid from './components/ProductGrid';
 import CartPanel from './components/CartPanel';
 import PaymentModal from './components/PaymentModal';
@@ -30,7 +40,13 @@ export default function POSPage() {
   useEffect(() => {
     const preselect = (location.state as any)?.preselectCustomer;
     if (preselect?.id) {
-      dispatch(setCustomer({ id: preselect.id, name: preselect.name }));
+      dispatch(
+        setCustomer({
+          id: preselect.id,
+          name: preselect.name,
+          isTrade: !!preselect.isTrade,
+        }),
+      );
       // Clear location state so a later navigation doesn't re-apply
       window.history.replaceState({}, document.title);
     }
@@ -195,6 +211,37 @@ export default function POSPage() {
       setActiveCategoryId(null);
     }
   }, [searchCatId, searchSubcatId, searchSubsubcatId]);
+
+  // Trade auto-discount: when the cart is for a trade-flagged customer
+  // and the set of productIds changes, fetch the per-line auto rate
+  // from the backend and apply it. Cart math then uses max(manual,
+  // auto) per line. When the customer is cleared (or non-trade), the
+  // setCustomer reducer already wipes any previously-applied auto.
+  const cartProductIdsKey = cart.items
+    .map((i) => i.productId)
+    .sort()
+    .join(',');
+  useEffect(() => {
+    if (!cart.customerIsTrade) return;
+    const ids = cart.items
+      .map((i) => i.productId)
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    quotesApi
+      .tradeDiscountPreview(ids)
+      .then((r) => {
+        if (cancelled) return;
+        const map = r.data?.data?.discounts || {};
+        dispatch(setTradeAutoDiscounts(map));
+      })
+      .catch(() => {
+        // Non-essential — server re-applies on order create.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cart.customerIsTrade, cartProductIdsKey, dispatch]);
 
   const handleCategorySelect = (cat: { id: number; name: string }) => {
     setActiveCategoryId(cat.id);

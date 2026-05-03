@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { QuotesService, CreateQuoteDto, UpdateQuoteDto } from './quotes.service';
-import { TradeDiscountsService } from './trade-discounts.service';
+import { TradeDiscountsService } from '../products/trade-discounts.service';
 import { OrdersService } from '../orders/orders.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';

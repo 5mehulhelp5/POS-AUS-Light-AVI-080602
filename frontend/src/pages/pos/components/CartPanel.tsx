@@ -28,7 +28,7 @@ interface CartPanelProps {
   onSetItemDiscount: (productId: number, discountPercent: number) => void;
   onSetItemUnitPrice: (productId: number, unitPrice: number) => void;
   onSetCartDiscount: (discount: CartDiscount | null) => void;
-  onSetCustomer: (customer: { id: number; name: string } | null) => void;
+  onSetCustomer: (customer: { id: number; name: string; isTrade?: boolean } | null) => void;
   onClearCart: () => void;
   onCheckout: () => void;
 }
@@ -303,11 +303,30 @@ export default function CartPanel({
                           ${item.unitPrice.toFixed(2)}
                         </button>
                       )}
-                      {item.discountPercent > 0 && (
-                        <span className="text-xs text-green-400">
-                          -{item.discountPercent}%
-                        </span>
-                      )}
+                      {(() => {
+                        const effective = Math.max(
+                          item.discountPercent || 0,
+                          item.autoDiscountPercent || 0,
+                        );
+                        if (effective <= 0) return null;
+                        const isAuto =
+                          (item.autoDiscountPercent || 0) >=
+                          (item.discountPercent || 0);
+                        return (
+                          <span
+                            className={`text-xs ${
+                              isAuto ? 'text-orange-400' : 'text-green-400'
+                            }`}
+                            title={
+                              isAuto
+                                ? item.autoDiscountLabel || 'Trade auto'
+                                : ''
+                            }
+                          >
+                            -{effective}%{isAuto ? ' trade' : ''}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
 
@@ -777,7 +796,11 @@ export default function CartPanel({
                           key={c.id}
                           className="w-full text-left px-4 py-3 rounded-lg hover:bg-pos-accent border border-gray-700"
                           onClick={() => {
-                            onSetCustomer({ id: c.id, name: `${c.firstName} ${c.lastName}` });
+                            onSetCustomer({
+                              id: c.id,
+                              name: `${c.firstName} ${c.lastName}`,
+                              isTrade: !!c.isTrade,
+                            });
                             setShowCustomerModal(false);
                           }}
                         >

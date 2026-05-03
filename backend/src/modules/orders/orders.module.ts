@@ -4,6 +4,7 @@ import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
 import { RefundsService } from './refunds.service';
 import { Order, OrderItem, Refund, RefundItem } from './entities';
+import { Customer } from '../customers/entities/customer.entity';
 import { ProductsModule } from '../products/products.module';
 import { DiscountsModule } from '../discounts/discounts.module';
 import { CustomersModule } from '../customers/customers.module';
@@ -12,7 +13,7 @@ import { SettingsModule } from '../settings/settings.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Order, OrderItem, Refund, RefundItem]),
+    TypeOrmModule.forFeature([Order, OrderItem, Refund, RefundItem, Customer]),
     ProductsModule,
     DiscountsModule,
     CustomersModule,

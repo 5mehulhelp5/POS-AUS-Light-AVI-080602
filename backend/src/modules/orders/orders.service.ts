@@ -12,6 +12,8 @@ import {
 } from './entities';
 import { Payment, PaymentMethod, PaymentEntityStatus } from '../payments/entities/payment.entity';
 import { ProductsService } from '../products/products.service';
+import { TradeDiscountsService } from '../products/trade-discounts.service';
+import { Customer } from '../customers/entities/customer.entity';
 import { DiscountsService, UserRole } from '../discounts/discounts.service';
 import { DiscountType } from '../discounts/entities';
 import { ConfigService } from '@nestjs/config';
@@ -87,7 +89,10 @@ export class OrdersService {
     private readonly orderRepository: Repository<Order>,
     @InjectRepository(OrderItem)
     private readonly orderItemRepository: Repository<OrderItem>,
+    @InjectRepository(Customer)
+    private readonly customerRepository: Repository<Customer>,
     private readonly productsService: ProductsService,
+    private readonly tradeDiscounts: TradeDiscountsService,
     private readonly discountsService: DiscountsService,
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
@@ -100,58 +105,101 @@ export class OrdersService {
     );
   }
 
+  // True when the order's customer has isTrade=true. Returns false for
+  // walk-in orders (no customerId) and for missing customers — the
+  // trade-rule engine only fires when there's an explicit trade buyer.
+  private async isTradeCustomerOrder(dto: CreateOrderDto): Promise<boolean> {
+    if (!dto.customerId) return false;
+    const c = await this.customerRepository.findOne({
+      where: { id: dto.customerId },
+      select: ['id', 'isTrade'],
+    });
+    return !!c?.isTrade;
+  }
+
   async create(
     dto: CreateOrderDto,
     userId: number,
     userRole: UserRole,
   ): Promise<Order> {
-    // Fetch products
+    // Fetch products. When the order is for a trade customer (and we
+    // haven't been handed locked-in prices via the quote-conversion
+    // path), we need product.categories loaded so the trade-rule
+    // engine can decide which auto-discount applies per line.
+    const isTradeOrder = await this.isTradeCustomerOrder(dto);
     const productIds = dto.items.map((i) => i.productId);
-    const products = await this.productsService.findByIds(productIds);
+    const products =
+      isTradeOrder && !dto.trustItemUnitPrices
+        ? await this.productsService.findByIdsWithCategories(productIds)
+        : await this.productsService.findByIds(productIds);
 
     // Build cart items for validation
-    const cartItems = dto.items.map((item) => {
-      const product = products.find((p) => p.id === item.productId);
-      if (!product) {
-        throw new BadRequestException(
-          `Product ${item.productId} not found`,
-        );
-      }
-      // Special price only counts when the date window is current AND it
-      // is strictly less than the regular price. Must match the POS cart
-      // and ProductGrid SALE-tag logic, otherwise the cashier total and
-      // server total disagree and the payment check rejects the order.
-      const effective = product.isOnSale
-        ? Number(product.specialPrice)
-        : Number(product.price);
-      // Honour a per-line unitPrice override when:
-      //   1. the line is a backorder (catalogue may be $0 / out of date), OR
-      //   2. the caller is trusted (dto.trustItemUnitPrices) — used by
-      //      the quote-conversion flow so the locked-in quoted price
-      //      flows through to the order. Without this, the backend
-      //      rebuilds the order at current catalogue price and the
-      //      payment-mismatch check rejects the conversion.
-      // Non-backorder, untrusted lines always use the catalogue price;
-      // cashiers should use the discount flow for adjustments.
-      const resolvedUnitPrice =
-        (item.isBackorder || dto.trustItemUnitPrices) &&
-        item.unitPrice != null &&
-        Number(item.unitPrice) >= 0
-          ? Number(item.unitPrice)
-          : parseFloat(effective.toString());
-      return {
-        productId: item.productId,
-        sku: product.sku,
-        name: product.name,
-        quantity: item.quantity,
-        unitPrice: resolvedUnitPrice,
-        discountPercent: item.discountPercent,
-      };
-    });
+    const cartItems = await Promise.all(
+      dto.items.map(async (item) => {
+        const product = products.find((p) => p.id === item.productId);
+        if (!product) {
+          throw new BadRequestException(
+            `Product ${item.productId} not found`,
+          );
+        }
+        // Special price only counts when the date window is current AND it
+        // is strictly less than the regular price. Must match the POS cart
+        // and ProductGrid SALE-tag logic, otherwise the cashier total and
+        // server total disagree and the payment check rejects the order.
+        const effective = product.isOnSale
+          ? Number(product.specialPrice)
+          : Number(product.price);
+        // Honour a per-line unitPrice override when:
+        //   1. the line is a backorder (catalogue may be $0 / out of date), OR
+        //   2. the caller is trusted (dto.trustItemUnitPrices) — used by
+        //      the quote-conversion flow so the locked-in quoted price
+        //      flows through to the order. Without this, the backend
+        //      rebuilds the order at current catalogue price and the
+        //      payment-mismatch check rejects the conversion.
+        // Non-backorder, untrusted lines always use the catalogue price;
+        // cashiers should use the discount flow for adjustments.
+        const resolvedUnitPrice =
+          (item.isBackorder || dto.trustItemUnitPrices) &&
+          item.unitPrice != null &&
+          Number(item.unitPrice) >= 0
+            ? Number(item.unitPrice)
+            : parseFloat(effective.toString());
+        // Trade auto-discount: applied as a floor when the order is for
+        // a trade customer and the caller isn't the quote-conversion
+        // path (which already baked in the trade rate). The cashier's
+        // manual discount only takes effect if it's higher.
+        const manualDiscount = item.discountPercent || 0;
+        const autoDiscount =
+          isTradeOrder && !dto.trustItemUnitPrices
+            ? (await this.tradeDiscounts.getAutoDiscount(product)).percent
+            : 0;
+        const effectiveDiscount = Math.max(manualDiscount, autoDiscount);
+        return {
+          productId: item.productId,
+          sku: product.sku,
+          name: product.name,
+          quantity: item.quantity,
+          unitPrice: resolvedUnitPrice,
+          discountPercent: effectiveDiscount,
+          // Track the manual portion separately so the discounts service
+          // only validates the cashier's piece against their role limit.
+          // Auto trade is company policy and bypasses role caps.
+          manualDiscountPercent: manualDiscount,
+        };
+      }),
+    );
 
-    // Validate discounts
+    // Validate discounts. Trade auto-discount is company policy (not a
+    // discretionary cashier override) so it bypasses the role-cap
+    // check — we validate using only the manual portion, then run
+    // calculateCartTotals with the effective discount so the totals
+    // include the trade rate.
+    const validationItems = cartItems.map((c) => ({
+      ...c,
+      discountPercent: c.manualDiscountPercent,
+    }));
     const validation = this.discountsService.validateAndCalculate(
-      { items: cartItems, cartDiscount: dto.cartDiscount },
+      { items: validationItems, cartDiscount: dto.cartDiscount },
       userRole,
     );
 
@@ -162,6 +210,14 @@ export class OrdersService {
         errors: validation.errors,
       });
     }
+
+    // Recompute totals with the effective (manual ⨆ auto) discount so
+    // the trade auto rate flows into payment-amount checks downstream.
+    validation.calculatedTotals = this.discountsService.calculateCartTotals(
+      cartItems,
+      dto.cartDiscount,
+      false,
+    );
 
     // Check stock. Skip backorder lines — those are explicitly allowed
     // to exceed available stock and stock isn't deducted until fulfilment.

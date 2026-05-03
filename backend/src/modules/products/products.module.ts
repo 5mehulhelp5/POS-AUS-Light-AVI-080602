@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ProductsService } from './products.service';
 import { ProductsController } from './products.controller';
+import { TradeDiscountsService } from './trade-discounts.service';
 import { Product, Category, ProductAttribute } from './entities';
 import { SyncModule } from '../sync/sync.module';
 
@@ -11,7 +12,7 @@ import { SyncModule } from '../sync/sync.module';
     SyncModule,
   ],
   controllers: [ProductsController],
-  providers: [ProductsService],
-  exports: [ProductsService],
+  providers: [ProductsService, TradeDiscountsService],
+  exports: [ProductsService, TradeDiscountsService],
 })
 export class ProductsModule {}

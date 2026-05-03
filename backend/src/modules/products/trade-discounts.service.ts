@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Category } from '../products/entities/category.entity';
-import { Product } from '../products/entities/product.entity';
+import { Category } from './entities/category.entity';
+import { Product } from './entities/product.entity';
 
 // Mirrors the three Magento cart price rules Sally maintains for trade
 // customers (rule IDs 88, 89, 92). Hardcoded here so the POS can apply
