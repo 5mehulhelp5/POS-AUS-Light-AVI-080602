@@ -117,14 +117,13 @@ export class OrdersService {
           `Product ${item.productId} not found`,
         );
       }
-      // Use the special price if one is set, otherwise the regular price.
-      // Must match the POS cart (which uses `specialPrice || price` with no
-      // date check) — otherwise the cashier's total and the server's total
-      // disagree and the payment check rejects the order.
-      const effective =
-        product.specialPrice && Number(product.specialPrice) > 0
-          ? product.specialPrice
-          : product.price;
+      // Special price only counts when the date window is current AND it
+      // is strictly less than the regular price. Must match the POS cart
+      // and ProductGrid SALE-tag logic, otherwise the cashier total and
+      // server total disagree and the payment check rejects the order.
+      const effective = product.isOnSale
+        ? Number(product.specialPrice)
+        : Number(product.price);
       // Honour a per-line unitPrice override when:
       //   1. the line is a backorder (catalogue may be $0 / out of date), OR
       //   2. the caller is trusted (dto.trustItemUnitPrices) — used by

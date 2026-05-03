@@ -130,6 +130,14 @@ export class ProductsController {
           specialPrice: p.specialPrice
             ? parseFloat(p.specialPrice.toString())
             : null,
+          // Frontend uses these to recompute isOnSale itself (so it can
+          // hide a stale special price after the to-date passes without
+          // waiting for the next sync); also surface the precomputed flag
+          // for the cart so the cashier total agrees with the server.
+          specialPriceFrom: p.specialPriceFrom,
+          specialPriceTo: p.specialPriceTo,
+          isOnSale: p.isOnSale,
+          effectivePrice: p.effectivePrice,
           stockQty: p.stockQty,
           isInStock: p.isInStock,
           imageUrl: p.imageUrl,
@@ -302,6 +310,10 @@ export class ProductsController {
           specialPrice: product.specialPrice
             ? parseFloat(product.specialPrice.toString())
             : null,
+          specialPriceFrom: product.specialPriceFrom,
+          specialPriceTo: product.specialPriceTo,
+          isOnSale: product.isOnSale,
+          effectivePrice: product.effectivePrice,
           stockQty: product.stockQty,
           isInStock: product.isInStock,
           thumbnailUrl: product.thumbnailUrl,

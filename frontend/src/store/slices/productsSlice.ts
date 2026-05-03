@@ -8,12 +8,58 @@ export interface Product {
   name: string;
   price: number;
   specialPrice: number | null;
+  // Sale-window dates from Magento. Used by isProductOnSale() so the
+  // SALE tag, cart, and modal hide a stale special price as soon as the
+  // to-date passes (no need to wait for a sync).
+  specialPriceFrom?: string | null;
+  specialPriceTo?: string | null;
+  // Server-precomputed flag — handy as a fallback, but the frontend also
+  // re-checks the date window itself for freshness.
+  isOnSale?: boolean;
+  effectivePrice?: number;
   stockQty: number;
   isInStock: boolean;
   imageUrl: string | null;
   thumbnailUrl: string | null;
   barcode: string | null;
   categories: Array<{ id: number; name: string }>;
+}
+
+// Treat as on-sale only when specialPrice is set, > 0, strictly less
+// than price, and today is inside the (optional) from/to window.
+// Mirrors Product.isOnSale on the backend so the cart, SALE badge, and
+// server's payment-check all agree.
+export function isProductOnSale(p: {
+  price: number | string | null | undefined;
+  specialPrice: number | string | null | undefined;
+  specialPriceFrom?: Date | string | null;
+  specialPriceTo?: Date | string | null;
+}): boolean {
+  if (p.specialPrice == null || p.price == null) return false;
+  const sp = Number(p.specialPrice);
+  const reg = Number(p.price);
+  if (!(sp > 0) || !(reg > 0)) return false;
+  if (sp >= reg) return false;
+  const now = Date.now();
+  if (p.specialPriceFrom) {
+    const f = new Date(p.specialPriceFrom).getTime();
+    if (Number.isFinite(f) && f > now) return false;
+  }
+  if (p.specialPriceTo) {
+    // `to` is a date (no time) — include the whole day
+    const t = new Date(p.specialPriceTo).getTime();
+    if (Number.isFinite(t) && t + 24 * 60 * 60 * 1000 - 1 < now) return false;
+  }
+  return true;
+}
+
+export function effectiveProductPrice(p: {
+  price: number | string | null | undefined;
+  specialPrice: number | string | null | undefined;
+  specialPriceFrom?: Date | string | null;
+  specialPriceTo?: Date | string | null;
+}): number {
+  return isProductOnSale(p) ? Number(p.specialPrice) : Number(p.price);
 }
 
 export interface Category {

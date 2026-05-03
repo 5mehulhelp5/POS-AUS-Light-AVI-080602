@@ -1,4 +1,5 @@
 import { InformationCircleIcon } from '@heroicons/react/24/outline';
+import { isProductOnSale } from '../../../store/slices/productsSlice';
 
 interface Product {
   id: number;
@@ -6,6 +7,8 @@ interface Product {
   name: string;
   price: number;
   specialPrice: number | null;
+  specialPriceFrom?: string | null;
+  specialPriceTo?: string | null;
   stockQty: number;
   isInStock: boolean;
   thumbnailUrl: string | null;
@@ -42,7 +45,9 @@ export default function ProductGrid({
   return (
     <div className="flex-1 overflow-y-auto scrollbar-thin">
       <div className="grid grid-cols-5 gap-2 auto-rows-max">
-        {products.map((product) => (
+        {products.map((product) => {
+          const onSale = isProductOnSale(product);
+          return (
           <button
             key={product.id}
             className="product-card text-left group h-fit"
@@ -96,7 +101,7 @@ export default function ProductGrid({
               )}
 
               {/* Special price badge */}
-              {product.specialPrice && (
+              {onSale && (
                 <div className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded">
                   SALE
                 </div>
@@ -115,10 +120,10 @@ export default function ProductGrid({
               <p className="text-xs text-gray-400 font-mono">{product.sku}</p>
               <h3 className="font-medium text-sm line-clamp-2">{product.name}</h3>
               <div className="flex items-center gap-2">
-                {product.specialPrice ? (
+                {onSale ? (
                   <>
                     <span className="text-primary-400 font-bold">
-                      ${product.specialPrice.toFixed(2)}
+                      ${Number(product.specialPrice).toFixed(2)}
                     </span>
                     <span className="text-gray-500 text-sm line-through">
                       ${product.price.toFixed(2)}
@@ -135,7 +140,8 @@ export default function ProductGrid({
               </p>
             </div>
           </button>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

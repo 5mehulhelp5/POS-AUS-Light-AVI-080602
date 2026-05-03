@@ -9,6 +9,10 @@ import {
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 import { productsApi, competitorApi } from '../../../services/api';
+import {
+  isProductOnSale,
+  effectiveProductPrice,
+} from '../../../store/slices/productsSlice';
 
 interface ProductDetailModalProps {
   productId: number;
@@ -18,6 +22,8 @@ interface ProductDetailModalProps {
     name: string;
     price: number;
     specialPrice: number | null;
+    specialPriceFrom?: string | null;
+    specialPriceTo?: string | null;
     stockQty: number;
     isInStock: boolean;
     thumbnailUrl: string | null;
@@ -30,6 +36,8 @@ interface ProductDetailModalProps {
       name: string;
       price: number;
       specialPrice: number | null;
+      specialPriceFrom?: string | null;
+      specialPriceTo?: string | null;
       thumbnailUrl: string | null;
       isInStock?: boolean;
       stockQty?: number;
@@ -102,7 +110,8 @@ export default function ProductDetailModal({
         : [];
   const specs = detail?.specs || [];
 
-  const effectivePrice = product.specialPrice ?? product.price;
+  const onSale = isProductOnSale(product);
+  const effectivePrice = effectiveProductPrice(product);
   const ourPrice = Number(effectivePrice);
   const compPrice = competitor?.price ? Number(competitor.price) : null;
   const diff = compPrice !== null ? ourPrice - compPrice : null;
@@ -126,6 +135,8 @@ export default function ProductDetailModal({
         name: product.name,
         price: product.price,
         specialPrice: product.specialPrice,
+        specialPriceFrom: product.specialPriceFrom,
+        specialPriceTo: product.specialPriceTo,
         thumbnailUrl: product.thumbnailUrl,
         isInStock: product.isInStock,
         stockQty: product.stockQty,
@@ -152,7 +163,7 @@ export default function ProductDetailModal({
             <p className="text-xs text-gray-400 font-mono">{product.sku}</p>
             <h2 className="text-xl font-bold mt-1">{product.name}</h2>
             <div className="flex items-center gap-3 mt-2">
-              {product.specialPrice ? (
+              {onSale ? (
                 <>
                   <span className="text-2xl font-bold text-primary-400">
                     ${Number(product.specialPrice).toFixed(2)}

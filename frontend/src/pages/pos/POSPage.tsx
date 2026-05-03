@@ -8,6 +8,8 @@ import {
   fetchProducts,
   fetchCategories,
   fetchSubcategories,
+  isProductOnSale,
+  effectiveProductPrice,
 } from '../../store/slices/productsSlice';
 import { productsApi } from '../../services/api';
 import { addItem, removeItem, updateQuantity, clearCart, setItemDiscount, setItemUnitPrice, setCartDiscount, setCustomer } from '../../store/slices/cartSlice';
@@ -273,15 +275,17 @@ export default function POSPage() {
     // stock from somewhere.
     const outOfStock =
       product.isInStock === false || Number(product.stockQty) <= 0;
+    const onSale = isProductOnSale(product);
+    const unitPrice = effectiveProductPrice(product);
     for (let i = 0; i < quantity; i++) {
       dispatch(
         addItem({
           productId: product.id,
           sku: product.sku,
           name: product.name,
-          price: product.specialPrice || product.price,
+          price: unitPrice,
           imageUrl: product.thumbnailUrl,
-          isSaleItem: !!product.specialPrice,
+          isSaleItem: onSale,
           isBackorder: outOfStock,
         })
       );

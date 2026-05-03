@@ -133,16 +133,44 @@ export class Product {
   @OneToMany(() => OrderItem, (orderItem) => orderItem.product)
   orderItems: OrderItem[];
 
-  // Computed property: get effective price
+  // Treat as on-sale only when:
+  //  - special price is set, > 0, and STRICTLY less than the regular price
+  //    (Magento sometimes ships specialPrice == price or higher, which we ignore)
+  //  - today is between specialPriceFrom (inclusive) and specialPriceTo (inclusive)
+  get isOnSale(): boolean {
+    return Product.isOnSale(
+      this.price,
+      this.specialPrice,
+      this.specialPriceFrom,
+      this.specialPriceTo,
+    );
+  }
+
   get effectivePrice(): number {
-    const now = new Date();
-    if (
-      this.specialPrice &&
-      (!this.specialPriceFrom || this.specialPriceFrom <= now) &&
-      (!this.specialPriceTo || this.specialPriceTo >= now)
-    ) {
-      return this.specialPrice;
+    return this.isOnSale ? Number(this.specialPrice) : Number(this.price);
+  }
+
+  static isOnSale(
+    price: number | string | null | undefined,
+    specialPrice: number | string | null | undefined,
+    from: Date | string | null | undefined,
+    to: Date | string | null | undefined,
+  ): boolean {
+    if (specialPrice == null || price == null) return false;
+    const sp = Number(specialPrice);
+    const p = Number(price);
+    if (!(sp > 0) || !(p > 0)) return false;
+    if (sp >= p) return false;
+    const now = Date.now();
+    if (from) {
+      const f = from instanceof Date ? from.getTime() : new Date(from).getTime();
+      if (Number.isFinite(f) && f > now) return false;
     }
-    return this.price;
+    if (to) {
+      // Magento `to` is a date (no time), so include the whole day
+      const t = to instanceof Date ? to.getTime() : new Date(to).getTime();
+      if (Number.isFinite(t) && t + 24 * 60 * 60 * 1000 - 1 < now) return false;
+    }
+    return true;
   }
 }

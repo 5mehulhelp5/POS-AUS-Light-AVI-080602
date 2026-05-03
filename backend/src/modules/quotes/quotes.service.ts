@@ -100,9 +100,9 @@ export class QuotesService {
         throw new NotFoundException(`Product with ID ${item.productId} not found`);
       }
 
-      const defaultPrice = product.specialPrice
-        ? parseFloat(product.specialPrice.toString())
-        : parseFloat(product.price.toString());
+      const defaultPrice = product.isOnSale
+        ? Number(product.specialPrice)
+        : Number(product.price);
       // Allow caller to override unit price (e.g. trade pricing on quotes)
       const unitPrice =
         item.unitPrice != null && item.unitPrice >= 0
@@ -212,9 +212,9 @@ export class QuotesService {
         throw new NotFoundException(`Product with ID ${item.productId} not found`);
       }
 
-      const defaultPrice = product.specialPrice
-        ? parseFloat(product.specialPrice.toString())
-        : parseFloat(product.price.toString());
+      const defaultPrice = product.isOnSale
+        ? Number(product.specialPrice)
+        : Number(product.price);
       const unitPrice =
         item.unitPrice != null && item.unitPrice >= 0
           ? Number(item.unitPrice)
@@ -395,9 +395,9 @@ export class QuotesService {
           where: { id: item.productId },
         });
         if (product) {
-          const currentPrice = product.specialPrice
-            ? parseFloat(product.specialPrice.toString())
-            : parseFloat(product.price.toString());
+          const currentPrice = product.isOnSale
+            ? Number(product.specialPrice)
+            : Number(product.price);
           if (currentPrice < quotedUnitPrice) {
             effectiveUnitPrice = currentPrice;
             priceDropped = true;

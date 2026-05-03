@@ -2,6 +2,10 @@ import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { quotesApi, customersApi, productsApi, settingsApi } from '../../services/api';
 import {
+  isProductOnSale,
+  effectiveProductPrice,
+} from '../../store/slices/productsSlice';
+import {
   MagnifyingGlassIcon,
   EyeIcon,
   ClockIcon,
@@ -176,7 +180,7 @@ export default function QuotesPage() {
         productId: product.id,
         name: product.name,
         sku: product.sku,
-        price: product.specialPrice || product.price,
+        price: effectiveProductPrice(product),
         quantity: 1,
         discountPercent: 0,
       },
@@ -879,7 +883,10 @@ export default function QuotesPage() {
               </div>
               {productResults.length > 0 && (
                 <div className="bg-pos-accent border border-gray-600 rounded-lg max-h-48 overflow-auto">
-                  {productResults.map((p: any) => (
+                  {productResults.map((p: any) => {
+                    const onSale = isProductOnSale(p);
+                    const price = effectiveProductPrice(p);
+                    return (
                     <button
                       key={p.id}
                       className="w-full text-left px-4 py-3 hover:bg-pos-card border-b border-gray-700 last:border-0"
@@ -890,12 +897,20 @@ export default function QuotesPage() {
                           <p className="font-medium">{p.name}</p>
                           <p className="text-xs text-gray-400">ID: {p.id} | {p.sku}</p>
                         </div>
-                        <p className="text-primary-400 font-bold">
-                          ${(p.specialPrice || p.price).toFixed(2)}
-                        </p>
+                        <div className="text-right">
+                          <p className="text-primary-400 font-bold">
+                            ${price.toFixed(2)}
+                          </p>
+                          {onSale && (
+                            <p className="text-xs text-gray-500 line-through">
+                              ${Number(p.price).toFixed(2)}
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
 
