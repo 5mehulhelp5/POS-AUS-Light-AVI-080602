@@ -23,6 +23,12 @@ import { SettingsService } from '../settings/settings.service';
 
 interface CreateOrderDto {
   customerId?: number;
+  // Cashier-driven trade flag from the PaymentModal Trade button. When
+  // true, the server applies the trade auto-discount even if the
+  // selected customer doesn't have isTrade=true (or there's no
+  // customer at all — walk-in trade buyer). Combined with the
+  // customer.isTrade flag via OR.
+  isTradeOrder?: boolean;
   // When true, per-item `unitPrice` overrides are honoured even for
   // non-backorder lines. Used by the quote-conversion path so locked-in
   // quoted prices (especially trade prices) flow through to the order.
@@ -105,10 +111,14 @@ export class OrdersService {
     );
   }
 
-  // True when the order's customer has isTrade=true. Returns false for
-  // walk-in orders (no customerId) and for missing customers — the
-  // trade-rule engine only fires when there's an explicit trade buyer.
+  // Trade pricing kicks in when EITHER:
+  //   - the cashier explicitly flagged the order as trade in the
+  //     PaymentModal (dto.isTradeOrder), e.g. for a walk-in trade
+  //     buyer with no customer record, OR
+  //   - the selected customer is permanently flagged isTrade=true.
+  // Returns false otherwise (walk-in retail, non-trade customer).
   private async isTradeCustomerOrder(dto: CreateOrderDto): Promise<boolean> {
+    if (dto.isTradeOrder) return true;
     if (!dto.customerId) return false;
     const c = await this.customerRepository.findOne({
       where: { id: dto.customerId },

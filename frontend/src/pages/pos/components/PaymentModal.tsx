@@ -9,9 +9,10 @@ import {
   GiftIcon,
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
-import { useSelector } from 'react-redux';
-import { RootState } from '../../../store';
-import { ordersApi, customersApi } from '../../../services/api';
+import { useSelector, useDispatch } from 'react-redux';
+import { RootState, AppDispatch } from '../../../store';
+import { ordersApi, customersApi, quotesApi } from '../../../services/api';
+import { setTradeAutoDiscounts } from '../../../store/slices/cartSlice';
 import InvoiceModal from './InvoiceModal';
 
 interface PaymentModalProps {
@@ -30,13 +31,19 @@ export default function PaymentModal({
 }: PaymentModalProps) {
   const cart = useSelector((state: RootState) => state.cart);
   const { user } = useSelector((state: RootState) => state.auth);
+  const dispatch = useDispatch<AppDispatch>();
   // Manager / admin can override the layby/backorder deposit minimum
   // — including dropping it to $0 for established customers.
   const canOverrideDeposit =
     user?.role?.name === 'admin' || user?.role?.name === 'manager';
 
   const [method, setMethod] = useState<PaymentMethod>('eftpos');
-  const [buyerType, setBuyerType] = useState<BuyerType>('customer');
+  // Default to Trade when the selected customer is permanently flagged
+  // trade — saves the cashier a click. They can still flip back to
+  // 'customer' if needed.
+  const [buyerType, setBuyerType] = useState<BuyerType>(
+    cart.customerIsTrade ? 'retail' : 'customer',
+  );
   const [cashTendered, setCashTendered] = useState('');
   const [eftposRef, setEftposRef] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -178,6 +185,50 @@ export default function PaymentModal({
   // earlier "trade is take-now only" rule. The clear-on-flip effect was
   // removed so flags stick when the cashier toggles between trade and
   // retail.)
+
+  // Trade pricing in the cart can be triggered TWO ways:
+  //   (1) the selected customer is permanently flagged isTrade=true
+  //       — handled by POSPage's effect before this modal even opens.
+  //   (2) the cashier hits the "Trade" button here for a walk-in /
+  //       non-flagged customer — that's what this effect handles.
+  // Whenever buyerType flips OR the cart's product set changes while
+  // Trade is on, refetch and apply the auto-discount per line. When the
+  // cashier flips back to Customer AND the selected customer isn't
+  // permanently trade, clear the auto so the cart snaps back to retail.
+  const tradeCartIdsKey = cart.items
+    .map((i) => i.productId)
+    .sort()
+    .join(',');
+  useEffect(() => {
+    const shouldBeTradePriced =
+      buyerType === 'retail' || cart.customerIsTrade;
+    if (!shouldBeTradePriced) {
+      // Only clear if there's actually something to clear.
+      if (cart.items.some((i) => (i.autoDiscountPercent || 0) > 0)) {
+        dispatch(setTradeAutoDiscounts({}));
+      }
+      return;
+    }
+    const ids = cart.items
+      .map((i) => i.productId)
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (ids.length === 0) return;
+    let cancelled = false;
+    quotesApi
+      .tradeDiscountPreview(ids)
+      .then((r) => {
+        if (cancelled) return;
+        const map = r.data?.data?.discounts || {};
+        dispatch(setTradeAutoDiscounts(map));
+      })
+      .catch(() => {
+        // Preview is non-essential — server re-applies on order create.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buyerType, cart.customerIsTrade, tradeCartIdsKey, dispatch]);
 
   // Snap the deposit input to the live minimum whenever the cart split
   // changes. Without this, the field keeps a stale value (e.g. cashier
@@ -398,6 +449,11 @@ export default function PaymentModal({
         const orderData = {
           customerId: customerIdToUse,
           orderType: isLayby ? 'layby' : 'standard',
+          // Tell the server when the cashier explicitly marked this as a
+          // trade order via the PaymentModal Trade button. Server uses
+          // this OR'd with customer.isTrade to decide if trade auto-
+          // discounts should apply.
+          isTradeOrder: buyerType === 'retail',
           items: cart.items.map((item) => {
             const isBack = !!backorderByProductId[item.productId];
             // If the top-level Lay By toggle is on with no per-line
