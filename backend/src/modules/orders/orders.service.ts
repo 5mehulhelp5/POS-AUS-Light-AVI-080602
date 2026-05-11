@@ -10,6 +10,7 @@ import {
   OrderSyncStatus,
   OrderSource,
 } from './entities';
+import { DeliveryType, DELIVERY_FEE } from './entities/order.entity';
 import { Payment, PaymentMethod, PaymentEntityStatus } from '../payments/entities/payment.entity';
 import { ProductsService } from '../products/products.service';
 import { TradeDiscountsService } from '../products/trade-discounts.service';
@@ -84,6 +85,9 @@ interface CreateOrderDto {
   // paid by; defaults to now + laybyMaxDays (settings).
   orderType?: 'standard' | 'layby';
   laybyExpiresAt?: string;
+  // Pickup vs delivery — pickup is free, delivery adds the flat
+  // DELIVERY_FEE to the grand total. Defaults to pickup when omitted.
+  deliveryType?: 'pickup' | 'delivery';
 }
 
 @Injectable()
@@ -295,7 +299,19 @@ export class OrdersService {
       (b) => b,
     );
     const isLayby = dto.orderType === 'layby' || hasLaybyHeld;
-    const grandTotal = validation.calculatedTotals.grandTotal;
+
+    // Pickup vs delivery — delivery adds the flat DELIVERY_FEE on top of
+    // the cart grand total. The fee is GST-inclusive (matches the rest
+    // of the AU pricing convention).
+    const deliveryType =
+      dto.deliveryType === 'delivery'
+        ? DeliveryType.DELIVERY
+        : DeliveryType.PICKUP;
+    const deliveryFee =
+      deliveryType === DeliveryType.DELIVERY ? DELIVERY_FEE : 0;
+    const grandTotal =
+      Math.round((validation.calculatedTotals.grandTotal + deliveryFee) * 100) /
+      100;
 
     // One-line breadcrumb so we can see in pm2 logs whether the layby flag
     // and backorder flags actually reached the server. Cheap and helpful
@@ -492,6 +508,8 @@ export class OrdersService {
         notes: dto.notes || null,
         orderType: isLayby ? OrderType.LAYBY : OrderType.STANDARD,
         laybyExpiresAt,
+        deliveryType,
+        deliveryFee,
       });
 
       const savedOrder = await queryRunner.manager.save(order);

@@ -23,6 +23,10 @@ interface PaymentModalProps {
 
 type PaymentMethod = 'cash' | 'eftpos' | 'bank_transfer';
 type BuyerType = 'retail' | 'customer';
+type DeliveryType = 'pickup' | 'delivery';
+
+// Flat delivery fee — must match backend DELIVERY_FEE constant.
+const DELIVERY_FEE = 60;
 
 export default function PaymentModal({
   total,
@@ -44,6 +48,7 @@ export default function PaymentModal({
   const [buyerType, setBuyerType] = useState<BuyerType>(
     cart.customerIsTrade ? 'retail' : 'customer',
   );
+  const [deliveryType, setDeliveryType] = useState<DeliveryType>('pickup');
   const [cashTendered, setCashTendered] = useState('');
   const [eftposRef, setEftposRef] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -260,14 +265,26 @@ export default function PaymentModal({
   // When store credit is toggled on, default it to min(balance, total)
   useEffect(() => {
     if (useStoreCredit) {
-      setStoreCreditAmount(Math.min(storeCreditBalance, total));
+      setStoreCreditAmount(Math.min(storeCreditBalance, totalWithDelivery));
     } else {
       setStoreCreditAmount(0);
     }
   }, [useStoreCredit, storeCreditBalance, total]);
 
-  const creditApplied = useStoreCredit ? Math.min(storeCreditAmount, storeCreditBalance, total) : 0;
-  const remainingDue = Math.max(0, Math.round((total - creditApplied) * 100) / 100);
+  // Delivery fee is added on top of the cart grand total (`total`
+  // prop). Backend recomputes the same way, so the cashier's
+  // displayed total and the server total agree.
+  const deliveryFeeApplied = deliveryType === 'delivery' ? DELIVERY_FEE : 0;
+  const totalWithDelivery =
+    Math.round((total + deliveryFeeApplied) * 100) / 100;
+
+  const creditApplied = useStoreCredit
+    ? Math.min(storeCreditAmount, storeCreditBalance, totalWithDelivery)
+    : 0;
+  const remainingDue = Math.max(
+    0,
+    Math.round((totalWithDelivery - creditApplied) * 100) / 100,
+  );
 
   const cashAmount = parseFloat(cashTendered) || 0;
   const change = cashAmount - remainingDue;
@@ -288,7 +305,7 @@ export default function PaymentModal({
   // is. Normal sale: the cart total.
   const depositDue = isDepositOrder
     ? Math.max(0, Math.round((parseFloat(laybyDeposit) || 0) * 100) / 100)
-    : total;
+    : totalWithDelivery;
   const depositRemaining = Math.max(
     0,
     Math.round((depositDue - creditApplied) * 100) / 100,
@@ -454,6 +471,9 @@ export default function PaymentModal({
           // this OR'd with customer.isTrade to decide if trade auto-
           // discounts should apply.
           isTradeOrder: buyerType === 'retail',
+          // Pickup is free, delivery adds a flat fee on top — server
+          // re-applies it from a constant so the totals can't drift.
+          deliveryType,
           items: cart.items.map((item) => {
             const isBack = !!backorderByProductId[item.productId];
             // If the top-level Lay By toggle is on with no per-line
@@ -630,13 +650,18 @@ export default function PaymentModal({
         <div className="text-center mb-4">
           <p className="text-gray-400 text-sm">Order Total</p>
           <p className="text-4xl font-bold text-primary-400">
-            ${total.toFixed(2)}
+            ${totalWithDelivery.toFixed(2)}
           </p>
+          {deliveryFeeApplied > 0 && (
+            <p className="text-xs text-gray-400 mt-1">
+              ${total.toFixed(2)} + ${deliveryFeeApplied.toFixed(2)} delivery
+            </p>
+          )}
           {isDepositOrder && (
             <p className="text-sm text-amber-300 mt-1">
               Taking deposit now: <span className="font-bold">${depositDue.toFixed(2)}</span>
               {' · '}
-              Balance owing: <span className="font-bold">${Math.max(0, total - depositDue).toFixed(2)}</span>
+              Balance owing: <span className="font-bold">${Math.max(0, totalWithDelivery - depositDue).toFixed(2)}</span>
             </p>
           )}
           {creditApplied > 0 && (
@@ -674,7 +699,7 @@ export default function PaymentModal({
                 <input
                   type="number"
                   min={0}
-                  max={Math.min(storeCreditBalance, total)}
+                  max={Math.min(storeCreditBalance, totalWithDelivery)}
                   step="0.01"
                   value={storeCreditAmount}
                   onChange={(e) =>
@@ -682,7 +707,7 @@ export default function PaymentModal({
                       Math.max(
                         0,
                         Math.min(
-                          Math.min(storeCreditBalance, total),
+                          Math.min(storeCreditBalance, totalWithDelivery),
                           parseFloat(e.target.value) || 0,
                         ),
                       ),
@@ -693,7 +718,7 @@ export default function PaymentModal({
                 <button
                   type="button"
                   className="btn-sm bg-purple-700 text-white text-xs"
-                  onClick={() => setStoreCreditAmount(Math.min(storeCreditBalance, total))}
+                  onClick={() => setStoreCreditAmount(Math.min(storeCreditBalance, totalWithDelivery))}
                 >
                   Max
                 </button>
@@ -747,6 +772,40 @@ export default function PaymentModal({
               <span className="text-gray-300">Walk-in (skip customer details)</span>
             </label>
           )}
+        </div>
+
+        {/* Pickup vs Delivery — pickup is free, delivery adds a flat
+            $60 to the order total. Mirrors a backend constant. */}
+        <div className="mb-6">
+          <label className="block text-sm font-medium text-gray-400 mb-2">
+            Fulfilment
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              className={`p-3 rounded-lg border-2 flex items-center justify-center gap-2 transition-colors ${
+                deliveryType === 'pickup'
+                  ? 'border-green-500 bg-green-500/20'
+                  : 'border-gray-600 hover:border-gray-500'
+              }`}
+              onClick={() => setDeliveryType('pickup')}
+            >
+              <span className="font-medium">Pick Up</span>
+              <span className="text-xs text-gray-400">Free</span>
+            </button>
+            <button
+              type="button"
+              className={`p-3 rounded-lg border-2 flex items-center justify-center gap-2 transition-colors ${
+                deliveryType === 'delivery'
+                  ? 'border-cyan-500 bg-cyan-500/20'
+                  : 'border-gray-600 hover:border-gray-500'
+              }`}
+              onClick={() => setDeliveryType('delivery')}
+            >
+              <span className="font-medium">Delivery</span>
+              <span className="text-xs text-gray-400">+${DELIVERY_FEE}</span>
+            </button>
+          </div>
         </div>
 
         {/* Order Notes — placed above customer details so the cashier

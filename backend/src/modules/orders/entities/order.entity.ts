@@ -37,6 +37,15 @@ export enum OrderType {
   LAYBY = 'layby',
 }
 
+export enum DeliveryType {
+  PICKUP = 'pickup',
+  DELIVERY = 'delivery',
+}
+
+// Flat fee added when DeliveryType.DELIVERY is chosen. Hardcoded for
+// now; if this needs to vary by region or order size, lift to settings.
+export const DELIVERY_FEE = 60;
+
 export enum PaymentStatus {
   PENDING = 'pending',
   PARTIAL = 'partial',
@@ -176,6 +185,26 @@ export class Order {
 
   @Column({ name: 'layby_expires_at', type: 'timestamp', nullable: true })
   laybyExpiresAt: Date | null;
+
+  // Pickup vs delivery — chosen at checkout. Pickup is free, delivery
+  // adds DELIVERY_FEE to the grand total. Stored on the order so the
+  // invoice / receipts can render the line item afterwards.
+  @Column({
+    name: 'delivery_type',
+    type: 'enum',
+    enum: DeliveryType,
+    default: DeliveryType.PICKUP,
+  })
+  deliveryType: DeliveryType;
+
+  @Column({
+    name: 'delivery_fee',
+    type: 'decimal',
+    precision: 10,
+    scale: 2,
+    default: 0,
+  })
+  deliveryFee: number;
 
   @Index()
   @CreateDateColumn({ name: 'created_at' })
