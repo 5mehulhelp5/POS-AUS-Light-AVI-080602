@@ -9,6 +9,7 @@ import {
   ExclamationTriangleIcon,
   MagnifyingGlassIcon,
 } from '@heroicons/react/24/outline';
+import toast from 'react-hot-toast';
 import { CartItem, CartDiscount } from '../../../store/slices/cartSlice';
 import { competitorApi, customersApi } from '../../../services/api';
 
@@ -140,13 +141,13 @@ export default function CartPanel({
     const value = parseFloat(discountValue);
     if (!(value > 0)) return;
     if (hasItemDiscount) {
-      alert(
+      toast.error(
         'A line already has an item discount. Remove it first — only one discount (item OR further) is allowed per sale.',
       );
       return;
     }
     if (discountType === 'percent' && value > maxDiscountPercent) {
-      alert(`Maximum discount is ${maxDiscountPercent}%`);
+      toast.error(`Maximum discount is ${maxDiscountPercent}%`);
       return;
     }
     // Cap the fixed-amount discount to the same percentage limit so
@@ -156,7 +157,7 @@ export default function CartPanel({
     if (discountType === 'fixed') {
       const cap = Math.round((maxDiscountPercent / 100) * subtotal * 100) / 100;
       if (value > cap) {
-        alert(
+        toast.error(
           `Maximum fixed discount is $${cap.toFixed(2)} ` +
             `(${maxDiscountPercent}% of $${subtotal.toFixed(2)}).`,
         );
@@ -164,7 +165,7 @@ export default function CartPanel({
       }
     }
     if (!discountReason.trim()) {
-      alert('Please enter a reason for the discount');
+      toast.error('Please enter a reason for the discount');
       return;
     }
     onSetCartDiscount({
@@ -180,7 +181,7 @@ export default function CartPanel({
   const handleApplyItemDiscount = (productId: number) => {
     const value = parseFloat(itemDiscountValue);
     if (value > 0 && cartDiscount) {
-      alert(
+      toast.error(
         'A further (cart) discount is already applied. Remove it first — only one discount type is allowed per sale.',
       );
       return;
@@ -188,7 +189,7 @@ export default function CartPanel({
     if (value >= 0 && value <= maxDiscountPercent) {
       onSetItemDiscount(productId, value);
     } else if (value > maxDiscountPercent) {
-      alert(`Maximum discount is ${maxDiscountPercent}%`);
+      toast.error(`Maximum discount is ${maxDiscountPercent}%`);
       return;
     }
     setEditingItemDiscount(null);
@@ -434,11 +435,11 @@ export default function CartPanel({
                             }`}
                             onClick={() => {
                               if (item.isSaleItem) {
-                                alert('Cannot apply further discount on SALE/Clearance items');
+                                toast.error('Cannot discount a clearance / sale item — it is already marked down.');
                                 return;
                               }
                               if (cartDiscount) {
-                                alert('A further (cart) discount is already applied. Remove it first — only one discount type per sale.');
+                                toast.error('A further (cart) discount is already applied. Remove it first — only one discount type per sale.');
                                 return;
                               }
                               setEditingItemDiscount(item.productId);
