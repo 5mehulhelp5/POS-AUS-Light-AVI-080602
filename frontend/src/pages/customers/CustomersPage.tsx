@@ -374,6 +374,9 @@ export default function CustomersPage() {
         isLaybyHeld: !!it.isLaybyHeld,
       }));
       const firstPayment = (o.payments || [])[0];
+      // Close the order-detail modal if it's open — its backdrop sits
+      // above the invoice's, so leaving it open would hide the invoice.
+      setViewingOrder(null);
       setInvoiceData({
         orderNumber: o.orderNumber,
         date: o.createdAt,
