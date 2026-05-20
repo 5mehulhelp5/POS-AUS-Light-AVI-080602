@@ -216,6 +216,24 @@ export default function POSPage() {
     }
   }, [searchCatId, searchSubcatId, searchSubsubcatId]);
 
+  // Typing in the search box searches across ALL products — no category
+  // required (Sally: "often we don't know the category"). As soon as the
+  // cashier types (and no category dropdown is active) switch to the
+  // products grid; the fetch effect then queries with category=undefined.
+  // Clearing the box with no category active returns to the tile view.
+  useEffect(() => {
+    if (searchCatId) return; // dropdown flow manages its own view
+    if (searchQuery.trim().length >= 1) {
+      if (viewMode !== 'products') {
+        setViewMode('products');
+        setActiveCategoryId(null);
+      }
+    } else if (viewMode === 'products' && !activeCategoryId) {
+      setViewMode('categories');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchQuery, searchCatId]);
+
   // Fetch the trade auto-discount for the products currently shown in
   // the grid so each card can display a yellow "Trade $X" tag. Fires
   // whenever the visible product set changes (category / page / search).
@@ -426,7 +444,7 @@ export default function POSPage() {
               }
             }}
           >
-            <option value="">Select Category *</option>
+            <option value="">All Categories</option>
             {categories.map((cat) => (
               <option key={cat.id} value={cat.id}>{cat.name}</option>
             ))}
@@ -473,7 +491,7 @@ export default function POSPage() {
             <MagnifyingGlassIcon className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by name, SKU, or barcode (optional)..."
+              placeholder="Search any product by name, SKU, or barcode..."
               className="input pl-12 pr-10"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
