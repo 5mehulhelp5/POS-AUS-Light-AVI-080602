@@ -1,14 +1,22 @@
 import {
   Controller,
   Get,
+  Post,
+  Put,
+  Body,
   Param,
   Query,
   UseGuards,
   ParseIntPipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { InquiriesService } from './inquiries.service';
+import {
+  InquiriesService,
+  CreateInquiryDto,
+  UpdateInquiryDto,
+} from './inquiries.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { InquiryStatus, InquiryType } from './entities';
 
 @ApiTags('inquiries')
@@ -17,6 +25,23 @@ import { InquiryStatus, InquiryType } from './entities';
 @ApiBearerAuth()
 export class InquiriesController {
   constructor(private readonly inquiriesService: InquiriesService) {}
+
+  @Post()
+  @ApiOperation({ summary: 'Create an inquiry' })
+  async create(@Body() dto: CreateInquiryDto, @CurrentUser() user: any) {
+    const inquiry = await this.inquiriesService.create(dto, user.id);
+    return { success: true, data: { inquiry } };
+  }
+
+  @Put(':id')
+  @ApiOperation({ summary: 'Update an inquiry' })
+  async update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateInquiryDto,
+  ) {
+    const inquiry = await this.inquiriesService.update(id, dto);
+    return { success: true, data: { inquiry } };
+  }
 
   @Get()
   @ApiOperation({ summary: 'List inquiries' })

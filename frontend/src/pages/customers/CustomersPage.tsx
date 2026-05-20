@@ -249,6 +249,10 @@ export default function CustomersPage() {
     billingCity: '',
     billingState: '',
     billingPostcode: '',
+    shippingStreet: '',
+    shippingCity: '',
+    shippingState: '',
+    shippingPostcode: '',
     notes: '',
   });
 
@@ -267,6 +271,10 @@ export default function CustomersPage() {
       billingCity: selectedCustomer.billingCity || '',
       billingState: selectedCustomer.billingState || '',
       billingPostcode: selectedCustomer.billingPostcode || '',
+      shippingStreet: selectedCustomer.shippingStreet || '',
+      shippingCity: selectedCustomer.shippingCity || '',
+      shippingState: selectedCustomer.shippingState || '',
+      shippingPostcode: selectedCustomer.shippingPostcode || '',
       notes: selectedCustomer.notes || '',
     });
     setShowEditModal(true);
@@ -303,6 +311,10 @@ export default function CustomersPage() {
         billingCity: editCustomer.billingCity.trim() || null,
         billingState: editCustomer.billingState.trim() || null,
         billingPostcode: editCustomer.billingPostcode.trim() || null,
+        shippingStreet: editCustomer.shippingStreet.trim() || null,
+        shippingCity: editCustomer.shippingCity.trim() || null,
+        shippingState: editCustomer.shippingState.trim() || null,
+        shippingPostcode: editCustomer.shippingPostcode.trim() || null,
         notes: editCustomer.notes.trim() || null,
       });
       const updated = r.data?.data?.customer;
@@ -698,11 +710,28 @@ export default function CustomersPage() {
                     selectedCustomer.billingPostcode) && (
                     <div className="flex items-center gap-1 text-xs text-gray-400 mt-0.5">
                       <MapPinIcon className="h-3 w-3" />
+                      <span className="text-gray-500">Billing:</span>
                       {[
                         selectedCustomer.billingStreet,
                         selectedCustomer.billingCity,
                         selectedCustomer.billingState,
                         selectedCustomer.billingPostcode,
+                      ]
+                        .filter(Boolean)
+                        .join(', ')}
+                    </div>
+                  )}
+                  {(selectedCustomer.shippingStreet ||
+                    selectedCustomer.shippingCity ||
+                    selectedCustomer.shippingPostcode) && (
+                    <div className="flex items-center gap-1 text-xs text-gray-400 mt-0.5">
+                      <MapPinIcon className="h-3 w-3" />
+                      <span className="text-gray-500">Shipping:</span>
+                      {[
+                        selectedCustomer.shippingStreet,
+                        selectedCustomer.shippingCity,
+                        selectedCustomer.shippingState,
+                        selectedCustomer.shippingPostcode,
                       ]
                         .filter(Boolean)
                         .join(', ')}
@@ -1406,6 +1435,77 @@ export default function CustomersPage() {
                     className="input"
                     value={editCustomer.billingPostcode}
                     onChange={(e) => setEditCustomer({ ...editCustomer, billingPostcode: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Shipping address */}
+            <div className="flex items-center justify-between mt-5 mb-2">
+              <h3 className="text-sm font-semibold text-gray-300">Shipping Address</h3>
+              <button
+                type="button"
+                className="text-xs text-primary-400 hover:text-primary-300"
+                onClick={() =>
+                  setEditCustomer((c) => ({
+                    ...c,
+                    shippingStreet: c.billingStreet,
+                    shippingCity: c.billingCity,
+                    shippingState: c.billingState,
+                    shippingPostcode: c.billingPostcode,
+                  }))
+                }
+              >
+                Same as billing
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className="block text-xs text-gray-400 mb-1">Street</label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="123 Main St"
+                  value={editCustomer.shippingStreet}
+                  onChange={(e) => setEditCustomer({ ...editCustomer, shippingStreet: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">City / Suburb</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={editCustomer.shippingCity}
+                  onChange={(e) => setEditCustomer({ ...editCustomer, shippingCity: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">State</label>
+                  <select
+                    className="input"
+                    value={editCustomer.shippingState}
+                    onChange={(e) => setEditCustomer({ ...editCustomer, shippingState: e.target.value })}
+                  >
+                    <option value="">—</option>
+                    <option value="NSW">NSW</option>
+                    <option value="VIC">VIC</option>
+                    <option value="QLD">QLD</option>
+                    <option value="WA">WA</option>
+                    <option value="SA">SA</option>
+                    <option value="TAS">TAS</option>
+                    <option value="ACT">ACT</option>
+                    <option value="NT">NT</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Postcode</label>
+                  <input
+                    type="text"
+                    maxLength={4}
+                    className="input"
+                    value={editCustomer.shippingPostcode}
+                    onChange={(e) => setEditCustomer({ ...editCustomer, shippingPostcode: e.target.value })}
                   />
                 </div>
               </div>
