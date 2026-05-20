@@ -180,12 +180,17 @@ export class DiscountsService {
         (sum, it) => sum + it.unitPrice * it.quantity,
         0,
       );
+      // Fixed discount can never exceed the subtotal (can't discount
+      // more than the price), and is further capped to the role's %.
       const cap =
-        Math.round((userRole.maxDiscountPercent / 100) * subtotal * 100) / 100;
+        Math.round(
+          Math.min(subtotal, (userRole.maxDiscountPercent / 100) * subtotal) *
+            100,
+        ) / 100;
       if (dto.cartDiscount.value > cap) {
         errors.push({
           code: 'DISCOUNT_EXCEEDS_LIMIT',
-          message: `Fixed discount $${dto.cartDiscount.value.toFixed(2)} exceeds the maximum $${cap.toFixed(2)} (${userRole.maxDiscountPercent}% of $${subtotal.toFixed(2)}).`,
+          message: `Fixed discount $${dto.cartDiscount.value.toFixed(2)} exceeds the maximum $${cap.toFixed(2)} (can't discount more than the $${subtotal.toFixed(2)} sale).`,
           field: 'cartDiscount.value',
           attemptedValue: dto.cartDiscount.value,
           maxAllowed: cap,

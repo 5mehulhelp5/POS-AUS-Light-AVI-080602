@@ -150,16 +150,20 @@ export default function CartPanel({
       toast.error(`Maximum discount is ${maxDiscountPercent}%`);
       return;
     }
-    // Cap the fixed-amount discount to the same percentage limit so
-    // staff can't knock the full price off (e.g. $20 off a $20 item).
-    // The cart discount applies to the post-item-discount subtotal;
-    // since stacking is blocked, that's just the subtotal here.
+    // Cap the fixed-amount discount. It can never exceed the sale
+    // subtotal (you can't discount more than the price — that's what
+    // zeroed a $239 sale with a $500 discount), and for limited roles
+    // it's further capped to their max-discount percentage.
     if (discountType === 'fixed') {
-      const cap = Math.round((maxDiscountPercent / 100) * subtotal * 100) / 100;
+      const cap =
+        Math.round(
+          Math.min(subtotal, (maxDiscountPercent / 100) * subtotal) * 100,
+        ) / 100;
       if (value > cap) {
         toast.error(
           `Maximum fixed discount is $${cap.toFixed(2)} ` +
-            `(${maxDiscountPercent}% of $${subtotal.toFixed(2)}).`,
+            `(can't discount more than the $${subtotal.toFixed(2)} sale` +
+            `${maxDiscountPercent < 100 ? `, limited to ${maxDiscountPercent}%` : ''}).`,
         );
         return;
       }

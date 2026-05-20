@@ -372,6 +372,16 @@ export default function PaymentModal({
     // (deposit for laybys/backorders, full total otherwise), minus any
     // store credit.
     const dueNow = isDepositOrder ? depositRemaining : remainingDue;
+    // Guard against a non-positive order total — e.g. a discount that
+    // wiped the whole sale. A real sale must collect more than $0.
+    if (totalWithDelivery <= 0) {
+      toast.error('Order total must be greater than $0 — check the discount.');
+      return;
+    }
+    if (method === 'cash' && cashAmount < 0) {
+      toast.error('Cash tendered cannot be negative');
+      return;
+    }
     if (dueNow > 0 && method === 'cash' && cashAmount < dueNow) {
       toast.error('Insufficient cash tendered');
       return;
@@ -1181,10 +1191,19 @@ export default function PaymentModal({
               </label>
               <input
                 type="number"
+                min={0}
                 className="input input-lg text-center text-2xl font-mono"
                 placeholder="0.00"
                 value={cashTendered}
-                onChange={(e) => setCashTendered(e.target.value)}
+                onChange={(e) => {
+                  // Never allow a negative tendered amount.
+                  const v = parseFloat(e.target.value);
+                  if (e.target.value === '' || isNaN(v)) {
+                    setCashTendered(e.target.value);
+                  } else {
+                    setCashTendered(Math.max(0, v).toString());
+                  }
+                }}
                 autoFocus
               />
             </div>

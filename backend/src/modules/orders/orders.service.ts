@@ -333,6 +333,20 @@ export class OrdersService {
     // total; laybys must pay at least the configured deposit percent
     // (default 20%). Coerce amounts to Number so a stray string
     // amount doesn't silently concatenate into a bogus total.
+    // Reject any negative payment line — a negative amount must never be
+    // accepted (it would credit the till / understate the sale).
+    if (dto.payments.some((p) => Number(p.amount) < 0)) {
+      throw new BadRequestException('Payment amounts cannot be negative');
+    }
+
+    // A real sale must have a positive total — guards against a discount
+    // that zeroed (or inverted) the order.
+    if (grandTotal <= 0) {
+      throw new BadRequestException(
+        'Order total must be greater than $0 (check the discount applied)',
+      );
+    }
+
     const totalPayments = dto.payments.reduce(
       (sum, p) => sum + Number(p.amount || 0),
       0,
