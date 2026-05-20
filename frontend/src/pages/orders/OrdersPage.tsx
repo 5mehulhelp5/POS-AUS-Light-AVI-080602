@@ -4,6 +4,8 @@ import { useSelector } from 'react-redux';
 import toast from 'react-hot-toast';
 import { ordersApi, syncApi, customersApi } from '../../services/api';
 import { RootState } from '../../store';
+import { buildInvoiceData } from '../../utils/orderInvoice';
+import InvoiceModal from '../pos/components/InvoiceModal';
 import {
   MagnifyingGlassIcon,
   EyeIcon,
@@ -108,6 +110,21 @@ export default function OrdersPage() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterOption>('all');
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [invoiceData, setInvoiceData] = useState<any>(null);
+
+  const printInvoice = async (orderId: number) => {
+    try {
+      const r = await ordersApi.getOrder(orderId);
+      const o = r.data?.data?.order;
+      if (!o) {
+        toast.error('Could not load order for printing');
+        return;
+      }
+      setInvoiceData(buildInvoiceData(o));
+    } catch {
+      toast.error('Could not load order for printing');
+    }
+  };
 
   // Refund modal state
   const [refundOrder, setRefundOrder] = useState<any>(null);
@@ -627,6 +644,13 @@ export default function OrdersPage() {
                       >
                         <EyeIcon className="h-5 w-5" />
                       </button>
+                      <button
+                        onClick={() => printInvoice(order.id)}
+                        className="p-2 hover:bg-pos-accent rounded text-primary-400"
+                        title="Print Invoice"
+                      >
+                        <PrinterIcon className="h-5 w-5" />
+                      </button>
                       {(order.status === 'layby_active' ||
                         order.status === 'layby_expired') && (
                         <button
@@ -693,6 +717,11 @@ export default function OrdersPage() {
         </div>
       )}
 
+      {/* Invoice print/preview */}
+      {invoiceData && (
+        <InvoiceModal invoice={invoiceData} onClose={() => setInvoiceData(null)} />
+      )}
+
       {/* Order Detail Modal */}
       {selectedOrder && (
         <div className="modal-backdrop">
@@ -702,9 +731,21 @@ export default function OrdersPage() {
               <button onClick={() => setSelectedOrder(null)} className="modal-back-btn">
                 <ArrowLeftIcon className="h-5 w-5" /> Back
               </button>
-              <div className="text-right">
-                <h2 className="text-xl font-bold">{selectedOrder.orderNumber}</h2>
-                <p className="text-sm text-gray-400">{formatDate(selectedOrder.createdAt)}</p>
+              <div className="flex items-center gap-3">
+                <button
+                  className="btn-secondary flex items-center gap-2 text-sm"
+                  onClick={() => {
+                    const id = selectedOrder.id;
+                    setSelectedOrder(null);
+                    printInvoice(id);
+                  }}
+                >
+                  <PrinterIcon className="h-4 w-4" /> Print Invoice
+                </button>
+                <div className="text-right">
+                  <h2 className="text-xl font-bold">{selectedOrder.orderNumber}</h2>
+                  <p className="text-sm text-gray-400">{formatDate(selectedOrder.createdAt)}</p>
+                </div>
               </div>
             </div>
 

@@ -20,6 +20,7 @@ import {
   MapPinIcon,
 } from '@heroicons/react/24/outline';
 import InvoiceModal from '../pos/components/InvoiceModal';
+import { buildInvoiceData } from '../../utils/orderInvoice';
 
 interface Customer {
   id: number;
@@ -349,52 +350,10 @@ export default function CustomersPage() {
         toast.error('Could not load order for printing');
         return;
       }
-      const cust = o.customer || selectedCustomer;
-      const addr = cust
-        ? [
-            cust.billingStreet,
-            cust.billingCity,
-            cust.billingState,
-            cust.billingPostcode,
-          ]
-            .filter(Boolean)
-            .join(', ')
-        : '';
-      const items = (o.items || []).map((it: any) => ({
-        productId: it.productId ?? 0,
-        sku: it.sku || '',
-        name: it.name || it.productName || '',
-        quantity: it.quantity,
-        unitPrice: parseFloat(it.unitPrice),
-        discountPercent: parseFloat(it.discountPercent || 0),
-        discountAmount: parseFloat(it.discountAmount || 0),
-        taxAmount: parseFloat(it.taxAmount || 0),
-        rowTotal: parseFloat(it.rowTotal ?? it.unitPrice * it.quantity),
-        isBackorder: !!it.isBackorder,
-        isLaybyHeld: !!it.isLaybyHeld,
-      }));
-      const firstPayment = (o.payments || [])[0];
       // Close the order-detail modal if it's open — its backdrop sits
       // above the invoice's, so leaving it open would hide the invoice.
       setViewingOrder(null);
-      setInvoiceData({
-        orderNumber: o.orderNumber,
-        date: o.createdAt,
-        buyerType: cust?.isTrade ? 'retail' : 'customer',
-        customerName: cust
-          ? [cust.firstName, cust.lastName].filter(Boolean).join(' ')
-          : undefined,
-        customerEmail: cust?.email || undefined,
-        customerPhone: cust?.phone || cust?.mobile || undefined,
-        customerAddress: addr || undefined,
-        items,
-        subtotal: parseFloat(o.subtotal),
-        itemDiscounts: parseFloat(o.discountAmount || 0),
-        cartDiscount: 0,
-        taxAmount: parseFloat(o.taxAmount || 0),
-        grandTotal: parseFloat(o.grandTotal),
-        paymentMethod: firstPayment?.method || 'eftpos',
-      });
+      setInvoiceData(buildInvoiceData(o, selectedCustomer));
     } catch {
       toast.error('Could not load order for printing');
     }

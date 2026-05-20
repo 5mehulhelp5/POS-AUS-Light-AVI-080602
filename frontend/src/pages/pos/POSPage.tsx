@@ -2,8 +2,11 @@ import { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { MagnifyingGlassIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon, PlusCircleIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon, PlusCircleIcon, PrinterIcon } from '@heroicons/react/24/outline';
 import { RootState, AppDispatch } from '../../store';
+import { ordersApi } from '../../services/api';
+import { buildInvoiceData } from '../../utils/orderInvoice';
+import InvoiceModal from './components/InvoiceModal';
 import {
   fetchProducts,
   fetchCategories,
@@ -80,6 +83,29 @@ export default function POSPage() {
   // Trade auto-discount % per visible product, used to show a yellow
   // "Trade $X" tag beside the retail price on each grid card.
   const [tradePctMap, setTradePctMap] = useState<Record<number, number>>({});
+
+  // "Last Invoice" quick re-print — pulls the most recently created
+  // order and opens its printable invoice without leaving the POS.
+  const [invoiceData, setInvoiceData] = useState<any>(null);
+  const showLastInvoice = async () => {
+    try {
+      const r = await ordersApi.getOrders({ page: 1, limit: 1 });
+      const last = r.data?.data?.orders?.[0];
+      if (!last) {
+        toast.error('No recent orders found');
+        return;
+      }
+      const full = await ordersApi.getOrder(last.id);
+      const o = full.data?.data?.order;
+      if (!o) {
+        toast.error('Could not load the last invoice');
+        return;
+      }
+      setInvoiceData(buildInvoiceData(o));
+    } catch {
+      toast.error('Could not load the last invoice');
+    }
+  };
 
   const [viewMode, setViewMode] = useState<ViewMode>('categories');
   const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null);
@@ -531,6 +557,15 @@ export default function POSPage() {
             Custom Item
           </button>
 
+          <button
+            className="btn-sm bg-pos-accent text-gray-200 whitespace-nowrap flex items-center gap-1 px-4 hover:bg-pos-bg"
+            onClick={showLastInvoice}
+            title="Reprint the most recently completed invoice"
+          >
+            <PrinterIcon className="h-5 w-5" />
+            Last Invoice
+          </button>
+
           {canToggleOutOfStock && (
             <label
               className="flex items-center gap-2 text-xs text-gray-400 whitespace-nowrap cursor-pointer px-2"
@@ -735,6 +770,11 @@ export default function POSPage() {
           onClose={() => setDetailProduct(null)}
           onAddToCart={(p, q) => handleAddToCart(p, q)}
         />
+      )}
+
+      {/* Last-invoice re-print */}
+      {invoiceData && (
+        <InvoiceModal invoice={invoiceData} onClose={() => setInvoiceData(null)} />
       )}
 
       {/* Custom Item Modal */}
