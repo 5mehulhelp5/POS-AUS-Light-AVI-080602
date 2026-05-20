@@ -311,42 +311,57 @@ export default function ProductDetailModal({
                     </div>
                   ) : compPrice !== null ? (
                     <div className="space-y-3">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="bg-pos-dark rounded p-3">
-                          <p className="text-xs text-gray-400">Our Price</p>
-                          <p className="text-lg font-bold text-primary-400">
-                            ${ourPrice.toFixed(2)}
-                          </p>
-                        </div>
-                        <div className="bg-pos-dark rounded p-3">
-                          <p className="text-xs text-gray-400">Competitor</p>
-                          <p className="text-lg font-bold">${compPrice.toFixed(2)}</p>
-                        </div>
-                      </div>
-                      <div
-                        className={`rounded p-3 text-sm ${
-                          diff! < 0
-                            ? 'bg-green-500/10 border border-green-500/40 text-green-300'
-                            : diff! > 0
-                              ? 'bg-orange-500/10 border border-orange-500/40 text-orange-300'
-                              : 'bg-gray-700/40 text-gray-300'
-                        }`}
-                      >
-                        {diff! < 0
-                          ? `We are cheaper by $${Math.abs(diff!).toFixed(2)} (${Math.abs(diffPct!).toFixed(1)}%)`
-                          : diff! > 0
-                            ? `We are more expensive by $${diff!.toFixed(2)} (${diffPct!.toFixed(1)}%)`
-                            : 'Prices match.'}
-                      </div>
-                      {competitor.url && (
-                        <a
-                          href={competitor.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary-400 text-xs underline"
+                      {/* Plain price-comparison table — just the numbers
+                          and a link, no "we are more expensive" editorial
+                          (Sally's request). */}
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-gray-400 border-b border-gray-700">
+                            <th className="py-2 font-medium">Source</th>
+                            <th className="py-2 font-medium text-right">Price</th>
+                            <th className="py-2"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr className="border-b border-gray-800">
+                            <td className="py-2 font-medium">Our Price</td>
+                            <td className="py-2 text-right font-bold text-primary-400">
+                              ${ourPrice.toFixed(2)}
+                            </td>
+                            <td></td>
+                          </tr>
+                          <tr>
+                            <td className="py-2">Online Lighting</td>
+                            <td className="py-2 text-right font-bold">
+                              ${compPrice.toFixed(2)}
+                            </td>
+                            <td className="py-2 text-right">
+                              {competitor.url && (
+                                <a
+                                  href={competitor.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-primary-400 underline"
+                                >
+                                  Link
+                                </a>
+                              )}
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
+                      {/* Neutral, factual difference — coloured but not
+                          worded as a judgement. */}
+                      {diff !== 0 && (
+                        <p
+                          className={`text-xs ${
+                            diff! < 0 ? 'text-green-300' : 'text-orange-300'
+                          }`}
                         >
-                          View competitor product page →
-                        </a>
+                          {diff! < 0
+                            ? `$${Math.abs(diff!).toFixed(2)} lower (${Math.abs(diffPct!).toFixed(1)}%)`
+                            : `$${diff!.toFixed(2)} higher (${diffPct!.toFixed(1)}%)`}
+                        </p>
                       )}
                       {competitor.checkedAt && (
                         <p className="text-[11px] text-gray-500">
