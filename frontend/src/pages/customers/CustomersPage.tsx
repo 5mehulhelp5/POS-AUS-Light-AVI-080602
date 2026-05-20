@@ -15,7 +15,11 @@ import {
   DocumentTextIcon,
   BanknotesIcon,
   ClockIcon,
+  PencilIcon,
+  PrinterIcon,
+  MapPinIcon,
 } from '@heroicons/react/24/outline';
+import InvoiceModal from '../pos/components/InvoiceModal';
 
 interface Customer {
   id: number;
@@ -227,6 +231,158 @@ export default function CustomersPage() {
         },
       },
     });
+  };
+
+  // Edit Customer modal state
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editCustomer, setEditCustomer] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    mobile: '',
+    company: '',
+    taxNumber: '',
+    isTrade: false,
+    billingStreet: '',
+    billingCity: '',
+    billingState: '',
+    billingPostcode: '',
+    notes: '',
+  });
+
+  const openEditCustomer = () => {
+    if (!selectedCustomer) return;
+    setEditCustomer({
+      firstName: selectedCustomer.firstName || '',
+      lastName: selectedCustomer.lastName || '',
+      email: selectedCustomer.email || '',
+      phone: (selectedCustomer.phone || '').replace(/\D/g, ''),
+      mobile: (selectedCustomer.mobile || '').replace(/\D/g, ''),
+      company: selectedCustomer.company || '',
+      taxNumber: selectedCustomer.taxNumber || '',
+      isTrade: !!selectedCustomer.isTrade,
+      billingStreet: selectedCustomer.billingStreet || '',
+      billingCity: selectedCustomer.billingCity || '',
+      billingState: selectedCustomer.billingState || '',
+      billingPostcode: selectedCustomer.billingPostcode || '',
+      notes: selectedCustomer.notes || '',
+    });
+    setShowEditModal(true);
+  };
+
+  const handleUpdateCustomer = async () => {
+    if (!selectedCustomer) return;
+    if (!editCustomer.firstName.trim()) {
+      toast.error('First name is required');
+      return;
+    }
+    const phoneDigits = (editCustomer.phone || '').replace(/\D+/g, '');
+    const mobileDigits = (editCustomer.mobile || '').replace(/\D+/g, '');
+    if (phoneDigits && phoneDigits.length !== 10) {
+      toast.error('Phone must be exactly 10 digits');
+      return;
+    }
+    if (mobileDigits && mobileDigits.length !== 10) {
+      toast.error('Mobile must be exactly 10 digits');
+      return;
+    }
+    setIsSavingEdit(true);
+    try {
+      const r = await customersApi.updateCustomer(selectedCustomer.id, {
+        firstName: editCustomer.firstName.trim(),
+        lastName: editCustomer.lastName.trim() || null,
+        email: editCustomer.email.trim() || null,
+        phone: phoneDigits || null,
+        mobile: mobileDigits || null,
+        company: editCustomer.company.trim() || null,
+        taxNumber: editCustomer.taxNumber.trim() || null,
+        isTrade: editCustomer.isTrade,
+        billingStreet: editCustomer.billingStreet.trim() || null,
+        billingCity: editCustomer.billingCity.trim() || null,
+        billingState: editCustomer.billingState.trim() || null,
+        billingPostcode: editCustomer.billingPostcode.trim() || null,
+        notes: editCustomer.notes.trim() || null,
+      });
+      const updated = r.data?.data?.customer;
+      toast.success('Customer updated');
+      setShowEditModal(false);
+      if (updated) setSelectedCustomer(updated);
+      // refresh the list so the card reflects changes
+      const response = await customersApi.getCustomers({
+        search: debouncedSearch || undefined,
+        page: currentPage,
+        limit: 20,
+      });
+      setCustomers(response.data.data.customers);
+      setPagination(response.data.data.pagination);
+    } catch (e: any) {
+      toast.error(e.response?.data?.error?.message || 'Failed to update customer');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  // Invoice (re-print) state — built from a fetched order so the cashier
+  // can print an invoice straight from the customer's order list without
+  // copying the order number into the Orders page.
+  const [invoiceData, setInvoiceData] = useState<any>(null);
+
+  const printOrderInvoice = async (orderId: number) => {
+    try {
+      const r = await ordersApi.getOrder(orderId);
+      const o = r.data?.data?.order;
+      if (!o) {
+        toast.error('Could not load order for printing');
+        return;
+      }
+      const cust = o.customer || selectedCustomer;
+      const addr = cust
+        ? [
+            cust.billingStreet,
+            cust.billingCity,
+            cust.billingState,
+            cust.billingPostcode,
+          ]
+            .filter(Boolean)
+            .join(', ')
+        : '';
+      const items = (o.items || []).map((it: any) => ({
+        productId: it.productId ?? 0,
+        sku: it.sku || '',
+        name: it.name || it.productName || '',
+        quantity: it.quantity,
+        unitPrice: parseFloat(it.unitPrice),
+        discountPercent: parseFloat(it.discountPercent || 0),
+        discountAmount: parseFloat(it.discountAmount || 0),
+        taxAmount: parseFloat(it.taxAmount || 0),
+        rowTotal: parseFloat(it.rowTotal ?? it.unitPrice * it.quantity),
+        isBackorder: !!it.isBackorder,
+        isLaybyHeld: !!it.isLaybyHeld,
+      }));
+      const firstPayment = (o.payments || [])[0];
+      setInvoiceData({
+        orderNumber: o.orderNumber,
+        date: o.createdAt,
+        buyerType: cust?.isTrade ? 'retail' : 'customer',
+        customerName: cust
+          ? [cust.firstName, cust.lastName].filter(Boolean).join(' ')
+          : undefined,
+        customerEmail: cust?.email || undefined,
+        customerPhone: cust?.phone || cust?.mobile || undefined,
+        customerAddress: addr || undefined,
+        items,
+        subtotal: parseFloat(o.subtotal),
+        itemDiscounts: parseFloat(o.discountAmount || 0),
+        cartDiscount: 0,
+        taxAmount: parseFloat(o.taxAmount || 0),
+        grandTotal: parseFloat(o.grandTotal),
+        paymentMethod: firstPayment?.method || 'eftpos',
+      });
+    } catch {
+      toast.error('Could not load order for printing');
+    }
   };
 
   // Create Customer modal state
@@ -537,9 +693,31 @@ export default function CustomersPage() {
                       </span>
                     )}
                   </div>
+                  {(selectedCustomer.billingStreet ||
+                    selectedCustomer.billingCity ||
+                    selectedCustomer.billingPostcode) && (
+                    <div className="flex items-center gap-1 text-xs text-gray-400 mt-0.5">
+                      <MapPinIcon className="h-3 w-3" />
+                      {[
+                        selectedCustomer.billingStreet,
+                        selectedCustomer.billingCity,
+                        selectedCustomer.billingState,
+                        selectedCustomer.billingPostcode,
+                      ]
+                        .filter(Boolean)
+                        .join(', ')}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  className="btn-secondary flex items-center gap-2 text-sm"
+                  onClick={openEditCustomer}
+                >
+                  <PencilIcon className="h-4 w-4" />
+                  Edit
+                </button>
                 <button
                   className="btn-primary flex items-center gap-2 text-sm"
                   onClick={handleCreateOrderForCustomer}
@@ -733,7 +911,18 @@ export default function CustomersPage() {
                                 );
                               })()}
                             </td>
-                            <td className="px-3 py-2 text-right text-gray-500">→</td>
+                            <td className="px-3 py-2 text-right">
+                              <button
+                                className="inline-flex items-center gap-1 text-primary-400 hover:text-primary-300"
+                                title="Print invoice"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  printOrderInvoice(o.id);
+                                }}
+                              >
+                                <PrinterIcon className="h-4 w-4" />
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1039,9 +1228,17 @@ export default function CustomersPage() {
               <button onClick={() => setViewingOrder(null)} className="modal-back-btn">
                 <ArrowLeftIcon className="h-5 w-5" /> Back
               </button>
-              <div className="text-right">
-                <h2 className="text-xl font-bold">{viewingOrder.orderNumber}</h2>
-                <p className="text-sm text-gray-400">{formatDate(viewingOrder.createdAt)}</p>
+              <div className="flex items-center gap-3">
+                <button
+                  className="btn-secondary flex items-center gap-2 text-sm"
+                  onClick={() => printOrderInvoice(viewingOrder.id)}
+                >
+                  <PrinterIcon className="h-4 w-4" /> Print Invoice
+                </button>
+                <div className="text-right">
+                  <h2 className="text-xl font-bold">{viewingOrder.orderNumber}</h2>
+                  <p className="text-sm text-gray-400">{formatDate(viewingOrder.createdAt)}</p>
+                </div>
               </div>
             </div>
             <div className="space-y-4">
@@ -1078,6 +1275,178 @@ export default function CustomersPage() {
                   <span>${parseFloat(viewingOrder.grandTotal).toFixed(2)}</span>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invoice re-print (built from a fetched order) */}
+      {invoiceData && (
+        <InvoiceModal invoice={invoiceData} onClose={() => setInvoiceData(null)} />
+      )}
+
+      {/* Edit Customer Modal */}
+      {showEditModal && (
+        <div className="modal-backdrop">
+          <div className="modal-content">
+            <div className="flex justify-between items-center mb-6">
+              <button onClick={() => setShowEditModal(false)} className="modal-back-btn">
+                <ArrowLeftIcon className="h-5 w-5" /> Back
+              </button>
+              <h2 className="text-xl font-bold">Edit Customer</h2>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">First Name *</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={editCustomer.firstName}
+                  onChange={(e) => setEditCustomer({ ...editCustomer, firstName: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Last Name</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={editCustomer.lastName}
+                  onChange={(e) => setEditCustomer({ ...editCustomer, lastName: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Email</label>
+                <input
+                  type="email"
+                  className="input"
+                  value={editCustomer.email}
+                  onChange={(e) => setEditCustomer({ ...editCustomer, email: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Phone (10 digits)</label>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={10}
+                  className="input"
+                  value={editCustomer.phone}
+                  onChange={(e) => setEditCustomer({ ...editCustomer, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Mobile (10 digits)</label>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={10}
+                  className="input"
+                  value={editCustomer.mobile}
+                  onChange={(e) => setEditCustomer({ ...editCustomer, mobile: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Company</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={editCustomer.company}
+                  onChange={(e) => setEditCustomer({ ...editCustomer, company: e.target.value })}
+                />
+              </div>
+            </div>
+
+            {/* Billing address */}
+            <h3 className="text-sm font-semibold text-gray-300 mt-5 mb-2">Billing Address</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className="block text-xs text-gray-400 mb-1">Street</label>
+                <input
+                  type="text"
+                  className="input"
+                  placeholder="123 Main St"
+                  value={editCustomer.billingStreet}
+                  onChange={(e) => setEditCustomer({ ...editCustomer, billingStreet: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">City / Suburb</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={editCustomer.billingCity}
+                  onChange={(e) => setEditCustomer({ ...editCustomer, billingCity: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">State</label>
+                  <select
+                    className="input"
+                    value={editCustomer.billingState}
+                    onChange={(e) => setEditCustomer({ ...editCustomer, billingState: e.target.value })}
+                  >
+                    <option value="">—</option>
+                    <option value="NSW">NSW</option>
+                    <option value="VIC">VIC</option>
+                    <option value="QLD">QLD</option>
+                    <option value="WA">WA</option>
+                    <option value="SA">SA</option>
+                    <option value="TAS">TAS</option>
+                    <option value="ACT">ACT</option>
+                    <option value="NT">NT</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Postcode</label>
+                  <input
+                    type="text"
+                    maxLength={4}
+                    className="input"
+                    value={editCustomer.billingPostcode}
+                    onChange={(e) => setEditCustomer({ ...editCustomer, billingPostcode: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={editCustomer.isTrade}
+                  onChange={(e) => setEditCustomer({ ...editCustomer, isTrade: e.target.checked })}
+                  className="w-4 h-4"
+                />
+                <span className="text-gray-300">Trade customer</span>
+              </label>
+            </div>
+
+            <div className="mt-3">
+              <label className="block text-xs text-gray-400 mb-1">Notes</label>
+              <textarea
+                className="input min-h-[60px]"
+                value={editCustomer.notes}
+                onChange={(e) => setEditCustomer({ ...editCustomer, notes: e.target.value })}
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                className="btn-secondary"
+                onClick={() => setShowEditModal(false)}
+                disabled={isSavingEdit}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary"
+                onClick={handleUpdateCustomer}
+                disabled={isSavingEdit}
+              >
+                {isSavingEdit ? 'Saving...' : 'Save Changes'}
+              </button>
             </div>
           </div>
         </div>
