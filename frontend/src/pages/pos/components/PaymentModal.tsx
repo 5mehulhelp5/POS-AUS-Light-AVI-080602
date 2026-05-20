@@ -12,7 +12,7 @@ import toast from 'react-hot-toast';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState, AppDispatch } from '../../../store';
 import { ordersApi, customersApi, quotesApi } from '../../../services/api';
-import { setTradeAutoDiscounts } from '../../../store/slices/cartSlice';
+import { setTradeAutoDiscounts, setCustomer } from '../../../store/slices/cartSlice';
 import InvoiceModal from './InvoiceModal';
 
 interface PaymentModalProps {
@@ -72,6 +72,56 @@ export default function PaymentModal({
   const [tradeLastName, setTradeLastName] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
   const [walkIn, setWalkIn] = useState(false);
+
+  // Existing-customer-by-phone lookup. When the cashier types a full
+  // 10-digit phone that already exists, we pop up an offer to pull the
+  // saved details in (so they don't re-key name/address).
+  const [phoneMatch, setPhoneMatch] = useState<any | null>(null);
+  const [phoneLookedUp, setPhoneLookedUp] = useState<string>(''); // last phone we searched
+  const [phoneMatchDismissed, setPhoneMatchDismissed] = useState<string>(''); // phone the user said "no" to
+
+  // Strip to digits, cap at 10, and trigger an existing-customer lookup
+  // once a full number is entered. Shared by the trade + customer phone
+  // inputs.
+  const handlePhoneChange = (raw: string) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 10);
+    setCustomerPhone(digits);
+    if (digits.length === 10 && digits !== phoneLookedUp) {
+      setPhoneLookedUp(digits);
+      customersApi
+        .getCustomers({ search: digits, limit: 5 })
+        .then((r) => {
+          const list = r.data?.data?.customers || [];
+          const exact = list.find((c: any) => (c.phone || '').replace(/\D/g, '') === digits);
+          if (exact && digits !== phoneMatchDismissed) {
+            setPhoneMatch(exact);
+          }
+        })
+        .catch(() => {});
+    }
+  };
+
+  // Fill the invoice fields from a matched customer and link them to
+  // the cart so trade pricing / store credit pick up too.
+  const applyMatchedCustomer = (c: any) => {
+    const fullName = [c.firstName, c.lastName].filter(Boolean).join(' ').trim();
+    setCustomerName(fullName);
+    if (c.email) setCustomerEmail(c.email);
+    if (c.billingStreet) setCustomerStreet(c.billingStreet);
+    if (c.billingCity) setCustomerCity(c.billingCity);
+    if (c.billingState) setCustomerState(c.billingState);
+    if (c.billingPostcode) setCustomerPostcode(c.billingPostcode);
+    if (c.phone) setCustomerPhone((c.phone || '').replace(/\D/g, '').slice(0, 10));
+    // Trade layout fields
+    setTradeFirstName(c.firstName || '');
+    setTradeLastName(c.lastName || '');
+    if (c.company) setTradeCompanyName(c.company);
+    // Link to the cart (drives trade pricing + store credit)
+    dispatch(
+      setCustomer({ id: c.id, name: fullName, isTrade: !!c.isTrade }),
+    );
+    setPhoneMatch(null);
+  };
 
   // Store credit state
   const [storeCreditBalance, setStoreCreditBalance] = useState(0);
@@ -615,6 +665,72 @@ export default function PaymentModal({
 
   return (
     <div className="modal-backdrop">
+      {/* Existing-customer-found popup. Offers to pull saved details
+          from a matched phone number so the cashier doesn't re-key. */}
+      {phoneMatch && (
+        <div
+          className="modal-backdrop-small-top"
+          onClick={() => {
+            setPhoneMatchDismissed(customerPhone);
+            setPhoneMatch(null);
+          }}
+        >
+          <div
+            className="modal-content-small max-w-sm"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold mb-2">Existing customer found</h3>
+            <p className="text-sm text-gray-300 mb-1">
+              <span className="font-medium">
+                {[phoneMatch.firstName, phoneMatch.lastName]
+                  .filter(Boolean)
+                  .join(' ')}
+              </span>{' '}
+              — {phoneMatch.phone}
+              {phoneMatch.isTrade && (
+                <span className="ml-2 text-xs text-orange-400 font-semibold">
+                  TRADE
+                </span>
+              )}
+            </p>
+            {phoneMatch.email && (
+              <p className="text-xs text-gray-400">{phoneMatch.email}</p>
+            )}
+            {(phoneMatch.billingStreet || phoneMatch.billingCity) && (
+              <p className="text-xs text-gray-400 mb-3">
+                {[
+                  phoneMatch.billingStreet,
+                  phoneMatch.billingCity,
+                  phoneMatch.billingState,
+                  phoneMatch.billingPostcode,
+                ]
+                  .filter(Boolean)
+                  .join(', ')}
+              </p>
+            )}
+            <p className="text-sm text-gray-400 mb-4">
+              Fill in their saved details automatically?
+            </p>
+            <div className="flex gap-3">
+              <button
+                className="btn-primary flex-1"
+                onClick={() => applyMatchedCustomer(phoneMatch)}
+              >
+                Use saved details
+              </button>
+              <button
+                className="btn-secondary flex-1"
+                onClick={() => {
+                  setPhoneMatchDismissed(customerPhone);
+                  setPhoneMatch(null);
+                }}
+              >
+                No, new customer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="bg-pos-card w-full h-full flex overflow-hidden">
         {/* Main payment form column */}
         <div className="flex-1 overflow-y-auto p-6">
@@ -903,25 +1019,18 @@ export default function PaymentModal({
                     type="tel"
                     className="input text-sm"
                     inputMode="numeric"
+                    maxLength={10}
                     placeholder="0434310130"
                     value={customerPhone}
-                    onChange={(e) => setCustomerPhone(e.target.value)}
+                    onChange={(e) => handlePhoneChange(e.target.value)}
                   />
                 </div>
               </div>
             </>
           ) : (
+            // Phone first (so an existing customer can be recognised and
+            // their details pulled in), then name.
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Name *</label>
-                <input
-                  type="text"
-                  className="input text-sm"
-                  placeholder="Customer name"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                />
-              </div>
               <div>
                 <label className="block text-xs text-gray-400 mb-1">
                   Phone * <span className="text-gray-500">(10 digits)</span>
@@ -930,9 +1039,20 @@ export default function PaymentModal({
                   type="tel"
                   className="input text-sm"
                   inputMode="numeric"
+                  maxLength={10}
                   placeholder="0434310130"
                   value={customerPhone}
-                  onChange={(e) => setCustomerPhone(e.target.value)}
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Name *</label>
+                <input
+                  type="text"
+                  className="input text-sm"
+                  placeholder="Customer name"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
                 />
               </div>
             </div>
