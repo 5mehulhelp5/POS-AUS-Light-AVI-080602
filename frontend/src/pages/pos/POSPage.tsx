@@ -77,6 +77,10 @@ export default function POSPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const pageSize = 48;
 
+  // Trade auto-discount % per visible product, used to show a yellow
+  // "Trade $X" tag beside the retail price on each grid card.
+  const [tradePctMap, setTradePctMap] = useState<Record<number, number>>({});
+
   const [viewMode, setViewMode] = useState<ViewMode>('categories');
   const [activeCategoryId, setActiveCategoryId] = useState<number | null>(null);
   const [activeCategoryName, setActiveCategoryName] = useState<string>('');
@@ -211,6 +215,43 @@ export default function POSPage() {
       setActiveCategoryId(null);
     }
   }, [searchCatId, searchSubcatId, searchSubsubcatId]);
+
+  // Fetch the trade auto-discount for the products currently shown in
+  // the grid so each card can display a yellow "Trade $X" tag. Fires
+  // whenever the visible product set changes (category / page / search).
+  const gridProductIdsKey = products
+    .map((p) => p.id)
+    .filter((id) => Number.isFinite(id) && id > 0)
+    .join(',');
+  useEffect(() => {
+    const ids = products
+      .map((p) => p.id)
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (ids.length === 0) {
+      setTradePctMap({});
+      return;
+    }
+    let cancelled = false;
+    quotesApi
+      .tradeDiscountPreview(ids)
+      .then((r) => {
+        if (cancelled) return;
+        const discounts = r.data?.data?.discounts || {};
+        const map: Record<number, number> = {};
+        for (const [pid, info] of Object.entries(discounts)) {
+          const pct = (info as any)?.percent || 0;
+          if (pct > 0) map[Number(pid)] = pct;
+        }
+        setTradePctMap(map);
+      })
+      .catch(() => {
+        // Non-essential — cards just won't show the trade tag.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gridProductIdsKey]);
 
   // Trade auto-discount: when the cart is for a trade-flagged customer
   // and the set of productIds changes, fetch the per-line auto rate
@@ -595,6 +636,7 @@ export default function POSPage() {
               products={products}
               isLoading={isLoading}
               onSelect={(p) => setDetailProduct(p)}
+              tradePctMap={tradePctMap}
             />
 
             {pagination.totalPages > 1 && (

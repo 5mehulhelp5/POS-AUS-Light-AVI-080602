@@ -130,12 +130,38 @@ export default function CartPanel({
     }
   };
 
+  // A discount is "one or the other": once any line carries a manual
+  // item discount, the cart-level "Further Discount" is blocked, and
+  // vice versa. (Trade auto-discount on autoDiscountPercent doesn't
+  // count — that's company pricing, not a staff discount.)
+  const hasItemDiscount = items.some((i) => (i.discountPercent || 0) > 0);
+
   const handleApplyCartDiscount = () => {
     const value = parseFloat(discountValue);
     if (!(value > 0)) return;
+    if (hasItemDiscount) {
+      alert(
+        'A line already has an item discount. Remove it first — only one discount (item OR further) is allowed per sale.',
+      );
+      return;
+    }
     if (discountType === 'percent' && value > maxDiscountPercent) {
       alert(`Maximum discount is ${maxDiscountPercent}%`);
       return;
+    }
+    // Cap the fixed-amount discount to the same percentage limit so
+    // staff can't knock the full price off (e.g. $20 off a $20 item).
+    // The cart discount applies to the post-item-discount subtotal;
+    // since stacking is blocked, that's just the subtotal here.
+    if (discountType === 'fixed') {
+      const cap = Math.round((maxDiscountPercent / 100) * subtotal * 100) / 100;
+      if (value > cap) {
+        alert(
+          `Maximum fixed discount is $${cap.toFixed(2)} ` +
+            `(${maxDiscountPercent}% of $${subtotal.toFixed(2)}).`,
+        );
+        return;
+      }
     }
     if (!discountReason.trim()) {
       alert('Please enter a reason for the discount');
@@ -153,6 +179,12 @@ export default function CartPanel({
 
   const handleApplyItemDiscount = (productId: number) => {
     const value = parseFloat(itemDiscountValue);
+    if (value > 0 && cartDiscount) {
+      alert(
+        'A further (cart) discount is already applied. Remove it first — only one discount type is allowed per sale.',
+      );
+      return;
+    }
     if (value >= 0 && value <= maxDiscountPercent) {
       onSetItemDiscount(productId, value);
     } else if (value > maxDiscountPercent) {
@@ -389,10 +421,12 @@ export default function CartPanel({
                           >
                             <PlusIcon className="h-4 w-4" />
                           </button>
-                          {/* Item discount button - blocked for SALE items */}
+                          {/* Item discount button - blocked for SALE items
+                              and when a cart-level discount is already set
+                              (one-or-the-other rule). */}
                           <button
                             className={`w-8 h-8 rounded flex items-center justify-center ${
-                              item.isSaleItem
+                              item.isSaleItem || cartDiscount
                                 ? 'bg-red-900/50 text-red-400 cursor-not-allowed'
                                 : item.discountPercent > 0
                                 ? 'bg-green-600 text-white'
@@ -401,6 +435,10 @@ export default function CartPanel({
                             onClick={() => {
                               if (item.isSaleItem) {
                                 alert('Cannot apply further discount on SALE/Clearance items');
+                                return;
+                              }
+                              if (cartDiscount) {
+                                alert('A further (cart) discount is already applied. Remove it first — only one discount type per sale.');
                                 return;
                               }
                               setEditingItemDiscount(item.productId);
@@ -563,20 +601,31 @@ export default function CartPanel({
 
       {/* Action Buttons */}
       <div className="p-4 pt-0 space-y-2">
-        {/* Cart Discount Button */}
+        {/* Cart Discount Button — disabled when a line already has an
+            item discount (one-or-the-other rule). */}
         {items.length > 0 && (
           <button
             className={`w-full btn flex items-center justify-center gap-2 ${
               cartDiscount
                 ? 'bg-green-600 text-white'
-                : 'bg-pos-accent text-gray-300 hover:bg-pos-bg'
+                : hasItemDiscount
+                  ? 'bg-pos-accent/50 text-gray-500 cursor-not-allowed'
+                  : 'bg-pos-accent text-gray-300 hover:bg-pos-bg'
             }`}
+            disabled={!cartDiscount && hasItemDiscount}
+            title={
+              !cartDiscount && hasItemDiscount
+                ? 'Remove the item discount first — only one discount per sale'
+                : undefined
+            }
             onClick={() => setShowDiscountModal(true)}
           >
             <TagIcon className="h-5 w-5" />
             {cartDiscount
               ? `Further Discount: ${cartDiscount.type === 'percent' ? `${cartDiscount.value}%` : `$${cartDiscount.value}`}`
-              : 'Add Further Discount'}
+              : hasItemDiscount
+                ? 'Further Discount (item discount applied)'
+                : 'Add Further Discount'}
           </button>
         )}
 

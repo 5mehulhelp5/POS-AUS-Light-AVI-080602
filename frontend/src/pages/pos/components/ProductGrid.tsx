@@ -19,12 +19,15 @@ interface ProductGridProps {
   products: Product[];
   isLoading: boolean;
   onSelect: (product: Product) => void;
+  // productId -> trade auto-discount percent (for the yellow trade tag)
+  tradePctMap?: Record<number, number>;
 }
 
 export default function ProductGrid({
   products,
   isLoading,
   onSelect,
+  tradePctMap = {},
 }: ProductGridProps) {
   if (isLoading) {
     return (
@@ -47,6 +50,12 @@ export default function ProductGrid({
       <div className="grid grid-cols-5 gap-2 auto-rows-max">
         {products.map((product) => {
           const onSale = isProductOnSale(product);
+          const retail = onSale ? Number(product.specialPrice) : product.price;
+          const tradePct = tradePctMap[product.id] || 0;
+          const tradePrice =
+            tradePct > 0
+              ? Math.round(retail * (1 - tradePct / 100) * 100) / 100
+              : null;
           return (
           <button
             key={product.id}
@@ -119,7 +128,7 @@ export default function ProductGrid({
             <div className="space-y-1">
               <p className="text-xs text-gray-400 font-mono">{product.sku}</p>
               <h3 className="font-medium text-sm line-clamp-2">{product.name}</h3>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 {onSale ? (
                   <>
                     <span className="text-primary-400 font-bold">
@@ -132,6 +141,14 @@ export default function ProductGrid({
                 ) : (
                   <span className="text-primary-400 font-bold">
                     ${product.price.toFixed(2)}
+                  </span>
+                )}
+                {tradePrice !== null && (
+                  <span
+                    className="text-[11px] font-bold px-1.5 py-0.5 rounded bg-yellow-400/20 text-yellow-300 border border-yellow-500/40"
+                    title={`Trade price (${tradePct}% off)`}
+                  >
+                    Trade ${tradePrice.toFixed(2)}
                   </span>
                 )}
               </div>

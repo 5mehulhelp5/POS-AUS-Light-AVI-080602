@@ -143,7 +143,10 @@ export class DiscountsService {
       }
     }
 
-    // Step 3: Check stacking rules
+    // Step 3: Check stacking rules. A sale carries EITHER item-level
+    // discounts OR a cart-level discount, never both — a hard rule for
+    // all roles (Sally's policy: "it has to be one or the other"),
+    // regardless of canStackDiscounts.
     const hasProductDiscounts = dto.items.some(
       (item) => item.discountPercent && item.discountPercent > 0,
     );
@@ -151,19 +154,47 @@ export class DiscountsService {
       dto.cartDiscount && dto.cartDiscount.value > 0;
 
     if (hasProductDiscounts && hasCartDiscount) {
-      if (!userRole.canStackDiscounts) {
-        errors.push({
-          code: 'STACKING_NOT_ALLOWED',
-          message:
-            'Your role does not allow combining product and cart discounts',
-          field: 'cartDiscount',
-        });
+      errors.push({
+        code: 'STACKING_NOT_ALLOWED',
+        message:
+          'Only one discount is allowed per sale — either an item discount or a further (cart) discount, not both.',
+        field: 'cartDiscount',
+      });
 
+      auditEntries.push({
+        type: DiscountType.CART,
+        attemptedPercent: dto.cartDiscount?.value || 0,
+        wasRejected: true,
+        rejectionReason: 'STACKING_NOT_ALLOWED',
+      });
+    }
+
+    // Step 3b: Cap a FIXED cart discount to the same percentage limit so
+    // staff can't knock the whole price off (e.g. $20 off a $20 item).
+    if (
+      dto.cartDiscount &&
+      dto.cartDiscount.type === 'fixed' &&
+      dto.cartDiscount.value > 0
+    ) {
+      const subtotal = dto.items.reduce(
+        (sum, it) => sum + it.unitPrice * it.quantity,
+        0,
+      );
+      const cap =
+        Math.round((userRole.maxDiscountPercent / 100) * subtotal * 100) / 100;
+      if (dto.cartDiscount.value > cap) {
+        errors.push({
+          code: 'DISCOUNT_EXCEEDS_LIMIT',
+          message: `Fixed discount $${dto.cartDiscount.value.toFixed(2)} exceeds the maximum $${cap.toFixed(2)} (${userRole.maxDiscountPercent}% of $${subtotal.toFixed(2)}).`,
+          field: 'cartDiscount.value',
+          attemptedValue: dto.cartDiscount.value,
+          maxAllowed: cap,
+        });
         auditEntries.push({
           type: DiscountType.CART,
-          attemptedPercent: dto.cartDiscount?.value || 0,
+          attemptedPercent: dto.cartDiscount.value,
           wasRejected: true,
-          rejectionReason: 'STACKING_NOT_ALLOWED',
+          rejectionReason: 'FIXED_EXCEEDS_PERCENT_CAP',
         });
       }
     }
