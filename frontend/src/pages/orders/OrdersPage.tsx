@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useSelector } from 'react-redux';
 import toast from 'react-hot-toast';
 import { ordersApi, syncApi, customersApi } from '../../services/api';
@@ -98,6 +98,7 @@ interface RefundSelection {
 }
 
 export default function OrdersPage() {
+  const navigate = useNavigate();
   const { user } = useSelector((state: RootState) => state.auth);
   const canRefund =
     user?.role.name === 'admin' ||
@@ -276,7 +277,7 @@ export default function OrdersPage() {
     .filter((i) => i.selected && i.quantity > 0)
     .reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
 
-  const processRefund = async () => {
+  const processRefund = async (asExchange: boolean = false) => {
     const items = refundItems
       .filter((i) => i.selected && i.quantity > 0)
       .map((i) => ({
@@ -297,16 +298,45 @@ export default function OrdersPage() {
       toast.error('Reason text must be 500 characters or fewer');
       return;
     }
+    // An exchange returns the item(s) to store credit, then sends the
+    // cashier to the POS to ring the replacement — so it needs a linked
+    // customer to hold the credit.
+    if (asExchange && !refundOrder.customer) {
+      toast.error('Link a customer first — an exchange issues store credit');
+      return;
+    }
 
     setIsProcessingRefund(true);
     try {
       const res = await ordersApi.createRefund(refundOrder.id, {
         reason: refundReason,
-        reasonText: refundReasonText.trim() || undefined,
+        reasonText:
+          (asExchange ? '[EXCHANGE] ' : '') + (refundReasonText.trim() || ''),
         items,
-        asCash: refundAsCash || !refundOrder.customer,
+        // Exchanges always go to store credit (used against the new sale).
+        asCash: asExchange ? false : refundAsCash || !refundOrder.customer,
         applyRestockingFee: refundRestockingFee,
       });
+      if (asExchange) {
+        const ex = refundOrder;
+        const cust = ex.customer;
+        setRefundOrder(null);
+        fetchOrders();
+        toast.success('Items returned to store credit — ring the replacement');
+        navigate('/pos', {
+          state: {
+            preselectCustomer: cust
+              ? {
+                  id: cust.id,
+                  name: `${cust.firstName} ${cust.lastName || ''}`.trim(),
+                  isTrade: !!cust.isTrade,
+                }
+              : undefined,
+            exchangeFromOrder: { id: ex.id, orderNumber: ex.orderNumber },
+          },
+        });
+        return;
+      }
       toast.success('Refund processed successfully');
       setCompletedRefund({
         refund: res.data.data.refund,
@@ -868,6 +898,30 @@ export default function OrdersPage() {
                   {/* vertical line */}
                   <div className="absolute left-1.5 top-1 bottom-1 w-px bg-gray-700" />
 
+                  {/* Exchange cross-links */}
+                  {selectedOrder.exchangedToOrders?.length > 0 && (
+                    <div className="relative">
+                      <div className="absolute -left-[14px] top-1.5 h-2.5 w-2.5 rounded-full bg-cyan-400 ring-2 ring-pos-card" />
+                      <div className="bg-cyan-500/10 border border-cyan-500/30 rounded p-3 text-sm text-cyan-200">
+                        Exchanged to{' '}
+                        {selectedOrder.exchangedToOrders
+                          .map((e: any) => e.orderNumber)
+                          .join(', ')}
+                      </div>
+                    </div>
+                  )}
+                  {selectedOrder.exchangeFromOrder && (
+                    <div className="relative">
+                      <div className="absolute -left-[14px] top-1.5 h-2.5 w-2.5 rounded-full bg-cyan-400 ring-2 ring-pos-card" />
+                      <div className="bg-cyan-500/10 border border-cyan-500/30 rounded p-3 text-sm text-cyan-200">
+                        Exchange for order{' '}
+                        <span className="font-semibold">
+                          {selectedOrder.exchangeFromOrder.orderNumber}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Refund events (newest first) */}
                   {(selectedOrder.refunds || []).map((r: any) => {
                     const tags: string[] = [];
@@ -1279,9 +1333,27 @@ export default function OrdersPage() {
                 >
                   Cancel
                 </button>
+                {/* Exchange: return to store credit + go to POS to ring
+                    the replacement (needs a linked customer). */}
+                <button
+                  className="btn-primary bg-cyan-600 hover:bg-cyan-700"
+                  onClick={() => processRefund(true)}
+                  disabled={
+                    isProcessingRefund ||
+                    refundTotal === 0 ||
+                    !refundOrder.customer
+                  }
+                  title={
+                    !refundOrder.customer
+                      ? 'Link a customer first to exchange (store credit)'
+                      : 'Return to store credit and ring the replacement'
+                  }
+                >
+                  Refund &amp; Exchange
+                </button>
                 <button
                   className="btn-primary bg-orange-600 hover:bg-orange-700"
-                  onClick={processRefund}
+                  onClick={() => processRefund(false)}
                   disabled={isProcessingRefund || refundTotal === 0}
                 >
                   {isProcessingRefund ? 'Processing...' : 'Process Refund'}

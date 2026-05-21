@@ -186,6 +186,19 @@ export class Order {
   @Column({ name: 'layby_expires_at', type: 'timestamp', nullable: true })
   laybyExpiresAt: Date | null;
 
+  // Exchange link. When this order is the replacement half of an
+  // exchange, this points at the original order whose item(s) were
+  // returned. The original order can be found by querying orders with
+  // exchangeFromOrderId = its id (the "exchanged to" direction).
+  @Index()
+  @Column({
+    name: 'exchange_from_order_id',
+    type: 'int',
+    unsigned: true,
+    nullable: true,
+  })
+  exchangeFromOrderId: number | null;
+
   // Pickup vs delivery — chosen at checkout. Pickup is free, delivery
   // adds DELIVERY_FEE to the grand total. Stored on the order so the
   // invoice / receipts can render the line item afterwards.

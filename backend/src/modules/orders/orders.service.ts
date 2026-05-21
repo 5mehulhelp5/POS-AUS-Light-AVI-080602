@@ -88,6 +88,9 @@ interface CreateOrderDto {
   // Pickup vs delivery — pickup is free, delivery adds the flat
   // DELIVERY_FEE to the grand total. Defaults to pickup when omitted.
   deliveryType?: 'pickup' | 'delivery';
+  // When this order is the replacement half of an exchange, the id of
+  // the original order whose item(s) were returned. Cross-links the two.
+  exchangeFromOrderId?: number;
 }
 
 @Injectable()
@@ -526,6 +529,7 @@ export class OrdersService {
         laybyExpiresAt,
         deliveryType,
         deliveryFee,
+        exchangeFromOrderId: dto.exchangeFromOrderId ?? null,
       });
 
       const savedOrder = await queryRunner.manager.save(order);
@@ -821,6 +825,37 @@ export class OrdersService {
       where: { id },
       relations: ['customer', 'user', 'items', 'payments'],
     });
+  }
+
+  // Exchange cross-links for an order: the original it was exchanged
+  // FROM (if this is a replacement), and any replacement orders created
+  // FROM it (if this is the original that was returned).
+  async getExchangeLinks(order: Order): Promise<{
+    exchangeFromOrder: { id: number; orderNumber: string } | null;
+    exchangedToOrders: Array<{ id: number; orderNumber: string }>;
+  }> {
+    let exchangeFromOrder: { id: number; orderNumber: string } | null = null;
+    if (order.exchangeFromOrderId) {
+      const from = await this.orderRepository.findOne({
+        where: { id: order.exchangeFromOrderId },
+        select: ['id', 'orderNumber'],
+      });
+      if (from) {
+        exchangeFromOrder = { id: from.id, orderNumber: from.orderNumber };
+      }
+    }
+    const to = await this.orderRepository.find({
+      where: { exchangeFromOrderId: order.id },
+      select: ['id', 'orderNumber'],
+      order: { id: 'ASC' },
+    });
+    return {
+      exchangeFromOrder,
+      exchangedToOrders: to.map((o) => ({
+        id: o.id,
+        orderNumber: o.orderNumber,
+      })),
+    };
   }
 
   private async generateOrderNumber(): Promise<string> {

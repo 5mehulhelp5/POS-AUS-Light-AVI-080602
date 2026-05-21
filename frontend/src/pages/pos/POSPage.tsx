@@ -25,6 +25,7 @@ import {
   setCartDiscount,
   setCustomer,
   setTradeAutoDiscounts,
+  setExchangeContext,
 } from '../../store/slices/cartSlice';
 import ProductGrid from './components/ProductGrid';
 import CartPanel from './components/CartPanel';
@@ -50,6 +51,15 @@ export default function POSPage() {
           isTrade: !!preselect.isTrade,
         }),
       );
+    }
+    // Exchange: arriving from a refund-and-exchange on the Orders page.
+    const ex = (location.state as any)?.exchangeFromOrder;
+    if (ex?.id) {
+      dispatch(
+        setExchangeContext({ orderId: ex.id, orderNumber: ex.orderNumber }),
+      );
+    }
+    if (preselect?.id || ex?.id) {
       // Clear location state so a later navigation doesn't re-apply
       window.history.replaceState({}, document.title);
     }
@@ -455,6 +465,22 @@ export default function POSPage() {
     <div className="flex h-full">
       {/* Main Panel */}
       <div className="flex-1 min-w-0 flex flex-col p-4">
+        {/* Exchange banner — this sale replaces a returned item. */}
+        {cart.exchangeFromOrderNumber && (
+          <div className="mb-3 flex items-center justify-between rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-4 py-2 text-sm">
+            <span className="text-cyan-200">
+              Exchange for order{' '}
+              <span className="font-bold">{cart.exchangeFromOrderNumber}</span>
+              {' '}— store credit from the return can be applied at payment.
+            </span>
+            <button
+              className="text-cyan-300 hover:text-white text-xs underline"
+              onClick={() => dispatch(setExchangeContext(null))}
+            >
+              Cancel exchange
+            </button>
+          </div>
+        )}
         {/* Search Bar with Category/Subcategory dropdowns */}
         <div className="flex gap-2 mb-4">
           {/* Category dropdown (required) */}

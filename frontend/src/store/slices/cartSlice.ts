@@ -40,6 +40,10 @@ interface CartState {
   // auto-discount per line and stores it on each CartItem. Cart math
   // then uses max(manual, auto) per line.
   customerIsTrade: boolean;
+  // Exchange context — set when this sale is the replacement half of an
+  // exchange. The resulting order links back to the original.
+  exchangeFromOrderId: number | null;
+  exchangeFromOrderNumber: string | null;
   cartDiscount: CartDiscount | null;
   subtotal: number;
   itemDiscounts: number;
@@ -54,6 +58,8 @@ const initialState: CartState = {
   customerId: null,
   customerName: null,
   customerIsTrade: false,
+  exchangeFromOrderId: null,
+  exchangeFromOrderNumber: null,
   cartDiscount: null,
   subtotal: 0,
   itemDiscounts: 0,
@@ -266,11 +272,21 @@ const cartSlice = createSlice({
       state.notes = action.payload;
     },
 
+    setExchangeContext: (
+      state,
+      action: PayloadAction<{ orderId: number; orderNumber: string } | null>,
+    ) => {
+      state.exchangeFromOrderId = action.payload?.orderId ?? null;
+      state.exchangeFromOrderNumber = action.payload?.orderNumber ?? null;
+    },
+
     clearCart: (state) => {
       state.items = [];
       state.customerId = null;
       state.customerName = null;
       state.customerIsTrade = false;
+      state.exchangeFromOrderId = null;
+      state.exchangeFromOrderNumber = null;
       state.cartDiscount = null;
       state.subtotal = 0;
       state.itemDiscounts = 0;
@@ -315,6 +331,7 @@ export const {
   setCustomer,
   setTradeAutoDiscounts,
   setNotes,
+  setExchangeContext,
   clearCart,
   applyCalculatedTotals,
 } = cartSlice.actions;

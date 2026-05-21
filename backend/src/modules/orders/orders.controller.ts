@@ -109,9 +109,11 @@ export class OrdersController {
       };
     }
 
+    const exchange = await this.ordersService.getExchangeLinks(order);
+
     return {
       success: true,
-      data: { order },
+      data: { order: { ...order, ...exchange } },
     };
   }
 

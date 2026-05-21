@@ -534,6 +534,8 @@ export default function PaymentModal({
           // Pickup is free, delivery adds a flat fee on top — server
           // re-applies it from a constant so the totals can't drift.
           deliveryType,
+          // Exchange link — set when this sale replaces a returned item.
+          exchangeFromOrderId: cart.exchangeFromOrderId || undefined,
           items: cart.items.map((item) => {
             const isBack = !!backorderByProductId[item.productId];
             // If the top-level Lay By toggle is on with no per-line
