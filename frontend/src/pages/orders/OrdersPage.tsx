@@ -859,33 +859,79 @@ export default function OrdersPage() {
                 </div>
               </div>
 
-              {/* Refund history */}
-              {selectedOrder.refunds && selectedOrder.refunds.length > 0 && (
-                <div className="border-t border-gray-700 pt-4">
-                  <p className="text-sm text-gray-400 mb-2">Refund History</p>
-                  <div className="space-y-2">
-                    {selectedOrder.refunds.map((r: any) => (
-                      <div key={r.id} className="bg-orange-500/10 border border-orange-500/30 rounded p-3 text-sm">
-                        <div className="flex justify-between mb-1">
-                          <span className="font-medium text-orange-300">
-                            {r.isFullRefund ? 'Full Refund' : 'Partial Refund'} — ${r.refundAmount.toFixed(2)}
-                          </span>
-                          <span className="text-gray-400">{formatDate(r.createdAt)}</span>
-                        </div>
-                        <div className="text-xs text-gray-400">
-                          Reason: {REFUND_REASONS.find((x) => x.value === r.reason)?.label || r.reason}
-                          {r.reasonText ? ` — "${r.reasonText}"` : ''}
-                        </div>
-                        {r.user && (
-                          <div className="text-xs text-gray-500 mt-1">
-                            Processed by {r.user.firstName} {r.user.lastName}
+              {/* Order history timeline — the purchase plus every refund
+                  over time, so staff can see what's happened across
+                  repeat visits (Sally: customer refunds, comes back, etc). */}
+              <div className="border-t border-gray-700 pt-4">
+                <p className="text-sm text-gray-400 mb-3">Order History</p>
+                <div className="relative pl-5 space-y-3">
+                  {/* vertical line */}
+                  <div className="absolute left-1.5 top-1 bottom-1 w-px bg-gray-700" />
+
+                  {/* Refund events (newest first) */}
+                  {(selectedOrder.refunds || []).map((r: any) => {
+                    const tags: string[] = [];
+                    const isCash = /\[CASH REFUND\]/i.test(r.reasonText || '');
+                    tags.push(isCash ? 'Cash refund' : 'Store credit');
+                    const restockMatch = (r.reasonText || '').match(/\[20% RESTOCK FEE: \$([\d.]+) retained\]/i);
+                    if (restockMatch) tags.push(`20% restock fee $${restockMatch[1]} kept`);
+                    // Strip the bracketed tags from the human reason text.
+                    const cleanReason = (r.reasonText || '')
+                      .replace(/\[[^\]]*\]/g, '')
+                      .trim();
+                    return (
+                      <div key={r.id} className="relative">
+                        <div className="absolute -left-[14px] top-1.5 h-2.5 w-2.5 rounded-full bg-orange-400 ring-2 ring-pos-card" />
+                        <div className="bg-orange-500/10 border border-orange-500/30 rounded p-3 text-sm">
+                          <div className="flex justify-between mb-1">
+                            <span className="font-medium text-orange-300">
+                              {r.isFullRefund ? 'Full Refund' : 'Partial Refund'} — ${r.refundAmount.toFixed(2)}
+                            </span>
+                            <span className="text-gray-400">{formatDate(r.createdAt)}</span>
                           </div>
-                        )}
+                          <div className="flex flex-wrap gap-1 mb-1">
+                            {tags.map((t) => (
+                              <span key={t} className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-orange-600/30 text-orange-200">
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                          <div className="text-xs text-gray-400">
+                            Reason: {REFUND_REASONS.find((x) => x.value === r.reason)?.label || r.reason}
+                            {cleanReason ? ` — "${cleanReason}"` : ''}
+                          </div>
+                          {r.user && (
+                            <div className="text-xs text-gray-500 mt-1">
+                              Processed by {r.user.firstName} {r.user.lastName}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    ))}
+                    );
+                  })}
+
+                  {/* Order placed (oldest, at the bottom) */}
+                  <div className="relative">
+                    <div className="absolute -left-[14px] top-1.5 h-2.5 w-2.5 rounded-full bg-green-400 ring-2 ring-pos-card" />
+                    <div className="bg-pos-dark rounded p-3 text-sm">
+                      <div className="flex justify-between">
+                        <span className="font-medium text-green-300">
+                          Order placed — ${parseFloat(selectedOrder.grandTotal).toFixed(2)}
+                        </span>
+                        <span className="text-gray-400">{formatDate(selectedOrder.createdAt)}</span>
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        {selectedOrder.user
+                          ? `By ${selectedOrder.user.firstName} ${selectedOrder.user.lastName || ''}`
+                          : ''}
+                        {selectedOrder.customer
+                          ? ` · ${selectedOrder.customer.firstName} ${selectedOrder.customer.lastName || ''}`
+                          : ' · Walk-in'}
+                      </div>
+                    </div>
                   </div>
                 </div>
-              )}
+              </div>
             </div>
             </div>
           </div>
