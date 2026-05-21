@@ -40,6 +40,17 @@ export class Inquiry {
   @Column({ name: 'user_id', type: 'int', unsigned: true })
   userId: number;
 
+  // Staff member this inquiry is assigned to (e.g. a phone message left
+  // for a colleague to call the customer back). Null = unassigned.
+  @Index()
+  @Column({
+    name: 'assigned_to_user_id',
+    type: 'int',
+    unsigned: true,
+    nullable: true,
+  })
+  assignedToUserId: number | null;
+
   @Index()
   @Column({ type: 'enum', enum: InquiryType })
   type: InquiryType;
@@ -114,6 +125,10 @@ export class Inquiry {
   @ManyToOne(() => User, (user) => user.inquiries)
   @JoinColumn({ name: 'user_id' })
   user: User;
+
+  @ManyToOne(() => User, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'assigned_to_user_id' })
+  assignedTo: User | null;
 
   @ManyToOne(() => Quote, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'converted_quote_id' })

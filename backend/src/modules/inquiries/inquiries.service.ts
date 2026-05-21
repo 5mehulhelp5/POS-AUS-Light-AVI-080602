@@ -14,6 +14,7 @@ export interface CreateInquiryDto {
   followUpNotes?: string;
   customerId?: number;
   status?: InquiryStatus;
+  assignedToUserId?: number | null;
 }
 
 export type UpdateInquiryDto = Partial<CreateInquiryDto>;
@@ -37,6 +38,7 @@ export class InquiriesService {
       followUpNotes: data.followUpNotes?.trim() || null,
       customerId: data.customerId ?? null,
       userId,
+      assignedToUserId: data.assignedToUserId ?? null,
       status: data.status || InquiryStatus.NEW,
     });
     const saved = await this.inquiryRepository.save(inquiry);
@@ -63,6 +65,8 @@ export class InquiriesService {
       patch.followUpNotes = data.followUpNotes?.trim() || null;
     if (data.customerId !== undefined) patch.customerId = data.customerId ?? null;
     if (data.status !== undefined) patch.status = data.status;
+    if (data.assignedToUserId !== undefined)
+      patch.assignedToUserId = data.assignedToUserId ?? null;
     await this.inquiryRepository.update(id, patch);
     return this.findById(id) as Promise<Inquiry>;
   }
@@ -81,7 +85,8 @@ export class InquiriesService {
     const query = this.inquiryRepository
       .createQueryBuilder('inquiry')
       .leftJoinAndSelect('inquiry.customer', 'customer')
-      .leftJoinAndSelect('inquiry.user', 'user');
+      .leftJoinAndSelect('inquiry.user', 'user')
+      .leftJoinAndSelect('inquiry.assignedTo', 'assignedTo');
 
     if (status) {
       query.andWhere('inquiry.status = :status', { status });
@@ -107,7 +112,7 @@ export class InquiriesService {
   async findById(id: number): Promise<Inquiry | null> {
     return this.inquiryRepository.findOne({
       where: { id },
-      relations: ['customer', 'user'],
+      relations: ['customer', 'user', 'assignedTo'],
     });
   }
 }

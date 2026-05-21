@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { inquiriesApi } from '../../services/api';
+import toast from 'react-hot-toast';
+import { inquiriesApi, usersApi } from '../../services/api';
 import {
   MagnifyingGlassIcon,
   PhoneIcon,
@@ -8,7 +9,15 @@ import {
   ChatBubbleLeftIcon,
   PlusIcon,
   ArrowLeftIcon,
+  PencilIcon,
+  CheckCircleIcon,
 } from '@heroicons/react/24/outline';
+
+interface StaffRef {
+  id: number;
+  firstName: string;
+  lastName: string;
+}
 
 interface Inquiry {
   id: number;
@@ -22,6 +31,7 @@ interface Inquiry {
   followUpDate: string | null;
   customer: { id: number; firstName: string; lastName: string } | null;
   user: { id: number; firstName: string; lastName: string };
+  assignedTo: StaffRef | null;
   createdAt: string;
 }
 
@@ -49,12 +59,103 @@ export default function InquiriesPage() {
     contactPhone: '',
     contactEmail: '',
     followUpDate: '',
+    assignedToUserId: '' as string,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Staff list for the "Assign to" dropdown.
+  const [staff, setStaff] = useState<StaffRef[]>([]);
+
+  // Edit modal state
+  const [editingInquiry, setEditingInquiry] = useState<Inquiry | null>(null);
+  const [editForm, setEditForm] = useState({
+    type: 'phone_call',
+    subject: '',
+    description: '',
+    contactName: '',
+    contactPhone: '',
+    contactEmail: '',
+    followUpDate: '',
+    status: 'new',
+    assignedToUserId: '' as string,
+  });
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
 
   useEffect(() => {
     fetchInquiries();
   }, [pagination.page, statusFilter, typeFilter]);
+
+  useEffect(() => {
+    usersApi
+      .getUsers({ active: true, limit: 100 })
+      .then((r) => setStaff(r.data?.data?.users || []))
+      .catch(() => setStaff([]));
+  }, []);
+
+  const openEditInquiry = (inq: Inquiry) => {
+    setEditForm({
+      type: inq.type,
+      subject: inq.subject || '',
+      description: inq.description || '',
+      contactName: inq.contactName || '',
+      contactPhone: (inq.contactPhone || '').replace(/\D/g, ''),
+      contactEmail: inq.contactEmail || '',
+      followUpDate: inq.followUpDate ? inq.followUpDate.slice(0, 10) : '',
+      status: inq.status,
+      assignedToUserId: inq.assignedTo ? String(inq.assignedTo.id) : '',
+    });
+    setEditingInquiry(inq);
+  };
+
+  const handleUpdateInquiry = async () => {
+    if (!editingInquiry) return;
+    if (!editForm.subject.trim()) {
+      toast.error('Subject is required');
+      return;
+    }
+    const phoneDigits = (editForm.contactPhone || '').replace(/\D+/g, '');
+    if (editForm.contactPhone.trim() && phoneDigits.length !== 10) {
+      toast.error(`Phone must be exactly 10 digits — you entered ${phoneDigits.length}`);
+      return;
+    }
+    setIsSavingEdit(true);
+    try {
+      await inquiriesApi.updateInquiry(editingInquiry.id, {
+        type: editForm.type,
+        subject: editForm.subject,
+        description: editForm.description || undefined,
+        contactName: editForm.contactName || undefined,
+        contactPhone: phoneDigits || undefined,
+        contactEmail: editForm.contactEmail || undefined,
+        followUpDate: editForm.followUpDate || undefined,
+        status: editForm.status,
+        assignedToUserId: editForm.assignedToUserId
+          ? Number(editForm.assignedToUserId)
+          : null,
+      });
+      toast.success('Enquiry updated');
+      setEditingInquiry(null);
+      setSelectedInquiry(null);
+      fetchInquiries();
+    } catch (e: any) {
+      toast.error(e.response?.data?.error?.message || 'Failed to update enquiry');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  // Quick status change (e.g. mark complete/resolved) without opening
+  // the full edit form.
+  const setInquiryStatus = async (inq: Inquiry, status: string) => {
+    try {
+      await inquiriesApi.updateInquiry(inq.id, { status });
+      toast.success(`Marked ${status.replace('_', ' ')}`);
+      setSelectedInquiry(null);
+      fetchInquiries();
+    } catch (e: any) {
+      toast.error(e.response?.data?.error?.message || 'Failed to update status');
+    }
+  };
 
   const fetchInquiries = async () => {
     try {
@@ -93,9 +194,12 @@ export default function InquiriesPage() {
         contactPhone: phoneDigits || undefined,
         contactEmail: newInquiry.contactEmail || undefined,
         followUpDate: newInquiry.followUpDate || undefined,
+        assignedToUserId: newInquiry.assignedToUserId
+          ? Number(newInquiry.assignedToUserId)
+          : null,
       });
       setShowAddModal(false);
-      setNewInquiry({ type: 'phone_call', subject: '', description: '', contactName: '', contactPhone: '', contactEmail: '', followUpDate: '' });
+      setNewInquiry({ type: 'phone_call', subject: '', description: '', contactName: '', contactPhone: '', contactEmail: '', followUpDate: '', assignedToUserId: '' });
       fetchInquiries();
     } catch (error) {
       console.error('Failed to create inquiry:', error);
@@ -234,6 +338,7 @@ export default function InquiriesPage() {
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Contact</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Status</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Follow Up</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Assigned To</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Logged By</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Date</th>
               </tr>
@@ -264,6 +369,11 @@ export default function InquiriesPage() {
                     {inquiry.followUpDate
                       ? new Date(inquiry.followUpDate).toLocaleDateString('en-AU')
                       : '-'}
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    {inquiry.assignedTo
+                      ? `${inquiry.assignedTo.firstName} ${inquiry.assignedTo.lastName}`
+                      : <span className="text-gray-500">Unassigned</span>}
                   </td>
                   <td className="px-4 py-3">{inquiry.user.firstName}</td>
                   <td className="px-4 py-3 text-sm text-gray-400">
@@ -390,6 +500,23 @@ export default function InquiriesPage() {
                   />
                 </div>
               </div>
+              {/* Assign to a colleague — e.g. taking a phone message for
+                  someone else to call the customer back. */}
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Assign To</label>
+                <select
+                  className="input w-full"
+                  value={newInquiry.assignedToUserId}
+                  onChange={(e) => setNewInquiry({ ...newInquiry, assignedToUserId: e.target.value })}
+                >
+                  <option value="">Unassigned</option>
+                  {staff.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.firstName} {s.lastName}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="flex gap-3 mt-4">
               <button
@@ -404,6 +531,149 @@ export default function InquiriesPage() {
                 disabled={!newInquiry.subject.trim() || isSubmitting}
               >
                 {isSubmitting ? 'Saving...' : 'Save Enquiry'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Enquiry Modal */}
+      {editingInquiry && (
+        <div className="modal-backdrop">
+          <div className="modal-content">
+            <div className="flex justify-between items-center mb-4">
+              <button onClick={() => setEditingInquiry(null)} className="modal-back-btn">
+                <ArrowLeftIcon className="h-5 w-5" /> Back
+              </button>
+              <h2 className="text-xl font-bold">Edit Enquiry</h2>
+            </div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Type *</label>
+                  <select
+                    className="input w-full"
+                    value={editForm.type}
+                    onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}
+                  >
+                    <option value="phone_call">Phone Call</option>
+                    <option value="walk_in">Walk-in</option>
+                    <option value="email">Email</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Status</label>
+                  <select
+                    className="input w-full"
+                    value={editForm.status}
+                    onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                  >
+                    <option value="new">New</option>
+                    <option value="in_progress">In Progress</option>
+                    <option value="resolved">Resolved</option>
+                    <option value="converted">Converted</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Subject *</label>
+                <input
+                  type="text"
+                  className="input w-full"
+                  value={editForm.subject}
+                  onChange={(e) => setEditForm({ ...editForm, subject: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Description</label>
+                <textarea
+                  className="input w-full"
+                  rows={3}
+                  value={editForm.description}
+                  onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Contact Name</label>
+                  <input
+                    type="text"
+                    className="input w-full"
+                    value={editForm.contactName}
+                    onChange={(e) => setEditForm({ ...editForm, contactName: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">
+                    Contact Phone <span className="text-gray-500">(10 digits)</span>
+                  </label>
+                  <input
+                    type="tel"
+                    className="input w-full"
+                    inputMode="numeric"
+                    maxLength={10}
+                    value={editForm.contactPhone}
+                    onChange={(e) =>
+                      setEditForm({
+                        ...editForm,
+                        contactPhone: e.target.value.replace(/\D/g, '').slice(0, 10),
+                      })
+                    }
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Contact Email</label>
+                  <input
+                    type="email"
+                    className="input w-full"
+                    value={editForm.contactEmail}
+                    onChange={(e) => setEditForm({ ...editForm, contactEmail: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-400 mb-1">Follow Up Date</label>
+                  <input
+                    type="date"
+                    className="input w-full"
+                    value={editForm.followUpDate}
+                    onChange={(e) => setEditForm({ ...editForm, followUpDate: e.target.value })}
+                  />
+                </div>
+              </div>
+              {/* Assign to a staff member — e.g. a phone message for a
+                  colleague to call the customer back. */}
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Assign To</label>
+                <select
+                  className="input w-full"
+                  value={editForm.assignedToUserId}
+                  onChange={(e) => setEditForm({ ...editForm, assignedToUserId: e.target.value })}
+                >
+                  <option value="">Unassigned</option>
+                  {staff.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.firstName} {s.lastName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-4">
+              <button
+                className="btn-sm flex-1 bg-gray-600 text-white"
+                onClick={() => setEditingInquiry(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn-primary flex-1"
+                onClick={handleUpdateInquiry}
+                disabled={!editForm.subject.trim() || isSavingEdit}
+              >
+                {isSavingEdit ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
           </div>
@@ -439,6 +709,33 @@ export default function InquiriesPage() {
               </div>
             </div>
 
+            {/* Action buttons */}
+            <div className="flex flex-wrap gap-2 mb-4">
+              <button
+                className="btn-sm bg-pos-accent text-gray-200 flex items-center gap-1 hover:bg-pos-bg"
+                onClick={() => openEditInquiry(selectedInquiry)}
+              >
+                <PencilIcon className="h-4 w-4" /> Edit
+              </button>
+              {selectedInquiry.status !== 'in_progress' &&
+                selectedInquiry.status !== 'resolved' && (
+                  <button
+                    className="btn-sm bg-blue-600 text-white"
+                    onClick={() => setInquiryStatus(selectedInquiry, 'in_progress')}
+                  >
+                    Mark In Progress
+                  </button>
+                )}
+              {selectedInquiry.status !== 'resolved' && (
+                <button
+                  className="btn-sm bg-green-600 text-white flex items-center gap-1"
+                  onClick={() => setInquiryStatus(selectedInquiry, 'resolved')}
+                >
+                  <CheckCircleIcon className="h-4 w-4" /> Mark Complete
+                </button>
+              )}
+            </div>
+
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -463,6 +760,14 @@ export default function InquiriesPage() {
                     {selectedInquiry.followUpDate
                       ? new Date(selectedInquiry.followUpDate).toLocaleDateString('en-AU')
                       : '-'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-400">Assigned To</p>
+                  <p>
+                    {selectedInquiry.assignedTo
+                      ? `${selectedInquiry.assignedTo.firstName} ${selectedInquiry.assignedTo.lastName}`
+                      : 'Unassigned'}
                   </p>
                 </div>
               </div>

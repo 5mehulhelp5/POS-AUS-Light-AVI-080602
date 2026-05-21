@@ -85,6 +85,13 @@ export class InquiriesController {
             firstName: i.user.firstName,
             lastName: i.user.lastName,
           },
+          assignedTo: i.assignedTo
+            ? {
+                id: i.assignedTo.id,
+                firstName: i.assignedTo.firstName,
+                lastName: i.assignedTo.lastName,
+              }
+            : null,
           createdAt: i.createdAt,
         })),
         pagination: {
