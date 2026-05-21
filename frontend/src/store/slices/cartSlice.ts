@@ -70,6 +70,10 @@ function recalculateTotals(state: CartState): void {
   // Calculate item totals (all prices are GST-inclusive)
   let subtotal = 0;
   let itemDiscounts = 0;
+  // Clearance / sale items are already marked down — they must be
+  // excluded from the cart-level "Further discount" base, so we track
+  // the discountable (non-sale) portion separately.
+  let discountableBase = 0;
 
   state.items.forEach((item) => {
     const lineSubtotal = item.unitPrice * item.quantity;
@@ -89,27 +93,27 @@ function recalculateTotals(state: CartState): void {
 
     subtotal += lineSubtotal;
     itemDiscounts += discount;
+    if (!item.isSaleItem) discountableBase += afterDiscount;
   });
 
   state.subtotal = Math.round(subtotal * 100) / 100;
   state.itemDiscounts = Math.round(itemDiscounts * 100) / 100;
 
-  // Calculate cart discount
-  const afterItemDiscounts = subtotal - itemDiscounts;
+  // Calculate cart discount — only against the non-clearance portion.
   let cartDiscountAmount = 0;
 
   if (state.cartDiscount && state.cartDiscount.value > 0) {
     if (state.cartDiscount.type === 'percent') {
-      cartDiscountAmount = afterItemDiscounts * (state.cartDiscount.value / 100);
+      cartDiscountAmount = discountableBase * (state.cartDiscount.value / 100);
     } else {
-      cartDiscountAmount = Math.min(state.cartDiscount.value, afterItemDiscounts);
+      cartDiscountAmount = Math.min(state.cartDiscount.value, discountableBase);
     }
   }
 
   state.cartDiscountAmount = Math.round(cartDiscountAmount * 100) / 100;
 
   // Grand total = after all discounts (GST already included in prices)
-  const afterAllDiscounts = afterItemDiscounts - cartDiscountAmount;
+  const afterAllDiscounts = subtotal - itemDiscounts - cartDiscountAmount;
   // Extract GST component for display
   state.taxAmount = Math.round(afterAllDiscounts / GST_DIVISOR * 100) / 100;
   state.grandTotal = Math.round(afterAllDiscounts * 100) / 100;

@@ -277,6 +277,9 @@ export class DiscountsService {
   ): CalculatedTotals {
     let subtotal = 0;
     let itemDiscountTotal = 0;
+    // Non-clearance portion — the only part a cart-level discount may
+    // reduce. Clearance/sale items are already marked down.
+    let discountableBase = 0;
     const calculatedItems: CalculatedItem[] = [];
 
     // Australian prices are GST-INCLUSIVE. Unit prices coming in already
@@ -299,6 +302,7 @@ export class DiscountsService {
       }
 
       const lineTotal = lineSubtotal - discountAmount; // gross (incl GST)
+      if (!item.isSaleItem) discountableBase += lineTotal;
       const lineTax = lineTotal / GST_DIVISOR; // GST component of the gross
 
       calculatedItems.push({
@@ -315,16 +319,17 @@ export class DiscountsService {
       });
     }
 
-    // Apply cart discount to subtotal after item discounts
+    // Apply cart discount — only against the non-clearance portion.
+    // Clearance/sale items are excluded (already marked down).
     const afterItemDiscounts = subtotal - itemDiscountTotal;
     let cartDiscountAmount = 0;
 
     if (!ignoreDiscounts && cartDiscount && cartDiscount.value > 0) {
       if (cartDiscount.type === 'percent') {
-        cartDiscountAmount = afterItemDiscounts * (cartDiscount.value / 100);
+        cartDiscountAmount = discountableBase * (cartDiscount.value / 100);
       } else {
         // Fixed amount discount
-        cartDiscountAmount = Math.min(cartDiscount.value, afterItemDiscounts);
+        cartDiscountAmount = Math.min(cartDiscount.value, discountableBase);
       }
     }
 

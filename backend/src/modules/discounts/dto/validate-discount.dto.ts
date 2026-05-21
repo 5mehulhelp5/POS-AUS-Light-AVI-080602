@@ -42,6 +42,12 @@ export class CartItemDto {
   @Min(0)
   @Max(100)
   discountPercent?: number;
+
+  // Clearance / sale item — excluded from the cart-level discount base
+  // (already marked down, can't be discounted further).
+  @ApiPropertyOptional()
+  @IsOptional()
+  isSaleItem?: boolean;
 }
 
 export class CartDiscountDto {

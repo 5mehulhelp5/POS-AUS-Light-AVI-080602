@@ -199,6 +199,8 @@ export class OrdersService {
           // only validates the cashier's piece against their role limit.
           // Auto trade is company policy and bypasses role caps.
           manualDiscountPercent: manualDiscount,
+          // Clearance items are excluded from the cart-level discount.
+          isSaleItem: product.isOnSale,
         };
       }),
     );
