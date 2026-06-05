@@ -19,6 +19,15 @@ interface PaymentModalProps {
   total: number;
   onClose: () => void;
   onComplete: () => void;
+  // Per-line Backorder / Lay-by selections made on the Order Review
+  // screen — seed our internal state so the cashier doesn't re-pick
+  // them in the cart sidebar.
+  initialSelections?: {
+    backorderByProductId: Record<number, boolean>;
+    backorderQtyByProductId: Record<number, number>;
+    laybyHeldByProductId: Record<number, boolean>;
+    laybyHeldQtyByProductId: Record<number, number>;
+  };
 }
 
 type PaymentMethod = 'cash' | 'eftpos' | 'bank_transfer';
@@ -32,6 +41,7 @@ export default function PaymentModal({
   total,
   onClose,
   onComplete,
+  initialSelections,
 }: PaymentModalProps) {
   const cart = useSelector((state: RootState) => state.cart);
   const { user } = useSelector((state: RootState) => state.auth);
@@ -140,20 +150,21 @@ export default function PaymentModal({
   // already have the flag on.
   const [backorderByProductId, setBackorderByProductId] = useState<
     Record<number, boolean>
-  >(() =>
-    Object.fromEntries(
-      cart.items
-        .filter((i) => i.isBackorder)
-        .map((i) => [i.productId, true]),
+  >(() => ({
+    // Seed from out-of-stock items added to cart, then overlay any
+    // selections made on the Order Review screen.
+    ...Object.fromEntries(
+      cart.items.filter((i) => i.isBackorder).map((i) => [i.productId, true]),
     ),
-  );
+    ...(initialSelections?.backorderByProductId || {}),
+  }));
 
   // Per-item "hold on lay by" flags. When ticked, stock for that line
   // stays with the store until the layby balance is paid — even though
   // the item is in stock. Lets an order mix take-now + held items.
   const [laybyHeldByProductId, setLaybyHeldByProductId] = useState<
     Record<number, boolean>
-  >({});
+  >(() => ({ ...(initialSelections?.laybyHeldByProductId || {}) }));
 
   // Per-item backorder QUANTITY. When set and less than the cart line's
   // total quantity, the line splits at submit time: e.g. cart shows
@@ -161,7 +172,7 @@ export default function PaymentModal({
   // backorder. Default = full quantity (entire line is backorder).
   const [backorderQtyByProductId, setBackorderQtyByProductId] = useState<
     Record<number, number>
-  >({});
+  >(() => ({ ...(initialSelections?.backorderQtyByProductId || {}) }));
 
   // Per-item Lay By held QUANTITY — same idea as backorderQtyByProductId
   // but for the "Hold on Lay By" path. Lets the customer take some
@@ -169,7 +180,7 @@ export default function PaymentModal({
   // is paid (e.g. 4 ordered, 2 take home, 2 held on layby).
   const [laybyHeldQtyByProductId, setLaybyHeldQtyByProductId] = useState<
     Record<number, number>
-  >({});
+  >(() => ({ ...(initialSelections?.laybyHeldQtyByProductId || {}) }));
 
   // Does the current cart include at least one backorder / held line?
   const hasBackorderLine = Object.values(backorderByProductId).some((v) => v);

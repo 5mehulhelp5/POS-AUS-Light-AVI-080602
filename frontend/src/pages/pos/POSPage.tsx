@@ -31,6 +31,7 @@ import ProductGrid from './components/ProductGrid';
 import CartPanel from './components/CartPanel';
 import PaymentModal from './components/PaymentModal';
 import ProductDetailModal from './components/ProductDetailModal';
+import OrderReviewModal, { OrderReviewSelections } from './components/OrderReviewModal';
 
 // View mode: categories → subcategories → products
 type ViewMode = 'categories' | 'subcategories' | 'products';
@@ -82,6 +83,12 @@ export default function POSPage() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showPayment, setShowPayment] = useState(false);
+  // Order Review step between the cart and payment — wide, full-screen
+  // view of every line with per-line Backorder / Lay-by toggles. The
+  // selections made here seed the PaymentModal so the cashier doesn't
+  // have to re-pick them in the narrow sidebar.
+  const [showReview, setShowReview] = useState(false);
+  const [reviewSelections, setReviewSelections] = useState<OrderReviewSelections | null>(null);
   const [detailProduct, setDetailProduct] = useState<any>(null);
   const [showCustomItem, setShowCustomItem] = useState(false);
   const [customItemName, setCustomItemName] = useState('');
@@ -453,7 +460,8 @@ export default function POSPage() {
 
   const handleCheckout = () => {
     if (cart.items.length === 0) return;
-    setShowPayment(true);
+    setReviewSelections(null);
+    setShowReview(true);
   };
 
   const stockMap = products.reduce((acc, product) => {
@@ -776,10 +784,29 @@ export default function POSPage() {
         onCheckout={handleCheckout}
       />
 
+      {/* Order Review — full-screen confirmation step before payment.
+          Wide table of all lines, per-line Backorder / Lay-by toggles. */}
+      {showReview && (
+        <OrderReviewModal
+          items={cart.items}
+          subtotal={cart.subtotal}
+          discount={cart.itemDiscounts + cart.cartDiscountAmount}
+          tax={cart.taxAmount}
+          total={cart.grandTotal}
+          onBack={() => setShowReview(false)}
+          onContinue={(sel) => {
+            setReviewSelections(sel);
+            setShowReview(false);
+            setShowPayment(true);
+          }}
+        />
+      )}
+
       {/* Payment Modal */}
       {showPayment && (
         <PaymentModal
           total={cart.grandTotal}
+          initialSelections={reviewSelections || undefined}
           onClose={() => setShowPayment(false)}
           onComplete={() => {
             setShowPayment(false);
