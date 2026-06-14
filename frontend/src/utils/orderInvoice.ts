@@ -28,13 +28,19 @@ export function buildInvoiceData(o: any, fallbackCustomer?: any) {
     isLaybyHeld: !!it.isLaybyHeld,
   }));
   const firstPayment = (o.payments || [])[0];
+  const userName = o.user
+    ? [o.user.firstName, o.user.lastName].filter(Boolean).join(' ').trim() ||
+      o.user.username
+    : undefined;
   return {
     orderNumber: o.orderNumber,
     date: o.createdAt,
+    updatedAt: o.updatedAt,
     buyerType: cust?.isTrade ? 'retail' : 'customer',
     customerName: cust
       ? [cust.firstName, cust.lastName].filter(Boolean).join(' ')
       : undefined,
+    customerCompany: cust?.companyName || cust?.company || undefined,
     customerEmail: cust?.email || undefined,
     customerPhone: cust?.phone || cust?.mobile || undefined,
     customerAddress: addr || undefined,
@@ -45,5 +51,7 @@ export function buildInvoiceData(o: any, fallbackCustomer?: any) {
     taxAmount: parseFloat(o.taxAmount || 0),
     grandTotal: parseFloat(o.grandTotal),
     paymentMethod: firstPayment?.method || 'eftpos',
+    salesPerson: userName,
+    notes: o.notes || undefined,
   };
 }
