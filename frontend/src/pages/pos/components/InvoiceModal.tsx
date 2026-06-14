@@ -117,6 +117,21 @@ export default function InvoiceModal({ invoice, onClose }: InvoiceModalProps) {
     printWindow.print();
   };
 
+  const handleSavePdf = async () => {
+    const node = invoiceRef.current;
+    if (!node) return;
+    const html2pdf = (await import('html2pdf.js')).default;
+    await html2pdf()
+      .set({
+        margin: 10,
+        filename: `Invoice-${invoice.orderNumber}.pdf`,
+        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        html2canvas: { scale: 2, useCORS: true },
+      })
+      .from(node)
+      .save();
+  };
+
   const addr = splitAddress(invoice.customerAddress);
   const showDeposit =
     typeof invoice.balanceDue === 'number' && invoice.balanceDue > 0.01;
@@ -146,7 +161,7 @@ export default function InvoiceModal({ invoice, onClose }: InvoiceModalProps) {
             <button className="btn-sm bg-primary-600 text-white flex items-center gap-2" onClick={handlePrint}>
               <PrinterIcon className="h-4 w-4" /> Print
             </button>
-            <button className="btn-sm bg-green-600 text-white flex items-center gap-2" onClick={handlePrint}>
+            <button className="btn-sm bg-green-600 text-white flex items-center gap-2" onClick={handleSavePdf}>
               <ArrowDownTrayIcon className="h-4 w-4" /> Save PDF
             </button>
             <button className="text-gray-400 hover:text-white" onClick={onClose}>
