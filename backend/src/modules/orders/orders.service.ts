@@ -10,7 +10,7 @@ import {
   OrderSyncStatus,
   OrderSource,
 } from './entities';
-import { DeliveryType, DELIVERY_FEE } from './entities/order.entity';
+import { DeliveryType, DELIVERY_FEES } from './entities/order.entity';
 import { Payment, PaymentMethod, PaymentEntityStatus } from '../payments/entities/payment.entity';
 import { ProductsService } from '../products/products.service';
 import { TradeDiscountsService } from '../products/trade-discounts.service';
@@ -85,9 +85,10 @@ interface CreateOrderDto {
   // paid by; defaults to now + laybyMaxDays (settings).
   orderType?: 'standard' | 'layby';
   laybyExpiresAt?: string;
-  // Pickup vs delivery — pickup is free, delivery adds the flat
-  // DELIVERY_FEE to the grand total. Defaults to pickup when omitted.
-  deliveryType?: 'pickup' | 'delivery';
+  // Pickup vs delivery method. Pickup is free; delivery / local_metro /
+  // austpost each have a fixed fee set in DELIVERY_FEES. Defaults to
+  // pickup when omitted.
+  deliveryType?: 'pickup' | 'delivery' | 'local_metro' | 'austpost';
   // When this order is the replacement half of an exchange, the id of
   // the original order whose item(s) were returned. Cross-links the two.
   exchangeFromOrderId?: number;
@@ -305,15 +306,22 @@ export class OrdersService {
     );
     const isLayby = dto.orderType === 'layby' || hasLaybyHeld;
 
-    // Pickup vs delivery — delivery adds the flat DELIVERY_FEE on top of
-    // the cart grand total. The fee is GST-inclusive (matches the rest
-    // of the AU pricing convention).
-    const deliveryType =
-      dto.deliveryType === 'delivery'
-        ? DeliveryType.DELIVERY
-        : DeliveryType.PICKUP;
-    const deliveryFee =
-      deliveryType === DeliveryType.DELIVERY ? DELIVERY_FEE : 0;
+    // Pickup vs delivery — the server picks the fee from DELIVERY_FEES
+    // for whatever method the client sent, so the cashier's UI total
+    // can't drift from what we actually charge. Fees are GST-inclusive
+    // (matches the rest of the AU pricing convention).
+    const validDeliveryTypes = new Set<DeliveryType>([
+      DeliveryType.PICKUP,
+      DeliveryType.DELIVERY,
+      DeliveryType.LOCAL_METRO,
+      DeliveryType.AUSTPOST,
+    ]);
+    const deliveryType: DeliveryType = validDeliveryTypes.has(
+      dto.deliveryType as DeliveryType,
+    )
+      ? (dto.deliveryType as DeliveryType)
+      : DeliveryType.PICKUP;
+    const deliveryFee = DELIVERY_FEES[deliveryType] || 0;
     const grandTotal =
       Math.round((validation.calculatedTotals.grandTotal + deliveryFee) * 100) /
       100;

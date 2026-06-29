@@ -40,11 +40,23 @@ export enum OrderType {
 export enum DeliveryType {
   PICKUP = 'pickup',
   DELIVERY = 'delivery',
+  LOCAL_METRO = 'local_metro',
+  AUSTPOST = 'austpost',
 }
 
-// Flat fee added when DeliveryType.DELIVERY is chosen. Hardcoded for
-// now; if this needs to vary by region or order size, lift to settings.
-export const DELIVERY_FEE = 60;
+// Fee added to the grand total per delivery method. Server reapplies
+// these on order creation so the cashier's UI and the server total
+// agree even if the client posts a wrong fee.
+export const DELIVERY_FEES: Record<DeliveryType, number> = {
+  [DeliveryType.PICKUP]: 0,
+  [DeliveryType.DELIVERY]: 60,
+  [DeliveryType.LOCAL_METRO]: 45,
+  [DeliveryType.AUSTPOST]: 14.95,
+};
+
+// Back-compat re-export so existing imports of DELIVERY_FEE keep working
+// (refers to the standard Delivery tier).
+export const DELIVERY_FEE = DELIVERY_FEES[DeliveryType.DELIVERY];
 
 export enum PaymentStatus {
   PENDING = 'pending',

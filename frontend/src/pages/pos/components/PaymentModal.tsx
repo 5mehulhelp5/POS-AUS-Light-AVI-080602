@@ -32,10 +32,21 @@ interface PaymentModalProps {
 
 type PaymentMethod = 'cash' | 'eftpos' | 'bank_transfer';
 type BuyerType = 'retail' | 'customer';
-type DeliveryType = 'pickup' | 'delivery';
+type DeliveryType = 'pickup' | 'delivery' | 'local_metro' | 'austpost';
 
-// Flat delivery fee — must match backend DELIVERY_FEE constant.
-const DELIVERY_FEE = 60;
+// Per-method fees — must match backend DELIVERY_FEES map.
+const DELIVERY_FEES: Record<DeliveryType, number> = {
+  pickup: 0,
+  delivery: 60,
+  local_metro: 45,
+  austpost: 14.95,
+};
+const DELIVERY_LABELS: Record<DeliveryType, string> = {
+  pickup: 'Pick Up (Free)',
+  delivery: 'Delivery ($60)',
+  local_metro: 'Local Metro ($45)',
+  austpost: 'AustPost ($14.95)',
+};
 
 export default function PaymentModal({
   total,
@@ -335,7 +346,7 @@ export default function PaymentModal({
   // Delivery fee is added on top of the cart grand total (`total`
   // prop). Backend recomputes the same way, so the cashier's
   // displayed total and the server total agree.
-  const deliveryFeeApplied = deliveryType === 'delivery' ? DELIVERY_FEE : 0;
+  const deliveryFeeApplied = DELIVERY_FEES[deliveryType] || 0;
   const totalWithDelivery =
     Math.round((total + deliveryFeeApplied) * 100) / 100;
 
@@ -913,38 +924,24 @@ export default function PaymentModal({
           )}
         </div>
 
-        {/* Pickup vs Delivery — pickup is free, delivery adds a flat
-            $60 to the order total. Mirrors a backend constant. */}
+        {/* Pickup vs Delivery — single dropdown picks the method; the
+            fee is applied on top of the cart grand total. Server
+            re-applies the same fee from a matching backend map. */}
         <div className="mb-6">
           <label className="block text-sm font-medium text-gray-400 mb-2">
             Fulfilment
           </label>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              className={`p-3 rounded-lg border-2 flex items-center justify-center gap-2 transition-colors ${
-                deliveryType === 'pickup'
-                  ? 'border-green-500 bg-green-500/20'
-                  : 'border-gray-600 hover:border-gray-500'
-              }`}
-              onClick={() => setDeliveryType('pickup')}
-            >
-              <span className="font-medium">Pick Up</span>
-              <span className="text-xs text-gray-400">Free</span>
-            </button>
-            <button
-              type="button"
-              className={`p-3 rounded-lg border-2 flex items-center justify-center gap-2 transition-colors ${
-                deliveryType === 'delivery'
-                  ? 'border-cyan-500 bg-cyan-500/20'
-                  : 'border-gray-600 hover:border-gray-500'
-              }`}
-              onClick={() => setDeliveryType('delivery')}
-            >
-              <span className="font-medium">Delivery</span>
-              <span className="text-xs text-gray-400">+${DELIVERY_FEE}</span>
-            </button>
-          </div>
+          <select
+            className="input w-full"
+            value={deliveryType}
+            onChange={(e) => setDeliveryType(e.target.value as DeliveryType)}
+          >
+            {(Object.keys(DELIVERY_LABELS) as DeliveryType[]).map((key) => (
+              <option key={key} value={key}>
+                {DELIVERY_LABELS[key]}
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Order Notes — placed above customer details so the cashier
