@@ -248,6 +248,38 @@ export const inquiriesApi = {
   updateInquiry: (id: number, data: any) => api.put(`/inquiries/${id}`, data),
 };
 
+// Suppliers API
+export const suppliersApi = {
+  getSuppliers: (params?: { search?: string }) =>
+    api.get('/suppliers', { params }),
+
+  getSupplier: (id: number) => api.get(`/suppliers/${id}`),
+
+  createSupplier: (data: any) => api.post('/suppliers', data),
+
+  updateSupplier: (id: number, data: any) => api.put(`/suppliers/${id}`, data),
+
+  deleteSupplier: (id: number) => api.delete(`/suppliers/${id}`),
+};
+
+// Warranties API
+export const warrantiesApi = {
+  getWarranties: (params?: {
+    status?: string;
+    supplierId?: number;
+    page?: number;
+    limit?: number;
+  }) => api.get('/warranties', { params }),
+
+  getWarranty: (id: number) => api.get(`/warranties/${id}`),
+
+  createWarranty: (data: any) => api.post('/warranties', data),
+
+  updateWarranty: (id: number, data: any) => api.put(`/warranties/${id}`, data),
+
+  deleteWarranty: (id: number) => api.delete(`/warranties/${id}`),
+};
+
 // Reports API
 export const reportsApi = {
   getSalesReport: (params: { dateFrom: string; dateTo: string; groupBy?: string }) =>

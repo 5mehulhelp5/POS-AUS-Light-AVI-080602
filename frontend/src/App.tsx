@@ -13,6 +13,8 @@ import OrdersPage from './pages/orders/OrdersPage';
 import CustomersPage from './pages/customers/CustomersPage';
 import QuotesPage from './pages/quotes/QuotesPage';
 import InquiriesPage from './pages/inquiries/InquiriesPage';
+import SuppliersPage from './pages/suppliers/SuppliersPage';
+import WarrantiesPage from './pages/warranties/WarrantiesPage';
 import ReportsPage from './pages/reports/ReportsPage';
 import SettingsPage from './pages/settings/SettingsPage';
 import UsersPage from './pages/users/UsersPage';
@@ -64,6 +66,8 @@ function App() {
         <Route path="/customers" element={<CustomersPage />} />
         <Route path="/quotes" element={<QuotesPage />} />
         <Route path="/inquiries" element={<InquiriesPage />} />
+        <Route path="/suppliers" element={<SuppliersPage />} />
+        <Route path="/warranties" element={<WarrantiesPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/users" element={<UsersPage />} />
 

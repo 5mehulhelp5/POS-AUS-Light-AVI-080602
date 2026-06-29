@@ -10,6 +10,8 @@ import {
   Cog6ToothIcon,
   ArrowRightOnRectangleIcon,
   UserGroupIcon,
+  BookOpenIcon,
+  ShieldCheckIcon,
 } from '@heroicons/react/24/outline';
 import { RootState, AppDispatch } from '../../store';
 import { logout } from '../../store/slices/authSlice';
@@ -20,6 +22,8 @@ const navItems = [
   { to: '/customers', label: 'Customers', icon: UsersIcon },
   { to: '/quotes', label: 'Quotes', icon: DocumentTextIcon },
   { to: '/inquiries', label: 'Inquiries', icon: PhoneIcon },
+  { to: '/suppliers', label: 'Suppliers', icon: BookOpenIcon },
+  { to: '/warranties', label: 'Warranty', icon: ShieldCheckIcon },
   { to: '/users', label: 'Users', icon: UserGroupIcon },
 ];
 

@@ -15,6 +15,8 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { DiscountsModule } from './modules/discounts/discounts.module';
 import { QuotesModule } from './modules/quotes/quotes.module';
 import { InquiriesModule } from './modules/inquiries/inquiries.module';
+import { SuppliersModule } from './modules/suppliers/suppliers.module';
+import { WarrantiesModule } from './modules/warranties/warranties.module';
 import { SyncModule } from './modules/sync/sync.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { SettingsModule } from './modules/settings/settings.module';
@@ -57,6 +59,8 @@ import { getDatabaseConfig } from './database/database.config';
     DiscountsModule,
     QuotesModule,
     InquiriesModule,
+    SuppliersModule,
+    WarrantiesModule,
     SyncModule,
     ReportsModule,
     SettingsModule,
