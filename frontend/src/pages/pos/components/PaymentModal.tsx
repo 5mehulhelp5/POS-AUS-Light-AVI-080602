@@ -1231,7 +1231,9 @@ export default function PaymentModal({
               ))}
               <button
                 className="btn-secondary flex-1"
-                onClick={() => setCashTendered(Math.ceil(total).toString())}
+                onClick={() =>
+                  setCashTendered(Math.ceil(totalWithDelivery).toString())
+                }
               >
                 Exact
               </button>
