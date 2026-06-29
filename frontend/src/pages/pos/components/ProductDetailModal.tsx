@@ -28,6 +28,9 @@ interface ProductDetailModalProps {
     isInStock: boolean;
     thumbnailUrl: string | null;
   };
+  // Trade auto-discount % keyed by productId, shared from POSPage so the
+  // detail modal can render the same yellow "Trade $X" tag as the grid card.
+  tradePctMap?: Record<number, number>;
   onClose: () => void;
   onAddToCart: (
     product: {
@@ -51,6 +54,7 @@ type Tab = 'specs' | 'competitors' | 'description';
 export default function ProductDetailModal({
   productId,
   fallbackProduct,
+  tradePctMap,
   onClose,
   onAddToCart,
 }: ProductDetailModalProps) {
@@ -180,6 +184,22 @@ export default function ProductDetailModal({
                   ${Number(product.price).toFixed(2)}
                 </span>
               )}
+              {(() => {
+                const pct = tradePctMap?.[product.id] || 0;
+                if (pct <= 0) return null;
+                const retail = onSale
+                  ? Number(product.specialPrice)
+                  : Number(product.price);
+                const tradePrice = Math.round(retail * (1 - pct / 100) * 100) / 100;
+                return (
+                  <span
+                    className="text-xs font-bold px-2 py-0.5 rounded bg-yellow-400/20 text-yellow-300 border border-yellow-500/40"
+                    title={`Trade price (${pct}% off)`}
+                  >
+                    Trade ${tradePrice.toFixed(2)}
+                  </span>
+                );
+              })()}
               <span
                 className={`px-2 py-0.5 rounded text-xs font-medium ${
                   product.isInStock

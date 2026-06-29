@@ -17,6 +17,9 @@ export interface Product {
   // re-checks the date window itself for freshness.
   isOnSale?: boolean;
   effectivePrice?: number;
+  // Wholesale cost from Magento — used by the cart to warn when a trade
+  // discount drops the unit price below cost + 30% (the minimum margin).
+  cost?: number | null;
   stockQty: number;
   isInStock: boolean;
   imageUrl: string | null;

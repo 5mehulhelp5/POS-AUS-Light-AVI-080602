@@ -80,6 +80,12 @@ export default function POSPage() {
   // Get user's discount permissions
   const maxDiscountPercent = user?.role?.maxDiscountPercent ?? 0;
   const canStackDiscounts = user?.role?.canStackDiscounts ?? false;
+  // Trade customers bypass the role-based cap entirely — the only guard
+  // for them is the "below cost price" warning rendered per-line in the
+  // cart, not a hard discount ceiling.
+  const effectiveMaxDiscountPercent = cart.customerIsTrade
+    ? 100
+    : maxDiscountPercent;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [showPayment, setShowPayment] = useState(false);
@@ -277,17 +283,26 @@ export default function POSPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchQuery, searchCatId]);
 
-  // Fetch the trade auto-discount for the products currently shown in
-  // the grid so each card can display a yellow "Trade $X" tag. Fires
-  // whenever the visible product set changes (category / page / search).
+  // Fetch the trade auto-discount for products currently visible on the
+  // grid AND for anything sitting in the cart, so both the grid cards
+  // and the cart line items can display the yellow "Trade $X" tag.
+  // Fires whenever the visible product set or the cart changes.
+  const cartProductIdsKey = cart.items
+    .map((i) => i.productId)
+    .sort()
+    .join(',');
   const gridProductIdsKey = products
     .map((p) => p.id)
     .filter((id) => Number.isFinite(id) && id > 0)
     .join(',');
   useEffect(() => {
-    const ids = products
+    const gridIds = products
       .map((p) => p.id)
       .filter((id) => Number.isFinite(id) && id > 0);
+    const cartIds = cart.items
+      .map((it) => it.productId)
+      .filter((id) => Number.isFinite(id) && id > 0);
+    const ids = Array.from(new Set([...gridIds, ...cartIds]));
     if (ids.length === 0) {
       setTradePctMap({});
       return;
@@ -312,17 +327,14 @@ export default function POSPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gridProductIdsKey]);
+  }, [gridProductIdsKey, cartProductIdsKey]);
 
   // Trade auto-discount: when the cart is for a trade-flagged customer
   // and the set of productIds changes, fetch the per-line auto rate
   // from the backend and apply it. Cart math then uses max(manual,
   // auto) per line. When the customer is cleared (or non-trade), the
   // setCustomer reducer already wipes any previously-applied auto.
-  const cartProductIdsKey = cart.items
-    .map((i) => i.productId)
-    .sort()
-    .join(',');
+  // (cartProductIdsKey is declared above and shared with the badge-pct fetch.)
   useEffect(() => {
     if (!cart.customerIsTrade) return;
     const ids = cart.items
@@ -464,10 +476,17 @@ export default function POSPage() {
     setShowReview(true);
   };
 
-  const stockMap = products.reduce((acc, product) => {
-    acc[product.id] = product.stockQty;
+  // Cost map keyed by productId — feeds the cart's "below cost" warning
+  // for trade customers. Only includes products in the currently visible
+  // grid, so a cart item carried over from a previous page won't trigger
+  // the warning until you navigate back. Good enough for v1.
+  const costMap = products.reduce((acc, product) => {
+    if (product.cost != null) acc[product.id] = product.cost;
     return acc;
   }, {} as Record<number, number>);
+  // Stock-quantity enforcement is paused for now — CartPanel receives an
+  // empty stockMap so the "Only X in stock" warnings stay quiet. Restore
+  // by building a productId→stockQty map here and passing it through.
 
   return (
     <div className="flex h-full">
@@ -724,6 +743,11 @@ export default function POSPage() {
               isLoading={isLoading}
               onSelect={(p) => setDetailProduct(p)}
               tradePctMap={tradePctMap}
+              saleBadgeLabel={
+                /clearance/i.test(activeCategoryName)
+                  ? 'WAREHOUSE CLEARANCE'
+                  : 'SALE'
+              }
             />
 
             {pagination.totalPages > 1 && (
@@ -759,15 +783,18 @@ export default function POSPage() {
       {/* Cart Panel */}
       <CartPanel
         items={cart.items}
+        tradePctMap={tradePctMap}
         subtotal={cart.subtotal}
         discount={cart.itemDiscounts + cart.cartDiscountAmount}
         tax={cart.taxAmount}
         total={cart.grandTotal}
         customerName={cart.customerName}
         cartDiscount={cart.cartDiscount}
-        maxDiscountPercent={maxDiscountPercent}
+        maxDiscountPercent={effectiveMaxDiscountPercent}
         canStackDiscounts={canStackDiscounts}
-        stockMap={stockMap}
+        stockMap={{}}
+        costMap={costMap}
+        customerIsTrade={cart.customerIsTrade}
         onRemoveItem={(productId) => dispatch(removeItem(productId))}
         onUpdateQuantity={(productId, qty) =>
           dispatch(updateQuantity({ productId, quantity: qty }))
@@ -820,6 +847,7 @@ export default function POSPage() {
         <ProductDetailModal
           productId={detailProduct.id}
           fallbackProduct={detailProduct}
+          tradePctMap={tradePctMap}
           onClose={() => setDetailProduct(null)}
           onAddToCart={(p, q) => handleAddToCart(p, q)}
         />

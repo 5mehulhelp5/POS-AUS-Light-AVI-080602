@@ -21,6 +21,9 @@ interface ProductGridProps {
   onSelect: (product: Product) => void;
   // productId -> trade auto-discount percent (for the yellow trade tag)
   tradePctMap?: Record<number, number>;
+  // Override the red "SALE" badge text — e.g. "CLEARANCE" when viewing
+  // the Warehouse Clearance category. Defaults to "SALE".
+  saleBadgeLabel?: string;
 }
 
 export default function ProductGrid({
@@ -28,6 +31,7 @@ export default function ProductGrid({
   isLoading,
   onSelect,
   tradePctMap = {},
+  saleBadgeLabel = 'SALE',
 }: ProductGridProps) {
   if (isLoading) {
     return (
@@ -111,8 +115,8 @@ export default function ProductGrid({
 
               {/* Special price badge */}
               {onSale && (
-                <div className="absolute top-2 right-2 bg-red-500 text-white text-xs font-bold px-2 py-1 rounded">
-                  SALE
+                <div className="absolute top-2 right-2 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded whitespace-nowrap">
+                  {saleBadgeLabel}
                 </div>
               )}
 

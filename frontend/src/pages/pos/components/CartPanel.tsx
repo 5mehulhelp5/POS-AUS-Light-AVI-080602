@@ -24,6 +24,15 @@ interface CartPanelProps {
   maxDiscountPercent: number;
   canStackDiscounts: boolean;
   stockMap?: Record<number, number>; // productId -> available stock
+  // Trade auto-discount % keyed by productId — used to render the yellow
+  // "Trade $X" tag next to each line's unit price.
+  tradePctMap?: Record<number, number>;
+  // Wholesale cost keyed by productId. When customerIsTrade is true and
+  // a line's unit price falls below cost * 1.30, the cart shows an
+  // "Below cost price" warning under that line. Purely informational —
+  // does not block the sale.
+  costMap?: Record<number, number>;
+  customerIsTrade?: boolean;
   onRemoveItem: (productId: number) => void;
   onUpdateQuantity: (productId: number, quantity: number) => void;
   onSetItemDiscount: (productId: number, discountPercent: number) => void;
@@ -45,6 +54,9 @@ export default function CartPanel({
   maxDiscountPercent,
   canStackDiscounts,
   stockMap = {},
+  tradePctMap = {},
+  costMap = {},
+  customerIsTrade = false,
   onRemoveItem,
   onUpdateQuantity,
   onSetItemDiscount,
@@ -63,6 +75,7 @@ export default function CartPanel({
   const [newCustLastName, setNewCustLastName] = useState('');
   const [newCustEmail, setNewCustEmail] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
+  const [newCustIsTrade, setNewCustIsTrade] = useState(false);
   const [createCustError, setCreateCustError] = useState('');
   const [discountType, setDiscountType] = useState<'percent' | 'fixed'>('percent');
   const [discountValue, setDiscountValue] = useState('');
@@ -341,6 +354,21 @@ export default function CartPanel({
                         </button>
                       )}
                       {(() => {
+                        const pct = tradePctMap[item.productId] || 0;
+                        if (pct <= 0) return null;
+                        const tradePrice =
+                          Math.round(item.unitPrice * (1 - pct / 100) * 100) /
+                          100;
+                        return (
+                          <span
+                            className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-yellow-400/20 text-yellow-300 border border-yellow-500/40"
+                            title={`Trade price (${pct}% off)`}
+                          >
+                            Trade ${tradePrice.toFixed(2)}
+                          </span>
+                        );
+                      })()}
+                      {(() => {
                         const effective = Math.max(
                           item.discountPercent || 0,
                           item.autoDiscountPercent || 0,
@@ -481,6 +509,24 @@ export default function CartPanel({
                           <span>Only {stock} in stock</span>
                         </div>
                       )}
+                      {/* Below-cost warning — trade customers only.
+                          The minimum margin is cost + 30%; falling below
+                          that just warns the cashier, never blocks the sale. */}
+                      {(() => {
+                        if (!customerIsTrade) return null;
+                        const cost = costMap[item.productId];
+                        if (!cost || cost <= 0) return null;
+                        const floor = cost * 1.3;
+                        if (item.unitPrice >= floor) return null;
+                        return (
+                          <div className="mt-2 flex items-center gap-1 text-red-400 text-xs">
+                            <ExclamationTriangleIcon className="h-4 w-4" />
+                            <span>
+                              You are below cost price (min ${floor.toFixed(2)} = cost ${cost.toFixed(2)} + 30%)
+                            </span>
+                          </div>
+                        );
+                      })()}
                       {/* Competitor price */}
                       {competitorPrices[item.productId] && !competitorPrices[item.productId].loading && (
                         <div className="mt-2 flex items-center gap-2 text-xs">
@@ -877,6 +923,7 @@ export default function CartPanel({
                     setNewCustLastName('');
                     setNewCustEmail('');
                     setNewCustPhone('');
+                    setNewCustIsTrade(false);
                     setCreateCustError('');
                   }}
                 >
@@ -934,6 +981,37 @@ export default function CartPanel({
                       onChange={(e) => setNewCustPhone(e.target.value)}
                     />
                   </div>
+                  {/* Buyer type — trade customers get the trade-discount
+                      paths, retail customers don't. Defaults to Retail. */}
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">
+                      Customer Type
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setNewCustIsTrade(false)}
+                        className={`px-3 py-2 rounded border text-sm font-semibold transition-colors ${
+                          !newCustIsTrade
+                            ? 'bg-primary-600 border-primary-500 text-white'
+                            : 'bg-pos-card border-gray-700 text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        Retail
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewCustIsTrade(true)}
+                        className={`px-3 py-2 rounded border text-sm font-semibold transition-colors ${
+                          newCustIsTrade
+                            ? 'bg-amber-600 border-amber-500 text-white'
+                            : 'bg-pos-card border-gray-700 text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        Trade
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 {createCustError && (
@@ -971,11 +1049,13 @@ export default function CartPanel({
                           lastName: newCustLastName.trim() || null,
                           email: newCustEmail.trim() || null,
                           phone: phoneDigits,
+                          isTrade: newCustIsTrade,
                         });
                         const created = res.data.data?.customer || res.data.data;
                         onSetCustomer({
                           id: created.id,
                           name: [created.firstName, created.lastName].filter(Boolean).join(' '),
+                          isTrade: !!created.isTrade,
                         });
                         setShowCustomerModal(false);
                       } catch (err: any) {
