@@ -14,6 +14,7 @@ import { RootState, AppDispatch } from '../../../store';
 import { ordersApi, customersApi, quotesApi } from '../../../services/api';
 import { setTradeAutoDiscounts, setCustomer } from '../../../store/slices/cartSlice';
 import InvoiceModal from './InvoiceModal';
+import AddressAutocomplete from '../../../components/AddressAutocomplete';
 
 interface PaymentModalProps {
   total: number;
@@ -1090,12 +1091,21 @@ export default function PaymentModal({
             </div>
             <div>
               <label className="block text-xs text-gray-400 mb-1">Street Address</label>
-              <input
-                type="text"
+              {/* Google Places autocomplete restricted to AU. Picking a
+                  suggestion also fills city / state / postcode below in
+                  a single click. Falls back to a plain input if the API
+                  key isn't set. */}
+              <AddressAutocomplete
                 className="input text-sm"
-                placeholder="123 Main St"
+                placeholder="Start typing an address…"
                 value={customerStreet}
-                onChange={(e) => setCustomerStreet(e.target.value)}
+                onChange={setCustomerStreet}
+                onSelect={(p) => {
+                  if (p.street) setCustomerStreet(p.street);
+                  if (p.city) setCustomerCity(p.city);
+                  if (p.state) setCustomerState(p.state);
+                  if (p.postcode) setCustomerPostcode(p.postcode);
+                }}
               />
             </div>
           </div>
