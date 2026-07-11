@@ -84,19 +84,22 @@ export class CustomersController {
   @Get(':id/store-credit')
   @ApiOperation({ summary: 'Get store credit balance + recent transactions' })
   async getStoreCredit(@Param('id', ParseIntPipe) id: number) {
-    const [balance, transactions] = await Promise.all([
+    const [balance, transactions, earliestExpiry] = await Promise.all([
       this.storeCreditService.getBalance(id),
       this.storeCreditService.getTransactions(id, 50),
+      this.storeCreditService.getEarliestExpiry(id),
     ]);
     return {
       success: true,
       data: {
         balance,
+        earliestExpiry,
         transactions: transactions.map((t) => ({
           id: t.id,
           type: t.type,
           amount: parseFloat(t.amount.toString()),
           balanceAfter: parseFloat(t.balanceAfter.toString()),
+          expiresAt: t.expiresAt,
           relatedOrderId: t.relatedOrderId,
           relatedRefundId: t.relatedRefundId,
           note: t.note,

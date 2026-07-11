@@ -2,9 +2,11 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  OnModuleInit,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, EntityManager } from 'typeorm';
+import { Repository, DataSource, EntityManager, IsNull, MoreThan } from 'typeorm';
 import { StoreCredit } from './entities/store-credit.entity';
 import {
   StoreCreditTransaction,
@@ -12,8 +14,15 @@ import {
 } from './entities/store-credit-transaction.entity';
 import { Customer } from './entities/customer.entity';
 
+// Each store credit lot (a refund issue or positive adjustment) is valid
+// for 12 months from the day it was issued. After that, its remaining
+// value is excluded from the customer's available balance.
+const CREDIT_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+
 @Injectable()
-export class StoreCreditService {
+export class StoreCreditService implements OnModuleInit {
+  private readonly logger = new Logger(StoreCreditService.name);
+
   constructor(
     @InjectRepository(StoreCredit)
     private readonly storeCreditRepository: Repository<StoreCredit>,
@@ -24,8 +33,91 @@ export class StoreCreditService {
     private readonly dataSource: DataSource,
   ) {}
 
+  // First-boot backfill after the expires_at column is added: every
+  // pre-existing positive lot gets a 12-month grace from deploy day,
+  // not from its original issue date, so nobody loses credit the day
+  // this feature ships. New lots created after boot follow the normal
+  // createdAt + 1y rule.
+  async onModuleInit(): Promise<void> {
+    const graceExpiresAt = new Date(Date.now() + CREDIT_TTL_MS);
+    const missing = await this.txRepository.count({
+      where: {
+        expiresAt: IsNull(),
+        amount: MoreThan(0),
+      },
+    });
+    if (missing > 0) {
+      this.logger.log(
+        `Backfilling expiresAt on ${missing} legacy store-credit lots (grace until ${graceExpiresAt.toISOString()})`,
+      );
+      await this.txRepository
+        .createQueryBuilder()
+        .update()
+        .set({ expiresAt: graceExpiresAt })
+        .where('expires_at IS NULL AND amount > 0')
+        .execute();
+      // Refresh every customer's cached balance so the store_credits
+      // table matches the new expiry-aware calculation.
+      const rows: Array<{ customer_id: number }> = await this.txRepository
+        .createQueryBuilder('t')
+        .select('DISTINCT t.customer_id', 'customer_id')
+        .getRawMany();
+      for (const r of rows) {
+        await this.recalcCache(Number(r.customer_id));
+      }
+    }
+  }
+
   private round(n: number): number {
     return Math.round(n * 100) / 100;
+  }
+
+  // Expiry-aware balance: sum of unexpired positive lots minus every
+  // redemption. Clamped to zero — a customer can't owe the store credit.
+  private async computeAvailable(customerId: number): Promise<number> {
+    const now = new Date();
+    const positive = await this.txRepository
+      .createQueryBuilder('t')
+      .select('COALESCE(SUM(t.amount), 0)', 'total')
+      .where('t.customer_id = :cid', { cid: customerId })
+      .andWhere('t.amount > 0')
+      .andWhere('(t.expires_at IS NULL OR t.expires_at > :now)', { now })
+      .getRawOne();
+    const negative = await this.txRepository
+      .createQueryBuilder('t')
+      .select('COALESCE(SUM(t.amount), 0)', 'total')
+      .where('t.customer_id = :cid', { cid: customerId })
+      .andWhere('t.amount < 0')
+      .getRawOne();
+    const gross = Number(positive?.total || 0) + Number(negative?.total || 0);
+    return this.round(Math.max(0, gross));
+  }
+
+  private async recalcCache(customerId: number): Promise<number> {
+    const available = await this.computeAvailable(customerId);
+    await this.storeCreditRepository
+      .createQueryBuilder()
+      .update()
+      .set({ balance: available })
+      .where('customer_id = :cid', { cid: customerId })
+      .execute();
+    return available;
+  }
+
+  // Earliest expiry among a customer's remaining unexpired positive
+  // lots. Returned as an ISO string so the UI can show "expires on X".
+  // NULL when the customer has no unexpired lots.
+  async getEarliestExpiry(customerId: number): Promise<string | null> {
+    const now = new Date();
+    const row = await this.txRepository
+      .createQueryBuilder('t')
+      .select('MIN(t.expires_at)', 'earliest')
+      .where('t.customer_id = :cid', { cid: customerId })
+      .andWhere('t.amount > 0')
+      .andWhere('t.expires_at IS NOT NULL')
+      .andWhere('t.expires_at > :now', { now })
+      .getRawOne();
+    return row?.earliest ? new Date(row.earliest).toISOString() : null;
   }
 
   /**
@@ -55,10 +147,10 @@ export class StoreCreditService {
   }
 
   async getBalance(customerId: number): Promise<number> {
-    const row = await this.storeCreditRepository.findOne({
-      where: { customerId },
-    });
-    return row ? Number(row.balance) : 0;
+    // Always recompute against the ledger so any lots that expired
+    // since the last write drop out of the reported balance without
+    // waiting for a cron pass. Also refreshes the cached row.
+    return this.recalcCache(customerId);
   }
 
   async getTransactions(customerId: number, limit = 50): Promise<StoreCreditTransaction[]> {
@@ -89,6 +181,7 @@ export class StoreCreditService {
     balance.balance = newBalance;
     await manager.save(balance);
 
+    const now = new Date();
     const tx = manager.create(StoreCreditTransaction, {
       customerId,
       type: StoreCreditTransactionType.REFUND_ISSUE,
@@ -97,6 +190,8 @@ export class StoreCreditService {
       relatedRefundId: refundId,
       userId,
       note: null,
+      // Each new refund credit is a fresh 12-month lot.
+      expiresAt: new Date(now.getTime() + CREDIT_TTL_MS),
     } as Partial<StoreCreditTransaction>);
     await manager.save(tx);
   }
@@ -146,7 +241,7 @@ export class StoreCreditService {
     const current = await this.getBalance(customerId);
     if (current < amount - 0.01) {
       throw new BadRequestException(
-        `Insufficient store credit: $${current.toFixed(2)} available, $${amount.toFixed(2)} requested`,
+        `Insufficient store credit: $${current.toFixed(2)} available (after expiry), $${amount.toFixed(2)} requested`,
       );
     }
   }
@@ -174,6 +269,7 @@ export class StoreCreditService {
       balance.balance = newBalance;
       await manager.save(balance);
 
+      const now = new Date();
       const tx = manager.create(StoreCreditTransaction, {
         customerId,
         type: StoreCreditTransactionType.MANUAL_ADJUSTMENT,
@@ -181,6 +277,9 @@ export class StoreCreditService {
         balanceAfter: newBalance,
         userId,
         note: note.trim(),
+        // Positive adjustments count as new 12-month lots; negative
+        // (clawbacks) don't expire.
+        expiresAt: amount > 0 ? new Date(now.getTime() + CREDIT_TTL_MS) : null,
       } as Partial<StoreCreditTransaction>);
       const savedTx = await manager.save(tx);
 

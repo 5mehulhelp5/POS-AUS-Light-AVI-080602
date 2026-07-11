@@ -68,6 +68,11 @@ export default function CustomersPage() {
 
   // Store credit state
   const [storeCreditBalance, setStoreCreditBalance] = useState<number>(0);
+  // Earliest expiry among the customer's unexpired lots. Shown next to
+  // the balance so staff can warn the customer their credit is running
+  // out. null = no unexpired lots (balance is 0).
+  const [storeCreditEarliestExpiry, setStoreCreditEarliestExpiry] =
+    useState<string | null>(null);
   const [storeCreditTxs, setStoreCreditTxs] = useState<any[]>([]);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [adjustAmount, setAdjustAmount] = useState('');
@@ -149,6 +154,7 @@ export default function CustomersPage() {
   useEffect(() => {
     if (!selectedCustomer) {
       setStoreCreditBalance(0);
+      setStoreCreditEarliestExpiry(null);
       setStoreCreditTxs([]);
       return;
     }
@@ -156,10 +162,12 @@ export default function CustomersPage() {
       .getStoreCredit(selectedCustomer.id)
       .then((r) => {
         setStoreCreditBalance(Number(r.data.data.balance) || 0);
+        setStoreCreditEarliestExpiry(r.data.data.earliestExpiry || null);
         setStoreCreditTxs(r.data.data.transactions || []);
       })
       .catch(() => {
         setStoreCreditBalance(0);
+        setStoreCreditEarliestExpiry(null);
         setStoreCreditTxs([]);
       });
   }, [selectedCustomer]);
@@ -775,6 +783,15 @@ export default function CustomersPage() {
                 <p className="text-lg font-bold mt-1 text-purple-300">
                   ${storeCreditBalance.toFixed(2)}
                 </p>
+                {storeCreditEarliestExpiry && storeCreditBalance > 0 && (
+                  <p className="text-[10px] text-purple-400/70 mt-0.5">
+                    earliest expiry{' '}
+                    {new Date(storeCreditEarliestExpiry).toLocaleDateString(
+                      'en-AU',
+                      { day: '2-digit', month: 'short', year: 'numeric' },
+                    )}
+                  </p>
+                )}
               </div>
               <div className="bg-pos-dark rounded p-3">
                 <div className="flex items-center gap-2 text-xs text-gray-400">

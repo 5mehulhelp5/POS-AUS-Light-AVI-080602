@@ -48,6 +48,14 @@ export class StoreCreditTransaction {
   @Column({ type: 'varchar', length: 500, nullable: true })
   note: string | null;
 
+  // Expiry stamp for POSITIVE transactions (REFUND_ISSUE / positive
+  // MANUAL_ADJUSTMENT). Set to createdAt + 1 year when the credit is
+  // issued. NULL for REDEMPTION rows — redemptions don't expire, they
+  // consume the underlying lots.
+  @Index()
+  @Column({ name: 'expires_at', type: 'timestamp', nullable: true })
+  expiresAt: Date | null;
+
   @Index()
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
