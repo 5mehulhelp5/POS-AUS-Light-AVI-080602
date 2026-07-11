@@ -184,6 +184,19 @@ export class OrdersController {
     };
   }
 
+  @Patch(':id/notes')
+  @ApiOperation({ summary: 'Update the free-form staff notes on an order' })
+  async updateNotes(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { notes: string | null },
+  ) {
+    const order = await this.ordersService.updateNotes(id, body?.notes ?? null);
+    return {
+      success: true,
+      data: { order: { id: order.id, notes: order.notes } },
+    };
+  }
+
   @Post(':id/refund')
   @UseGuards(RolesGuard)
   @Roles(RoleNames.ADMIN, RoleNames.MANAGER, RoleNames.SALES_STAFF)

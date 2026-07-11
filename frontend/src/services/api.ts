@@ -117,6 +117,9 @@ export const ordersApi = {
   linkCustomer: (orderId: number, customerId: number) =>
     api.patch(`/orders/${orderId}/customer`, { customerId }),
 
+  updateNotes: (orderId: number, notes: string | null) =>
+    api.patch(`/orders/${orderId}/notes`, { notes }),
+
   createRefund: (
     orderId: number,
     data: {

@@ -112,6 +112,29 @@ export default function OrdersPage() {
   const [filter, setFilter] = useState<FilterOption>('all');
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [invoiceData, setInvoiceData] = useState<any>(null);
+  // Order-notes edit-in-place: null = not editing, string = current
+  // draft. Committing sends a PATCH and refreshes the selected order.
+  const [notesDraft, setNotesDraft] = useState<string | null>(null);
+  const [savingNotes, setSavingNotes] = useState(false);
+
+  const saveOrderNotes = async () => {
+    if (!selectedOrder || notesDraft === null) return;
+    setSavingNotes(true);
+    try {
+      await ordersApi.updateNotes(selectedOrder.id, notesDraft.trim() || null);
+      const fresh = await ordersApi.getOrder(selectedOrder.id);
+      setSelectedOrder({
+        ...fresh.data.data.order,
+        refunds: selectedOrder?.refunds || [],
+      });
+      setNotesDraft(null);
+      toast.success('Notes saved');
+    } catch {
+      toast.error('Failed to save notes');
+    } finally {
+      setSavingNotes(false);
+    }
+  };
 
   const printInvoice = async (orderId: number) => {
     try {
@@ -887,6 +910,88 @@ export default function OrdersPage() {
                   <span>Total</span>
                   <span>${parseFloat(selectedOrder.grandTotal).toFixed(2)}</span>
                 </div>
+                {/* Refund total + net paid — only shown when at least
+                    one refund exists so a normal order still reads
+                    cleanly. Refund reasonText carries the 20% restock
+                    fee retained amount if any, but here we only need
+                    the sum of cash refunded to compute net paid. */}
+                {(selectedOrder.refunds || []).length > 0 && (() => {
+                  const totalRefunded = (selectedOrder.refunds || []).reduce(
+                    (s: number, r: any) => s + Number(r.refundAmount || 0),
+                    0,
+                  );
+                  const netPaid =
+                    Math.round(
+                      (parseFloat(selectedOrder.grandTotal) - totalRefunded) * 100,
+                    ) / 100;
+                  return (
+                    <div className="mt-2 pt-2 border-t border-gray-700 space-y-1">
+                      <div className="flex justify-between text-sm text-orange-300">
+                        <span>Refunded</span>
+                        <span>-${totalRefunded.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between font-semibold text-emerald-300">
+                        <span>Net Paid</span>
+                        <span>${netPaid.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Free-form staff notes (persist on order.notes). Cashiers
+                  use this to jot follow-ups: pickup times, ETAs, restock
+                  status. Edit-in-place; save button appears once a draft
+                  is opened. */}
+              <div className="border-t border-gray-700 pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm text-gray-400">Notes</p>
+                  {notesDraft === null && (
+                    <button
+                      onClick={() =>
+                        setNotesDraft(selectedOrder.notes || '')
+                      }
+                      className="text-xs text-primary-400 hover:text-primary-300"
+                    >
+                      {selectedOrder.notes ? 'Edit' : 'Add note'}
+                    </button>
+                  )}
+                </div>
+                {notesDraft === null ? (
+                  <p className="text-sm text-gray-300 whitespace-pre-wrap">
+                    {selectedOrder.notes || (
+                      <span className="text-gray-500 italic">
+                        No notes on this order.
+                      </span>
+                    )}
+                  </p>
+                ) : (
+                  <div>
+                    <textarea
+                      value={notesDraft}
+                      onChange={(e) => setNotesDraft(e.target.value)}
+                      className="input w-full text-sm"
+                      rows={3}
+                      placeholder="Follow-up context, pickup times, supplier ETA…"
+                      autoFocus
+                    />
+                    <div className="flex justify-end gap-2 mt-2">
+                      <button
+                        onClick={() => setNotesDraft(null)}
+                        className="btn-secondary text-xs"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={saveOrderNotes}
+                        disabled={savingNotes}
+                        className="btn-primary text-xs disabled:opacity-50"
+                      >
+                        {savingNotes ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Order history timeline — the purchase plus every refund

@@ -904,6 +904,17 @@ export class OrdersService {
     return (await this.findById(orderId)) as Order;
   }
 
+  // Free-form staff notes on an order — used from the order-detail
+  // drawer so cashiers can jot follow-up context (e.g. "customer to
+  // pick up Sat", "waiting on Havit ETA"). Nulling the field clears it.
+  async updateNotes(orderId: number, notes: string | null): Promise<Order> {
+    const order = await this.orderRepository.findOne({ where: { id: orderId } });
+    if (!order) throw new BadRequestException('Order not found');
+    order.notes = (notes && notes.trim()) || null;
+    await this.orderRepository.save(order);
+    return (await this.findById(orderId)) as Order;
+  }
+
   // -------------------------------------------------------------------
   // Layby + backorder helpers
   // -------------------------------------------------------------------
