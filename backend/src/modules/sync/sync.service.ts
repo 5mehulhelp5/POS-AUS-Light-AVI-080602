@@ -72,6 +72,41 @@ export class SyncService {
     private readonly syncLogRepository: Repository<SyncLog>,
   ) {}
 
+  // id -> label map for the brand attribute. Refreshed at the start of
+  // every product sync so a supplier renamed in Magento shows the new
+  // name after the next full sync. Empty map means brand translation
+  // is unavailable (attribute missing or Magento call failed) — the
+  // sync will fall back to storing the raw attribute value.
+  private brandOptions: Map<string, string> = new Map();
+  // Attribute code we read the brand from. Magento default is
+  // `manufacturer`; some stores use `brand`. loadBrandOptions() probes
+  // both and locks in whichever one has options defined.
+  private brandAttributeCode: string | null = null;
+
+  private async loadBrandOptions(): Promise<void> {
+    const candidates = ['manufacturer', 'brand'];
+    for (const code of candidates) {
+      const options = await this.magentoService.fetchAttributeOptions(code);
+      if (options.length > 0) {
+        this.brandOptions = new Map(
+          options
+            .filter((o) => o.value && o.label)
+            .map((o) => [String(o.value), String(o.label)]),
+        );
+        this.brandAttributeCode = code;
+        this.logger.log(
+          `Brand attribute resolved: '${code}' with ${this.brandOptions.size} options`,
+        );
+        return;
+      }
+    }
+    this.brandOptions = new Map();
+    this.brandAttributeCode = null;
+    this.logger.warn(
+      'No brand attribute found on Magento (tried: manufacturer, brand). Products will sync without brand.',
+    );
+  }
+
   async testConnection(): Promise<{ success: boolean; message: string; productCount?: number }> {
     return this.magentoService.testConnection();
   }
@@ -236,6 +271,11 @@ export class SyncService {
     let productsUpdated = 0;
 
     try {
+      // Cache the brand attribute id→label map once per sync so we can
+      // translate the manufacturer/brand option id into a human label
+      // per product below.
+      await this.loadBrandOptions();
+
       const magentoProducts = await this.magentoService.fetchAllProducts();
 
       // First pass: sync all products
@@ -325,6 +365,22 @@ export class SyncService {
       : null;
     const shortDescription = this.getCustomAttribute(magentoProd, 'short_description') || null;
 
+    // Brand / wholesaler — read the raw value from whichever attribute
+    // loadBrandOptions() locked in, then translate the option id via
+    // the cached map. If the attribute is text-type or the id isn't in
+    // the map, keep the raw value; falls back to null when missing.
+    let brand: string | null = null;
+    if (this.brandAttributeCode) {
+      const rawBrand = this.getCustomAttribute(
+        magentoProd,
+        this.brandAttributeCode,
+      );
+      if (rawBrand != null && rawBrand !== '') {
+        const key = String(rawBrand);
+        brand = this.brandOptions.get(key) || key;
+      }
+    }
+
     // Stock from extension_attributes (this Magento returns stock_quantity as a number)
     const extAttrs = magentoProd.extension_attributes;
     let stockQty = 0;
@@ -359,6 +415,7 @@ export class SyncService {
       product.thumbnailUrl = thumbnailUrl;
       product.isInStock = isInStock;
       product.stockQty = stockQty;
+      product.brand = brand;
       product.isActive = isActive;
       product.syncedAt = new Date();
     } else {
@@ -379,6 +436,7 @@ export class SyncService {
         thumbnailUrl,
         isInStock,
         stockQty,
+        brand,
         isActive,
         syncedAt: new Date(),
       });

@@ -141,6 +141,7 @@ export class ProductsController {
           // Cost — used by the cart to warn when a trade discount drops
           // the unit price below cost+30% (the minimum margin guard).
           cost: p.cost != null ? parseFloat(p.cost.toString()) : null,
+          brand: p.brand || null,
           stockQty: p.stockQty,
           isInStock: p.isInStock,
           imageUrl: p.imageUrl,
@@ -314,6 +315,7 @@ export class ProductsController {
             ? parseFloat(product.specialPrice.toString())
             : null,
           cost: product.cost != null ? parseFloat(product.cost.toString()) : null,
+          brand: product.brand || null,
           specialPriceFrom: product.specialPriceFrom,
           specialPriceTo: product.specialPriceTo,
           isOnSale: product.isOnSale,

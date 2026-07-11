@@ -253,6 +253,36 @@ export class MagentoService {
     }
   }
 
+  // Fetch the option list for a Magento product attribute (e.g.
+  // `manufacturer` or `brand`). Custom select-type attributes come back
+  // on each product as numeric option ids — this endpoint lets us build
+  // an id→label map so the sync can store the human name ("Havit") on
+  // Product.brand instead of the meaningless id.
+  async fetchAttributeOptions(
+    attributeCode: string,
+  ): Promise<Array<{ value: string; label: string }>> {
+    const token = await this.getAdminToken();
+    try {
+      const response = await this.httpClient.get(
+        `/rest/V1/products/attributes/${encodeURIComponent(attributeCode)}/options`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 30000,
+        },
+      );
+      return Array.isArray(response.data) ? response.data : [];
+    } catch (error: any) {
+      // 404 = attribute doesn't exist on this store. Not fatal — the
+      // sync just skips brand translation for products that carry a raw
+      // string value instead of an option id.
+      if (error?.response?.status === 404) return [];
+      this.logger.warn(
+        `Failed to fetch options for attribute '${attributeCode}': ${error?.message || error}`,
+      );
+      return [];
+    }
+  }
+
   async fetchProducts(
     pageSize: number = 100,
     currentPage: number = 1,

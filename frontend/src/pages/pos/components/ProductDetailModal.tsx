@@ -27,6 +27,7 @@ interface ProductDetailModalProps {
     stockQty: number;
     isInStock: boolean;
     thumbnailUrl: string | null;
+    brand?: string | null;
   };
   // Trade auto-discount % keyed by productId, shared from POSPage so the
   // detail modal can render the same yellow "Trade $X" tag as the grid card.
@@ -164,7 +165,14 @@ export default function ProductDetailModal({
             <ArrowLeftIcon className="h-5 w-5" /> Back
           </button>
           <div className="flex-1 px-6">
-            <p className="text-xs text-gray-400 font-mono">{product.sku}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-xs text-gray-400 font-mono">{product.sku}</p>
+              {(detail?.brand || fallbackProduct.brand) && (
+                <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-primary-500/20 text-primary-300 border border-primary-500/40">
+                  {detail?.brand || fallbackProduct.brand}
+                </span>
+              )}
+            </div>
             <h2 className="text-xl font-bold mt-1">{product.name}</h2>
             <div className="flex items-center gap-3 mt-2">
               {onSale ? (

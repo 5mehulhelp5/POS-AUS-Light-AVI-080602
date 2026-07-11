@@ -20,6 +20,10 @@ export interface Product {
   // Wholesale cost from Magento — used by the cart to warn when a trade
   // discount drops the unit price below cost + 30% (the minimum margin).
   cost?: number | null;
+  // Brand / wholesaler name from Magento's manufacturer attribute (e.g.
+  // "Havit"). Shown on the product detail modal so staff know which
+  // supplier to reach when they need to reorder.
+  brand?: string | null;
   stockQty: number;
   isInStock: boolean;
   imageUrl: string | null;

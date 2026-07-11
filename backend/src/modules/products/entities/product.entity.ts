@@ -94,6 +94,14 @@ export class Product {
   @Column({ type: 'varchar', length: 100, nullable: true })
   barcode: string | null;
 
+  // Brand / wholesaler name (e.g. "Havit", "Domus"). Populated by the
+  // Magento sync from the `manufacturer` / `brand` attribute — the sync
+  // caches the attribute options map so we store the human label, not
+  // the numeric option id.
+  @Index()
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  brand: string | null;
+
   @Column({
     name: 'product_type',
     type: 'enum',
