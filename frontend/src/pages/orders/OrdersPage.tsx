@@ -387,7 +387,7 @@ export default function OrdersPage() {
     });
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, hasExchange = false) => {
     const colors: Record<string, string> = {
       complete: 'bg-green-600',
       pending: 'bg-yellow-600',
@@ -404,6 +404,16 @@ export default function OrdersPage() {
       layby_expired: 'LAY BY EXPIRED',
       backorder_pending: 'BACKORDER',
     };
+    // If the order was exchanged (has a replacement pointing at it), the
+    // badge reads EXCHANGED instead of REFUNDED / PARTIAL REFUND — same
+    // color scale (cyan) so it's visually distinct from a plain refund.
+    if (hasExchange && (status === 'refunded' || status === 'refund_in_process')) {
+      return (
+        <span className="px-2 py-1 rounded text-xs font-medium whitespace-nowrap bg-cyan-600">
+          EXCHANGED
+        </span>
+      );
+    }
     return (
       <span className={`px-2 py-1 rounded text-xs font-medium whitespace-nowrap ${colors[status] || 'bg-gray-600'}`}>
         {labels[status] || status.toUpperCase()}
@@ -675,9 +685,16 @@ export default function OrdersPage() {
                         <span>{order.customer.firstName} {order.customer.lastName}</span>
                         {order.customer.isTrade && (
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-orange-600/30 text-orange-300 border border-orange-500/40">
-                            Trade
+                            TRADE
                           </span>
                         )}
+                      </span>
+                    ) : (order as any).customerNameSnapshot ? (
+                      <span className="flex items-center gap-2">
+                        <span>{(order as any).customerNameSnapshot}</span>
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase bg-gray-600/40 text-gray-300 border border-gray-500/40">
+                          WALK-IN
+                        </span>
                       </span>
                     ) : (
                       'Walk-in'
@@ -685,7 +702,12 @@ export default function OrdersPage() {
                   </td>
                   <td className="px-4 py-3">{order.itemCount}</td>
                   <td className="px-4 py-3 font-medium">${order.grandTotal.toFixed(2)}</td>
-                  <td className="px-4 py-3">{getStatusBadge(order.status)}</td>
+                  <td className="px-4 py-3">
+                    {getStatusBadge(
+                      order.status,
+                      !!(order as any).hasExchange,
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-sm text-gray-400">{formatDate(order.createdAt)}</td>
                   <td className="px-4 py-3">{order.user.firstName}</td>
                   <td className="px-4 py-3">
@@ -1003,26 +1025,63 @@ export default function OrdersPage() {
                   {/* vertical line */}
                   <div className="absolute left-1.5 top-1 bottom-1 w-px bg-gray-700" />
 
-                  {/* Exchange cross-links */}
-                  {selectedOrder.exchangedToOrders?.length > 0 && (
-                    <div className="relative">
+                  {/* Exchange cross-links — expanded to show the items
+                      that were swapped, not just the linked order
+                      numbers. "Original had X, exchanged for Y" is the
+                      question staff want answered when they open an
+                      exchanged order. */}
+                  {selectedOrder.exchangedToOrders?.map((e: any) => (
+                    <div key={`to-${e.id}`} className="relative">
                       <div className="absolute -left-[14px] top-1.5 h-2.5 w-2.5 rounded-full bg-cyan-400 ring-2 ring-pos-card" />
                       <div className="bg-cyan-500/10 border border-cyan-500/30 rounded p-3 text-sm text-cyan-200">
-                        Exchanged to{' '}
-                        {selectedOrder.exchangedToOrders
-                          .map((e: any) => e.orderNumber)
-                          .join(', ')}
+                        <div className="font-semibold mb-1">
+                          Exchanged for {e.orderNumber}
+                        </div>
+                        {e.items && e.items.length > 0 && (
+                          <ul className="text-xs space-y-0.5 text-cyan-100">
+                            {e.items.map((it: any) => (
+                              <li key={it.id}>
+                                {it.quantity}× {it.name}
+                                <span className="text-cyan-300/70">
+                                  {' '}
+                                  · {it.sku} · ${Number(it.unitPrice).toFixed(2)}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                     </div>
-                  )}
+                  ))}
                   {selectedOrder.exchangeFromOrder && (
                     <div className="relative">
                       <div className="absolute -left-[14px] top-1.5 h-2.5 w-2.5 rounded-full bg-cyan-400 ring-2 ring-pos-card" />
                       <div className="bg-cyan-500/10 border border-cyan-500/30 rounded p-3 text-sm text-cyan-200">
-                        Exchange for order{' '}
-                        <span className="font-semibold">
-                          {selectedOrder.exchangeFromOrder.orderNumber}
-                        </span>
+                        <div className="font-semibold mb-1">
+                          Replacement for {selectedOrder.exchangeFromOrder.orderNumber}
+                        </div>
+                        {selectedOrder.exchangeFromOrder.items &&
+                          selectedOrder.exchangeFromOrder.items.length > 0 && (
+                            <>
+                              <div className="text-xs mb-1 text-cyan-300/80">
+                                Returned:
+                              </div>
+                              <ul className="text-xs space-y-0.5 text-cyan-100">
+                                {selectedOrder.exchangeFromOrder.items.map(
+                                  (it: any) => (
+                                    <li key={it.id}>
+                                      {it.quantity}× {it.name}
+                                      <span className="text-cyan-300/70">
+                                        {' '}
+                                        · {it.sku} · $
+                                        {Number(it.unitPrice).toFixed(2)}
+                                      </span>
+                                    </li>
+                                  ),
+                                )}
+                              </ul>
+                            </>
+                          )}
                       </div>
                     </div>
                   )}
@@ -1224,16 +1283,9 @@ export default function OrdersPage() {
               </div>
             </div>
 
-            {/* Credit destination banner */}
-            <div className="bg-blue-500/10 border border-blue-500/40 text-blue-300 rounded-lg p-3 mb-6 text-sm">
-              The refund total will be issued as <strong>store credit</strong> to{' '}
-              <strong>
-                {refundOrder.customer
-                  ? `${refundOrder.customer.firstName} ${refundOrder.customer.lastName}`
-                  : '—'}
-              </strong>
-              . No cash back. Credit can be used in-store.
-            </div>
+            {/* Credit destination banner removed per client request —
+                the "Refund method" toggle above already shows where the
+                refund goes. */}
 
             {/* Items */}
             <div className="mb-6">

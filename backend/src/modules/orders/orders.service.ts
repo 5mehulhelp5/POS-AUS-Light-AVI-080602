@@ -78,6 +78,9 @@ interface CreateOrderDto {
     amountTendered?: number;
   }>;
   notes?: string;
+  // Optional name to snapshot on walk-in orders that have no customer FK.
+  // Ignored when customerId is set.
+  customerName?: string;
   // Layby options. When `orderType === 'layby'`, the sum of payments
   // is treated as a deposit rather than the full grand total. The
   // remainder is owed by the customer and collected via
@@ -533,6 +536,14 @@ export class OrdersService {
         paymentStatus: initialPaymentStatus,
         syncStatus: OrderSyncStatus.PENDING,
         notes: dto.notes || null,
+        // Walk-in orders can still carry a customer name (e.g. "John"
+        // typed by the cashier) even without a Customer FK. When
+        // customerId is set the linked row is authoritative, so we
+        // only snapshot when no customerId was provided.
+        customerNameSnapshot:
+          !dto.customerId && dto.customerName
+            ? String(dto.customerName).trim().slice(0, 200) || null
+            : null,
         orderType: isLayby ? OrderType.LAYBY : OrderType.STANDARD,
         laybyExpiresAt,
         deliveryType,
@@ -835,26 +846,69 @@ export class OrdersService {
     });
   }
 
+  // Batch lookup: given a set of order ids, return the subset that
+  // have at least one exchange-replacement order pointing back at them
+  // (i.e. these are originals that got exchanged). Used by the orders
+  // list to swap the REFUNDED badge for EXCHANGED without an N+1.
+  async findExchangedOriginals(orderIds: number[]): Promise<number[]> {
+    if (!orderIds.length) return [];
+    const rows = await this.orderRepository
+      .createQueryBuilder('o')
+      .select('DISTINCT o.exchangeFromOrderId', 'id')
+      .where('o.exchangeFromOrderId IN (:...ids)', { ids: orderIds })
+      .getRawMany();
+    return rows
+      .map((r) => Number(r.id))
+      .filter((id) => Number.isFinite(id));
+  }
+
   // Exchange cross-links for an order: the original it was exchanged
   // FROM (if this is a replacement), and any replacement orders created
-  // FROM it (if this is the original that was returned).
+  // FROM it (if this is the original that was returned). Each link
+  // includes the items array so the UI can show WHAT was swapped for
+  // what, not just the order numbers.
   async getExchangeLinks(order: Order): Promise<{
-    exchangeFromOrder: { id: number; orderNumber: string } | null;
-    exchangedToOrders: Array<{ id: number; orderNumber: string }>;
+    exchangeFromOrder: {
+      id: number;
+      orderNumber: string;
+      items: Array<{ id: number; sku: string; name: string; quantity: number; unitPrice: number }>;
+    } | null;
+    exchangedToOrders: Array<{
+      id: number;
+      orderNumber: string;
+      items: Array<{ id: number; sku: string; name: string; quantity: number; unitPrice: number }>;
+    }>;
   }> {
-    let exchangeFromOrder: { id: number; orderNumber: string } | null = null;
+    const toItemSummary = (o: Order) =>
+      (o.items || []).map((i) => ({
+        id: i.id,
+        sku: i.sku,
+        name: i.name,
+        quantity: i.quantity,
+        unitPrice: Number(i.unitPrice),
+      }));
+
+    let exchangeFromOrder: {
+      id: number;
+      orderNumber: string;
+      items: ReturnType<typeof toItemSummary>;
+    } | null = null;
     if (order.exchangeFromOrderId) {
       const from = await this.orderRepository.findOne({
         where: { id: order.exchangeFromOrderId },
-        select: ['id', 'orderNumber'],
+        relations: ['items'],
       });
       if (from) {
-        exchangeFromOrder = { id: from.id, orderNumber: from.orderNumber };
+        exchangeFromOrder = {
+          id: from.id,
+          orderNumber: from.orderNumber,
+          items: toItemSummary(from),
+        };
       }
     }
     const to = await this.orderRepository.find({
       where: { exchangeFromOrderId: order.id },
-      select: ['id', 'orderNumber'],
+      relations: ['items'],
       order: { id: 'ASC' },
     });
     return {
@@ -862,6 +916,7 @@ export class OrdersService {
       exchangedToOrders: to.map((o) => ({
         id: o.id,
         orderNumber: o.orderNumber,
+        items: toItemSummary(o),
       })),
     };
   }

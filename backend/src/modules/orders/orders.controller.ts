@@ -54,6 +54,17 @@ export class OrdersController {
       limit,
     });
 
+    // Batch-detect which orders on this page were exchanged (i.e. have
+    // at least one replacement order pointing back at them). One extra
+    // DB round-trip per page — the list badge then flips "REFUNDED"
+    // -> "EXCHANGED" without a per-row query.
+    const exchangedIds = new Set<number>(
+      orders.length > 0
+        ? await this.ordersService
+            .findExchangedOriginals(orders.map((o) => o.id))
+        : [],
+    );
+
     return {
       success: true,
       data: {
@@ -71,6 +82,8 @@ export class OrdersController {
                 isTrade: o.customer.isTrade,
               }
             : null,
+          customerNameSnapshot: o.customerNameSnapshot,
+          hasExchange: exchangedIds.has(o.id),
           user: {
             id: o.user.id,
             firstName: o.user.firstName,
@@ -149,10 +162,9 @@ export class OrdersController {
   }
 
   @Patch(':id/customer')
-  @UseGuards(RolesGuard)
-  @Roles(RoleNames.ADMIN, RoleNames.MANAGER)
   @ApiOperation({
-    summary: 'Link a customer to an existing order (e.g. a walk-in) so store credit can be issued on refund',
+    summary:
+      'Link a customer to an existing order (e.g. a walk-in) so store credit can be issued on refund. Any signed-in staff can link — no role restriction.',
   })
   async linkCustomer(
     @Param('id', ParseIntPipe) id: number,

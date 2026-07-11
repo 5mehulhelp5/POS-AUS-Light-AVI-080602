@@ -308,18 +308,17 @@ export default function PaymentModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [buyerType, cart.customerIsTrade, tradeCartIdsKey, dispatch]);
 
-  // Snap the deposit input to the live minimum whenever the cart split
-  // changes. Without this, the field keeps a stale value (e.g. cashier
-  // changes layby qty and the box still shows the old $880 deposit
-  // instead of the new $489 minimum). If the cashier wants to take a
-  // bigger deposit, they re-type AFTER making qty changes.
+  // Default the deposit to the FULL cart total whenever the cart split
+  // changes — most customers pay in full at pickup, so pre-filling the
+  // full amount saves a keystroke. The cashier can drop it down (the
+  // "min $X" label below is red to make the floor obvious).
   useEffect(() => {
     if (isDepositOrder) {
-      setLaybyDeposit(minDepositForOrder.toFixed(2));
+      setLaybyDeposit(total.toFixed(2));
     } else {
       setLaybyDeposit('');
     }
-  }, [isDepositOrder, minDepositForOrder]);
+  }, [isDepositOrder, total]);
 
   // Fetch store credit balance when a customer is attached to the cart
   useEffect(() => {
@@ -546,8 +545,19 @@ export default function PaymentModal({
           }
         }
 
+        // Snapshot the customer name onto the order so walk-in orders
+        // (no customer FK) still surface a name in the Orders list
+        // instead of just "Walk-in". Ignored server-side when
+        // customerId is set — the linked Customer row wins.
+        const nameSnapshot =
+          buyerType === 'retail'
+            ? tradeCompanyName.trim() ||
+              [tradeFirstName, tradeLastName].filter(Boolean).join(' ').trim()
+            : (customerName.trim() ||
+                (walkIn ? '' : ''));
         const orderData = {
           customerId: customerIdToUse,
+          customerName: nameSnapshot || undefined,
           orderType: isLayby ? 'layby' : 'standard',
           // Tell the server when the cashier explicitly marked this as a
           // trade order via the PaymentModal Trade button. Server uses
@@ -641,7 +651,8 @@ export default function PaymentModal({
         orderNumber,
         date: new Date().toISOString(),
         buyerType,
-        customerName: walkIn ? 'Walk-in Customer' : (customerName.trim() || undefined),
+        customerName:
+          customerName.trim() || (walkIn ? 'Walk-in Customer' : undefined),
         customerPhone: customerPhone.trim() || undefined,
         customerEmail: customerEmail.trim() || undefined,
         customerAddress: [customerStreet, customerCity, customerState, customerPostcode].filter(s => s.trim()).join(', ') || undefined,
@@ -913,15 +924,37 @@ export default function PaymentModal({
               : 'Registered customer - invoice with account details'}
           </p>
           {buyerType === 'customer' && (
-            <label className="flex items-center gap-2 mt-3 text-sm">
-              <input
-                type="checkbox"
-                checked={walkIn}
-                onChange={(e) => setWalkIn(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-600 bg-gray-700"
-              />
-              <span className="text-gray-300">Walk-in (skip customer details)</span>
-            </label>
+            <div className="mt-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={walkIn}
+                  onChange={(e) => setWalkIn(e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-600 bg-gray-700"
+                />
+                <span className="text-gray-300">
+                  Walk-in (skip full customer details)
+                </span>
+              </label>
+              {/* Even for a walk-in we let the cashier type a name so the
+                  order list, invoice, and later refunds don't just read
+                  "Walk-in". Optional — leave blank and it defaults to
+                  "Walk-in Customer". */}
+              {walkIn && (
+                <div className="mt-2">
+                  <label className="block text-xs text-gray-400 mb-1">
+                    Customer Name (optional)
+                  </label>
+                  <input
+                    type="text"
+                    className="input text-sm"
+                    placeholder="e.g. John Smith"
+                    value={customerName}
+                    onChange={(e) => setCustomerName(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -1313,6 +1346,14 @@ export default function PaymentModal({
           const canLayby = hasLinkedCustomer || hasAdHocCustomer;
           return (
         <div className="mb-6 p-3 rounded-lg border border-amber-500/40 bg-amber-500/5">
+          {/* Rule reminder — sits above the checkbox so cashiers see
+              the deposit floor before they even tick Lay By. */}
+          {(hasBackorderLine || hasLaybyHeldLine) && (
+            <p className="text-xs font-semibold text-cyan-300 mb-2 uppercase tracking-wide">
+              Take-now items must be paid in full · minimum {LAYBY_DEPOSIT_PERCENT}%
+              deposit on the items left behind
+            </p>
+          )}
           <label className="flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
@@ -1330,16 +1371,10 @@ export default function PaymentModal({
                 : '(fill in customer name + phone, or pick an existing customer)'}
             </span>
           </label>
-          {(hasBackorderLine || hasLaybyHeldLine) && !isLayby && (
-            <p className="text-xs text-cyan-300 mt-2">
-              Take-now items must be paid in full; a minimum {LAYBY_DEPOSIT_PERCENT}%
-              deposit is required on the items left behind.
-            </p>
-          )}
           {isDepositOrder && (
             <div className="mt-3 grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-gray-400 mb-1">
+                <label className="block text-xs text-red-400 font-semibold mb-1">
                   Deposit (min ${minDepositForOrder.toFixed(2)}
                   {canOverrideDeposit ? ', manager can drop to $0' : ''})
                 </label>

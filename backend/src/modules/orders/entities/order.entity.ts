@@ -176,6 +176,18 @@ export class Order {
   @Column({ type: 'text', nullable: true })
   notes: string | null;
 
+  // Snapshot of the customer name at order time. Populated for walk-in
+  // orders (no customer FK) so the orders list can still show a name
+  // instead of just "Walk-in". Ignored when customerId is set — the
+  // linked Customer row is the source of truth in that case.
+  @Column({
+    name: 'customer_name_snapshot',
+    type: 'varchar',
+    length: 200,
+    nullable: true,
+  })
+  customerNameSnapshot: string | null;
+
   @Index()
   @Column({
     type: 'enum',
