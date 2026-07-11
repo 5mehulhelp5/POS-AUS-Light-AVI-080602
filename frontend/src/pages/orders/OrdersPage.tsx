@@ -69,7 +69,7 @@ const FILTER_OPTIONS: { value: FilterOption; label: string }[] = [
   { value: 'backorder_pending', label: 'Backorder Pending' },
   { value: 'complete', label: 'Completed' },
   { value: 'pending', label: 'Pending' },
-  { value: 'refund_in_process', label: 'Refund In Process' },
+  { value: 'refund_in_process', label: 'Partial Refund' },
   { value: 'refunded', label: 'Refunded' },
   { value: 'cancelled', label: 'Cancelled' },
 ];
@@ -399,7 +399,7 @@ export default function OrdersPage() {
       backorder_pending: 'bg-cyan-700',
     };
     const labels: Record<string, string> = {
-      refund_in_process: 'REFUND IN PROCESS',
+      refund_in_process: 'PARTIAL REFUND',
       layby_active: 'LAY BY',
       layby_expired: 'LAY BY EXPIRED',
       backorder_pending: 'BACKORDER',
@@ -1423,7 +1423,7 @@ export default function OrdersPage() {
             <div className="flex justify-between items-center border-t border-gray-700 pt-4">
               <div>
                 <p className="text-sm text-gray-400">
-                  Refund total ({refundAsCash || !refundOrder.customer ? 'cash' : 'store credit'})
+                  Refund total
                   {refundRestockingFee && ' — after 20% fee'}
                 </p>
                 <p className="text-2xl font-bold text-orange-400">
@@ -1454,14 +1454,18 @@ export default function OrdersPage() {
                       : 'Return to store credit and ring the replacement'
                   }
                 >
-                  Refund &amp; Exchange
+                  {refundAsCash ? 'Refund & Exchange' : 'Refund Credits & Exchange'}
                 </button>
                 <button
                   className="btn-primary bg-orange-600 hover:bg-orange-700"
                   onClick={() => processRefund(false)}
                   disabled={isProcessingRefund || refundTotal === 0}
                 >
-                  {isProcessingRefund ? 'Processing...' : 'Process Refund'}
+                  {isProcessingRefund
+                    ? 'Processing...'
+                    : refundAsCash
+                      ? 'Process Refund'
+                      : 'Refund Credits'}
                 </button>
               </div>
             </div>

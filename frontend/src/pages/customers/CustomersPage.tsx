@@ -888,7 +888,7 @@ export default function CustomersPage() {
                                   backorder_pending: 'bg-cyan-700',
                                 };
                                 const labels: Record<string, string> = {
-                                  refund_in_process: 'REFUND IN PROCESS',
+                                  refund_in_process: 'PARTIAL REFUND',
                                   layby_active: 'LAY BY',
                                   layby_expired: 'LAY BY EXPIRED',
                                   backorder_pending: 'BACKORDER',
