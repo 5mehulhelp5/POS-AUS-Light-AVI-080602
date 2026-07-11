@@ -86,7 +86,10 @@ export default function AddressAutocomplete({
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const autocompleteRef = useRef<any>(null);
-  const apiKey = import.meta.env.VITE_GOOGLE_PLACES_API_KEY as
+  // Vite's import.meta.env is untyped in this project (no vite-env.d.ts).
+  // The cast keeps this component self-contained without adding a global
+  // types file.
+  const apiKey = (import.meta as any).env?.VITE_GOOGLE_PLACES_API_KEY as
     | string
     | undefined;
 
