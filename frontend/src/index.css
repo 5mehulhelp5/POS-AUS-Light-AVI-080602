@@ -2,6 +2,37 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Google Places autocomplete suggestion dropdown. It's appended to
+   document.body, so it inherits no modal stacking context — force a
+   z-index higher than our modals (z-50 / z-60) and style it to fit the
+   dark theme. Without this, the suggestions render behind the payment
+   modal and it looks like autocomplete is dead. */
+.pac-container {
+  z-index: 99999 !important;
+  background: #1a1a2e;
+  border: 1px solid #0f3460;
+  border-radius: 6px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  font-family: inherit;
+}
+.pac-item {
+  color: #e8e8e8;
+  padding: 8px 12px;
+  cursor: pointer;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+.pac-item:hover,
+.pac-item-selected {
+  background: #0f3460;
+}
+.pac-item-query,
+.pac-matched {
+  color: #ffffff;
+}
+.pac-icon {
+  filter: invert(0.7);
+}
+
 /* Base styles */
 :root {
   --pos-bg: #1a1a2e;

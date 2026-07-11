@@ -94,11 +94,28 @@ export default function AddressAutocomplete({
     | undefined;
 
   useEffect(() => {
-    if (!apiKey || !inputRef.current) return;
+    if (!inputRef.current) return;
+    if (!apiKey) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        '[AddressAutocomplete] VITE_GOOGLE_PLACES_API_KEY is not set. ' +
+          'Street Address falls back to a plain input. Add the key to ' +
+          'frontend/.env.production and rebuild the frontend.',
+      );
+      return;
+    }
     let cancelled = false;
     loadGooglePlacesSDK(apiKey)
       .then(() => {
-        if (cancelled || !inputRef.current || !window.google?.maps?.places) {
+        if (cancelled || !inputRef.current) return;
+        if (!window.google?.maps?.places?.Autocomplete) {
+          // eslint-disable-next-line no-console
+          console.warn(
+            '[AddressAutocomplete] Google Places SDK loaded but ' +
+              'google.maps.places.Autocomplete is unavailable. Newer Google ' +
+              'Cloud projects (post March 2025) may need the new ' +
+              'PlaceAutocompleteElement instead.',
+          );
           return;
         }
         const ac = new window.google.maps.places.Autocomplete(
@@ -118,8 +135,15 @@ export default function AddressAutocomplete({
         });
         autocompleteRef.current = ac;
       })
-      .catch(() => {
-        // Silent fallback — input becomes a plain text field.
+      .catch((err) => {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[AddressAutocomplete] Failed to load Google Places SDK. ' +
+            'Check the API key, that Places API + Maps JavaScript API are ' +
+            'enabled, and that the HTTP referrer restriction includes this ' +
+            'origin.',
+          err,
+        );
       });
     return () => {
       cancelled = true;
