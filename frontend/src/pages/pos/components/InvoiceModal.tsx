@@ -17,8 +17,12 @@ const COMPANY = {
   account: '21502941',
 };
 
-const ORANGE = '#E07A18';
+// Invoice is fully monochrome per client request — the wordmark, date,
+// and balance all render in INK. ORANGE is kept as an alias pointing to
+// INK so any downstream use resolves to black without renaming every
+// call site.
 const INK = '#111827';
+const ORANGE = INK;
 const MUTED = '#6b7280';
 const RULE = '#e5e7eb';
 
