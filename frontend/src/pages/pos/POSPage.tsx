@@ -32,6 +32,7 @@ import CartPanel from './components/CartPanel';
 import PaymentModal from './components/PaymentModal';
 import ProductDetailModal from './components/ProductDetailModal';
 import OrderReviewModal, { OrderReviewSelections } from './components/OrderReviewModal';
+import StripCutModal from './components/StripCutModal';
 
 // View mode: categories → subcategories → products
 type ViewMode = 'categories' | 'subcategories' | 'products';
@@ -97,6 +98,10 @@ export default function POSPage() {
   const [reviewSelections, setReviewSelections] = useState<OrderReviewSelections | null>(null);
   const [detailProduct, setDetailProduct] = useState<any>(null);
   const [showCustomItem, setShowCustomItem] = useState(false);
+  // LED Strip Lights calculator modal — opened from a virtual category
+  // tile on the home screen; on Send, each strip line is pushed into
+  // the main cart as a custom item.
+  const [showStripCut, setShowStripCut] = useState(false);
   const [customItemName, setCustomItemName] = useState('');
   const [customItemPrice, setCustomItemPrice] = useState('');
   const [customItemSku, setCustomItemSku] = useState('');
@@ -670,6 +675,15 @@ export default function POSPage() {
               >
                 <div className="text-white font-semibold text-lg">All Products</div>
               </button>
+              {/* Virtual tile — opens the cut-to-length LED strip
+                  calculator instead of a normal product list. Kept
+                  next to All Products so it's easy to find. */}
+              <button
+                className="bg-gradient-to-br from-amber-500 to-amber-700 rounded-xl p-6 text-center hover:from-amber-400 hover:to-amber-600 transition-all shadow-lg"
+                onClick={() => setShowStripCut(true)}
+              >
+                <div className="text-white font-semibold text-lg">LED Strip Lights</div>
+              </button>
               {categories.map((cat) => (
                 <button
                   key={cat.id}
@@ -838,6 +852,27 @@ export default function POSPage() {
           onComplete={() => {
             setShowPayment(false);
             dispatch(clearCart());
+          }}
+        />
+      )}
+
+      {/* Strip Cut Counter — cut-to-length LED strip calculator. On
+          Send, each order line is pushed into the main cart as a custom
+          item (negative productId, same code path as Custom Item). */}
+      {showStripCut && (
+        <StripCutModal
+          onClose={() => setShowStripCut(false)}
+          onSendToCart={(lines) => {
+            lines.forEach((l, i) => {
+              dispatch(
+                addItem({
+                  productId: -(Date.now() + i),
+                  sku: l.sku,
+                  name: l.name,
+                  price: l.price,
+                }),
+              );
+            });
           }}
         />
       )}
