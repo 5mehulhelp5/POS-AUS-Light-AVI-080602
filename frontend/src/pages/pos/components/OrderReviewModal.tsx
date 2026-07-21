@@ -107,8 +107,67 @@ export default function OrderReviewModal({
                 <th className="px-3 py-2 text-center text-gray-300 w-16">Qty</th>
                 <th className="px-3 py-2 text-right text-gray-300 w-24">Unit</th>
                 <th className="px-3 py-2 text-right text-gray-300 w-24">Line Total</th>
-                <th className="px-3 py-2 text-center text-gray-300 w-44">Backorder</th>
-                <th className="px-3 py-2 text-center text-gray-300 w-44">Lay By Held</th>
+                {/* Column headers double as select-all toggles. Mutually
+                    exclusive: ticking Backorder-all clears Lay By on
+                    every line and vice-versa (mirrors per-row rule). */}
+                <th className="px-3 py-2 text-center text-gray-300 w-44">
+                  <div className="flex items-center justify-center gap-1.5">
+                    {(() => {
+                      const selected = items.filter(
+                        (i) => backorder[i.productId],
+                      ).length;
+                      const all = selected === items.length && items.length > 0;
+                      const some = selected > 0 && !all;
+                      return (
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4"
+                          title="Mark every line as Backorder"
+                          checked={all}
+                          ref={(el) => {
+                            if (el) el.indeterminate = some;
+                          }}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            items.forEach((it) =>
+                              toggleBackorder(it.productId, it.quantity, on),
+                            );
+                          }}
+                        />
+                      );
+                    })()}
+                    <span>Backorder</span>
+                  </div>
+                </th>
+                <th className="px-3 py-2 text-center text-gray-300 w-44">
+                  <div className="flex items-center justify-center gap-1.5">
+                    {(() => {
+                      const selected = items.filter(
+                        (i) => layby[i.productId],
+                      ).length;
+                      const all = selected === items.length && items.length > 0;
+                      const some = selected > 0 && !all;
+                      return (
+                        <input
+                          type="checkbox"
+                          className="w-4 h-4"
+                          title="Mark every line as Lay By Held"
+                          checked={all}
+                          ref={(el) => {
+                            if (el) el.indeterminate = some;
+                          }}
+                          onChange={(e) => {
+                            const on = e.target.checked;
+                            items.forEach((it) =>
+                              toggleLayby(it.productId, it.quantity, on),
+                            );
+                          }}
+                        />
+                      );
+                    })()}
+                    <span>Lay By Held</span>
+                  </div>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-700">

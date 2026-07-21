@@ -50,6 +50,10 @@ export function buildInvoiceData(o: any, fallbackCustomer?: any) {
     cartDiscount: 0,
     taxAmount: parseFloat(o.taxAmount || 0),
     grandTotal: parseFloat(o.grandTotal),
+    // Re-prints of orders that included a delivery fee should show the
+    // freight row on the invoice, same as the original print did.
+    deliveryFee: o.deliveryFee != null ? parseFloat(o.deliveryFee) : 0,
+    deliveryType: o.deliveryType || undefined,
     paymentMethod: firstPayment?.method || 'eftpos',
     salesPerson: userName,
     notes: o.notes || undefined,

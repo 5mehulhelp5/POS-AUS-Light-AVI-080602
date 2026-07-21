@@ -497,7 +497,7 @@ export default function OrdersPage() {
       setLaybyPayMethod('eftpos');
       setLaybyPayRef('');
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Failed to load layby balance');
+      toast.error(err?.response?.data?.message || 'Failed to load Lay By balance');
     }
   };
 
@@ -517,7 +517,7 @@ export default function OrdersPage() {
       });
       const newStatus = res.data?.data?.order?.status;
       if (newStatus === 'complete') {
-        toast.success(`Layby ${laybyPayOrder.orderNumber} fully paid — marked complete`);
+        toast.success(`Lay By ${laybyPayOrder.orderNumber} fully paid — marked complete`);
       } else {
         toast.success(`Payment of $${amount.toFixed(2)} recorded`);
       }
@@ -542,11 +542,11 @@ export default function OrdersPage() {
     );
     try {
       await ordersApi.cancelLayby(order.id, { refundAsStoreCredit: refund });
-      toast.success(`Layby ${order.orderNumber} cancelled`);
+      toast.success(`Lay By ${order.orderNumber} cancelled`);
       fetchOrders();
       setSelectedOrder(null);
     } catch (err: any) {
-      toast.error(err?.response?.data?.message || 'Failed to cancel layby');
+      toast.error(err?.response?.data?.message || 'Failed to cancel Lay By');
     }
   };
 
@@ -1292,7 +1292,45 @@ export default function OrdersPage() {
               <table className="w-full text-sm">
                 <thead className="bg-pos-accent">
                   <tr>
-                    <th className="px-3 py-2 w-10"></th>
+                    {/* Header checkbox = select-all across refundable
+                        (non-exhausted) lines. Indeterminate when a
+                        mix is selected. */}
+                    <th className="px-3 py-2 w-10">
+                      {(() => {
+                        const eligible = refundItems.filter(
+                          (i) => i.remainingQty > 0,
+                        );
+                        const selectedCount = eligible.filter(
+                          (i) => i.selected,
+                        ).length;
+                        const allSelected =
+                          eligible.length > 0 &&
+                          selectedCount === eligible.length;
+                        const someSelected =
+                          selectedCount > 0 && !allSelected;
+                        return (
+                          <input
+                            type="checkbox"
+                            className="w-4 h-4"
+                            title="Select / deselect all refundable lines"
+                            checked={allSelected}
+                            ref={(el) => {
+                              if (el) el.indeterminate = someSelected;
+                            }}
+                            onChange={(e) => {
+                              const on = e.target.checked;
+                              setRefundItems((prev) =>
+                                prev.map((it) =>
+                                  it.remainingQty > 0
+                                    ? { ...it, selected: on }
+                                    : it,
+                                ),
+                              );
+                            }}
+                          />
+                        );
+                      })()}
+                    </th>
                     <th className="px-3 py-2 text-left">Item</th>
                     <th className="px-3 py-2 text-center w-20">Remaining</th>
                     <th className="px-3 py-2 text-center w-24">Refund Qty</th>

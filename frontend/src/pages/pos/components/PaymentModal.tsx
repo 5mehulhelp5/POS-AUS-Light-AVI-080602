@@ -343,6 +343,42 @@ export default function PaymentModal({
     }
   }, [useStoreCredit, storeCreditBalance, total]);
 
+  // Hydrate the customer-detail form from the cart-linked customer
+  // record on mount. Without this, if the cashier picked a saved
+  // customer in the CartPanel, the phone/email/address inputs land
+  // here blank — cashier has to retype what we already know. Only
+  // runs when a customerId is linked AND the corresponding field is
+  // still empty (so we never clobber typed changes).
+  useEffect(() => {
+    if (!cart.customerId) return;
+    let cancelled = false;
+    customersApi
+      .getCustomer(cart.customerId)
+      .then((r) => {
+        if (cancelled) return;
+        const c = r.data?.data?.customer || r.data?.data;
+        if (!c) return;
+        const digits = String(c.phone || '').replace(/\D/g, '').slice(0, 10);
+        if (digits && !customerPhone) setCustomerPhone(digits);
+        if (c.email && !customerEmail) setCustomerEmail(c.email);
+        if (c.billingStreet && !customerStreet) setCustomerStreet(c.billingStreet);
+        if (c.billingCity && !customerCity) setCustomerCity(c.billingCity);
+        if (c.billingState && !customerState) setCustomerState(c.billingState);
+        if (c.billingPostcode && !customerPostcode)
+          setCustomerPostcode(c.billingPostcode);
+        if (c.company && !tradeCompanyName) setTradeCompanyName(c.company);
+        if (c.firstName && !tradeFirstName) setTradeFirstName(c.firstName);
+        if (c.lastName && !tradeLastName) setTradeLastName(c.lastName);
+      })
+      .catch(() => {
+        // Silent — form stays empty, cashier types manually.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart.customerId]);
+
   // Delivery fee is added on top of the cart grand total (`total`
   // prop). Backend recomputes the same way, so the cashier's
   // displayed total and the server total agree.
@@ -527,7 +563,7 @@ export default function PaymentModal({
           const lastName = parts.join(' ') || null;
           const phoneDigits = customerPhone.trim().replace(/\D+/g, '');
           if (phoneDigits && phoneDigits.length !== 10) {
-            throw new Error('Phone must be exactly 10 digits to create a layby customer');
+            throw new Error('Phone must be exactly 10 digits to create a Lay By customer');
           }
           const created = await customersApi.createCustomer({
             firstName,
@@ -541,7 +577,7 @@ export default function PaymentModal({
           });
           customerIdToUse = created.data?.data?.customer?.id || null;
           if (!customerIdToUse) {
-            throw new Error('Could not create customer record for layby');
+            throw new Error('Could not create customer record for Lay By');
           }
         }
 
@@ -622,7 +658,7 @@ export default function PaymentModal({
         orderNumber = response.data.data.order.orderNumber;
         if (isLayby) {
           toast.success(
-            `Lay By ${orderNumber} created. Deposit $${depositDue.toFixed(2)} received. Balance $${(total - depositDue).toFixed(2)}.`,
+            `Lay By ${orderNumber} created. Deposit $${depositDue.toFixed(2)} received. Balance $${(totalWithDelivery - depositDue).toFixed(2)}.`,
           );
         } else {
           toast.success(`Order ${orderNumber} created successfully!`);
@@ -633,10 +669,13 @@ export default function PaymentModal({
       // For deposit orders, also pass the actual amount paid now + the
       // balance owing so the invoice can show a deposit/balance split
       // rather than claiming the whole total is paid.
-      const amountPaidNow = isDepositOrder ? depositDue : cart.grandTotal;
+      // Delivery fee is part of what the customer actually pays, so
+      // "paid now" for a non-deposit order must include it. Balance
+      // owing is computed against the same delivery-inclusive total.
+      const amountPaidNow = isDepositOrder ? depositDue : totalWithDelivery;
       const balanceOwing = Math.max(
         0,
-        Math.round((cart.grandTotal - amountPaidNow) * 100) / 100,
+        Math.round((totalWithDelivery - amountPaidNow) * 100) / 100,
       );
       // Tag each invoice line so the invoice template can group them
       // into "Taking home today" vs "On Lay By" vs "On Backorder".
@@ -662,7 +701,11 @@ export default function PaymentModal({
         itemDiscounts: cart.itemDiscounts,
         cartDiscount: cart.cartDiscountAmount,
         taxAmount: cart.taxAmount,
-        grandTotal: cart.grandTotal,
+        // Grand total on the printed invoice must include delivery so
+        // the customer receipt matches what was actually charged.
+        grandTotal: totalWithDelivery,
+        deliveryType,
+        deliveryFee: deliveryFeeApplied,
         paymentMethod: method,
         cashTendered: method === 'cash' ? cashAmount : undefined,
         change: method === 'cash' ? change : undefined,

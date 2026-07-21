@@ -29,10 +29,23 @@ export class ProductsService {
       .where('product.isActive = :isActive', { isActive: true });
 
     if (search) {
-      query.andWhere(
-        '(product.name LIKE :search OR product.sku LIKE :search OR product.barcode LIKE :search)',
-        { search: `%${search}%` },
-      );
+      // Split on whitespace so multi-word queries like "SAL B15" match
+      // products whose name/sku/barcode contains BOTH tokens in any
+      // order (e.g. "SAL LED B15 Frosted Candle Globe"). Previously the
+      // whole string went through one LIKE %...% and only matched
+      // when the tokens appeared contiguously.
+      const tokens = search
+        .trim()
+        .split(/\s+/)
+        .filter((t) => t.length > 0)
+        .slice(0, 6);
+      tokens.forEach((tok, i) => {
+        const key = `search${i}`;
+        query.andWhere(
+          `(product.name LIKE :${key} OR product.sku LIKE :${key} OR product.barcode LIKE :${key})`,
+          { [key]: `%${tok}%` },
+        );
+      });
     }
 
     if (category) {

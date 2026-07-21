@@ -43,6 +43,11 @@ interface InvoiceData {
   cartDiscount: number;
   taxAmount: number;
   grandTotal: number;
+  // Delivery fee that's baked into grandTotal. Rendered as a separate
+  // "DELIVERY" line in the totals block when > 0 so the customer sees
+  // the freight charge itemised.
+  deliveryFee?: number;
+  deliveryType?: string;
   paymentMethod: string;
   cashTendered?: number;
   change?: number;
@@ -141,7 +146,7 @@ export default function InvoiceModal({ invoice, onClose }: InvoiceModalProps) {
     typeof invoice.balanceDue === 'number' && invoice.balanceDue > 0.01;
 
   // Aggregate qty splits across the order so we can render per-line
-  // TAKEN / B-ORDER / LBUY columns matching the printed template.
+  // TAKEN / B-ORDER / LAY-BY columns matching the printed template.
   const rows = invoice.items.map((it) => ({
     qty: it.quantity,
     name: it.name,
@@ -289,7 +294,7 @@ export default function InvoiceModal({ invoice, onClose }: InvoiceModalProps) {
                 <th style={th('right', 90)}>UNIT PRICE*</th>
                 <th style={th('center', 60)}>TAKEN</th>
                 <th style={th('center', 70)}>B/ORDER</th>
-                <th style={th('center', 60)}>LBUY</th>
+                <th style={th('center', 70)}>LAY-BY</th>
                 <th style={th('right', 100)}>TOTAL*</th>
               </tr>
             </thead>
@@ -331,6 +336,18 @@ export default function InvoiceModal({ invoice, onClose }: InvoiceModalProps) {
                   <tr>
                     <td style={totLabel}>DEPOSIT:</td>
                     <td style={totVal()}>{money(invoice.amountPaid || 0)}</td>
+                  </tr>
+                )}
+                {invoice.deliveryFee != null && invoice.deliveryFee > 0 && (
+                  <tr>
+                    <td style={totLabel}>
+                      DELIVERY
+                      {invoice.deliveryType && invoice.deliveryType !== 'delivery'
+                        ? ` (${invoice.deliveryType.replace(/_/g, ' ')})`
+                        : ''}
+                      :
+                    </td>
+                    <td style={totVal()}>{money(invoice.deliveryFee)}</td>
                   </tr>
                 )}
                 <tr>
