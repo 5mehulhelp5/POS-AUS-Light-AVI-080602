@@ -108,9 +108,14 @@ export class QuotesService {
         throw new NotFoundException(`Product with ID ${item.productId} not found`);
       }
 
-      const defaultPrice = product.isOnSale
-        ? Number(product.specialPrice)
-        : Number(product.price);
+      // Trade always prices off the fixed retail (product.price) even
+      // when the item is on sale — trade % is applied to that base,
+      // preventing a sale-plus-trade double discount.
+      const defaultPrice = isTrade
+        ? Number(product.price)
+        : product.isOnSale
+          ? Number(product.specialPrice)
+          : Number(product.price);
       // Allow caller to override unit price (e.g. trade pricing on quotes)
       const unitPrice =
         item.unitPrice != null && item.unitPrice >= 0
@@ -232,9 +237,13 @@ export class QuotesService {
         throw new NotFoundException(`Product with ID ${item.productId} not found`);
       }
 
-      const defaultPrice = product.isOnSale
-        ? Number(product.specialPrice)
-        : Number(product.price);
+      // Trade: base off fixed retail (never the sale price) so trade
+      // % doesn't stack on top of the sale discount.
+      const defaultPrice = isTrade
+        ? Number(product.price)
+        : product.isOnSale
+          ? Number(product.specialPrice)
+          : Number(product.price);
       const unitPrice =
         item.unitPrice != null && item.unitPrice >= 0
           ? Number(item.unitPrice)

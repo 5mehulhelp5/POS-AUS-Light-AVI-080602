@@ -195,10 +195,10 @@ export default function ProductDetailModal({
               {(() => {
                 const pct = tradePctMap?.[product.id] || 0;
                 if (pct <= 0) return null;
-                const retail = onSale
-                  ? Number(product.specialPrice)
-                  : Number(product.price);
-                const tradePrice = Math.round(retail * (1 - pct / 100) * 100) / 100;
+                // Trade base is always the fixed retail (product.price)
+                // so trade never stacks on top of an active SALE price.
+                const tradePrice =
+                  Math.round(Number(product.price) * (1 - pct / 100) * 100) / 100;
                 return (
                   <span
                     className="text-xs font-bold px-2 py-0.5 rounded bg-yellow-400/20 text-yellow-300 border border-yellow-500/40"

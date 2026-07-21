@@ -19,6 +19,10 @@ interface Props {
   discount: number;
   tax: number;
   total: number;
+  // Prior selections when re-opening the modal (e.g. cashier hit Back
+  // from Payment, made a change, and came back). Overrides the
+  // isBackorder-based default seed when present.
+  initialSelections?: OrderReviewSelections;
   onBack: () => void;
   onContinue: (selections: OrderReviewSelections) => void;
 }
@@ -29,17 +33,29 @@ export default function OrderReviewModal({
   discount,
   tax,
   total,
+  initialSelections,
   onBack,
   onContinue,
 }: Props) {
-  // Seed backorder from cart's pre-marked items (added while out of
-  // stock); lay-by held starts off.
+  // Seed from prior selections if we have them (round-trip from
+  // Payment → Back). Otherwise default backorder to cart's
+  // pre-marked out-of-stock items; lay-by held starts off.
   const [backorder, setBackorder] = useState<Record<number, boolean>>(() =>
-    Object.fromEntries(items.filter((i) => i.isBackorder).map((i) => [i.productId, true])),
+    initialSelections?.backorderByProductId
+      ? { ...initialSelections.backorderByProductId }
+      : Object.fromEntries(
+          items.filter((i) => i.isBackorder).map((i) => [i.productId, true]),
+        ),
   );
-  const [backorderQty, setBackorderQty] = useState<Record<number, number>>({});
-  const [layby, setLayby] = useState<Record<number, boolean>>({});
-  const [laybyQty, setLaybyQty] = useState<Record<number, number>>({});
+  const [backorderQty, setBackorderQty] = useState<Record<number, number>>(
+    () => ({ ...(initialSelections?.backorderQtyByProductId || {}) }),
+  );
+  const [layby, setLayby] = useState<Record<number, boolean>>(() => ({
+    ...(initialSelections?.laybyHeldByProductId || {}),
+  }));
+  const [laybyQty, setLaybyQty] = useState<Record<number, number>>(() => ({
+    ...(initialSelections?.laybyHeldQtyByProductId || {}),
+  }));
 
   const toggleBackorder = (id: number, qty: number, checked: boolean) => {
     setBackorder((prev) => ({ ...prev, [id]: checked }));

@@ -243,6 +243,17 @@ export class Order {
   })
   deliveryFee: number;
 
+  // Cashier-picked delivery region (local vs interstate) — informational,
+  // used by the warehouse to decide dispatch flow. Doesn't affect the
+  // charged fee (that's set by deliveryType).
+  @Column({
+    name: 'delivery_region',
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+  })
+  deliveryRegion: string | null;
+
   @Index()
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

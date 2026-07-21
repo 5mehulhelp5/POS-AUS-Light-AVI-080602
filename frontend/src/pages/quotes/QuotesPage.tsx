@@ -249,13 +249,20 @@ export default function QuotesPage() {
   const addLineItem = (product: any) => {
     // Don't add duplicate
     if (lineItems.find((li) => li.productId === product.id)) return;
+    // Trade base is always fixed retail so the auto trade discount
+    // doesn't stack on top of an active SALE price. Retail uses the
+    // sale price when active.
+    const basePrice =
+      quoteBuyerType === 'trade'
+        ? Number(product.price)
+        : effectiveProductPrice(product);
     setLineItems([
       ...lineItems,
       {
         productId: product.id,
         name: product.name,
         sku: product.sku,
-        price: effectiveProductPrice(product),
+        price: basePrice,
         quantity: 1,
         discountPercent: 0,
       },

@@ -54,11 +54,13 @@ export default function ProductGrid({
       <div className="grid grid-cols-5 gap-2 auto-rows-max">
         {products.map((product) => {
           const onSale = isProductOnSale(product);
-          const retail = onSale ? Number(product.specialPrice) : product.price;
+          // Trade price is always computed off the fixed retail
+          // (product.price), even when the item is on SALE — the trade
+          // discount does not stack on top of the sale discount.
           const tradePct = tradePctMap[product.id] || 0;
           const tradePrice =
             tradePct > 0
-              ? Math.round(retail * (1 - tradePct / 100) * 100) / 100
+              ? Math.round(Number(product.price) * (1 - tradePct / 100) * 100) / 100
               : null;
           return (
           <button

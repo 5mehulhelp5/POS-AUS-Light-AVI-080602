@@ -65,6 +65,14 @@ interface CreateOrderDto {
     // catalogue items must be sold at their DB price (use discountPercent
     // for adjustments instead).
     unitPrice?: number;
+    // Custom / one-off line item that isn't in the product catalogue
+    // (e.g. cashier's "Custom Item" button, or a cut-to-length LED
+    // strip). productId will be <= 0 (a client-generated negative
+    // timestamp) and `sku`, `name`, `unitPrice` MUST be supplied on
+    // the DTO — the server won't look up a product row.
+    isCustom?: boolean;
+    sku?: string;
+    name?: string;
   }>;
   cartDiscount?: {
     type: 'percent' | 'fixed';
@@ -92,6 +100,9 @@ interface CreateOrderDto {
   // austpost each have a fixed fee set in DELIVERY_FEES. Defaults to
   // pickup when omitted.
   deliveryType?: 'pickup' | 'delivery' | 'local_metro' | 'austpost';
+  // Optional delivery region flag — 'local' vs 'interstate'. Used by
+  // the warehouse for dispatch routing; doesn't change the fee.
+  deliveryRegion?: 'local' | 'interstate' | null;
   // When this order is the replacement half of an exchange, the id of
   // the original order whose item(s) were returned. Cross-links the two.
   exchangeFromOrderId?: number;
@@ -148,28 +159,71 @@ export class OrdersService {
     // path), we need product.categories loaded so the trade-rule
     // engine can decide which auto-discount applies per line.
     const isTradeOrder = await this.isTradeCustomerOrder(dto);
-    const productIds = dto.items.map((i) => i.productId);
+    // Custom items carry a negative client-generated productId and must
+    // be excluded from the catalogue fetch (findByIds would return
+    // nothing and then throw "Product X not found"). They pass their
+    // own sku / name / unitPrice on the DTO.
+    const isCustomItem = (
+      it: CreateOrderDto['items'][number],
+    ): boolean => !!it.isCustom || !it.productId || it.productId <= 0;
+    const productIds = dto.items
+      .filter((i) => !isCustomItem(i))
+      .map((i) => i.productId);
     const products =
-      isTradeOrder && !dto.trustItemUnitPrices
-        ? await this.productsService.findByIdsWithCategories(productIds)
-        : await this.productsService.findByIds(productIds);
+      productIds.length === 0
+        ? []
+        : isTradeOrder && !dto.trustItemUnitPrices
+          ? await this.productsService.findByIdsWithCategories(productIds)
+          : await this.productsService.findByIds(productIds);
 
     // Build cart items for validation
     const cartItems = await Promise.all(
       dto.items.map(async (item) => {
+        // Custom / cut-to-length items — skip the catalogue lookup, no
+        // trade auto-discount, no stock check. Everything comes from
+        // the DTO. cashier's manual discount still applies.
+        if (isCustomItem(item)) {
+          const price = Number(item.unitPrice);
+          if (!Number.isFinite(price) || price < 0) {
+            throw new BadRequestException(
+              `Custom item "${item.name || item.sku || ''}" needs a valid unitPrice`,
+            );
+          }
+          if (!item.sku && !item.name) {
+            throw new BadRequestException(
+              'Custom item needs a sku or name',
+            );
+          }
+          const manualDiscount = item.discountPercent || 0;
+          return {
+            productId: item.productId,
+            sku: (item.sku || 'CUSTOM').slice(0, 100),
+            name: (item.name || item.sku || 'Custom Item').slice(0, 255),
+            quantity: item.quantity,
+            unitPrice: price,
+            discountPercent: manualDiscount,
+            manualDiscountPercent: manualDiscount,
+            isSaleItem: false,
+          };
+        }
         const product = products.find((p) => p.id === item.productId);
         if (!product) {
           throw new BadRequestException(
             `Product ${item.productId} not found`,
           );
         }
-        // Special price only counts when the date window is current AND it
-        // is strictly less than the regular price. Must match the POS cart
-        // and ProductGrid SALE-tag logic, otherwise the cashier total and
-        // server total disagree and the payment check rejects the order.
-        const effective = product.isOnSale
-          ? Number(product.specialPrice)
-          : Number(product.price);
+        // Base price selection:
+        //   - Retail customers on a SALE item: use special price.
+        //   - Trade customers: ALWAYS use the fixed retail price, even
+        //     when the item is on sale — the trade % is applied to
+        //     that base, so trade never stacks on top of the sale
+        //     discount. Client asked for trade to be off retail only.
+        const isOnSale = product.isOnSale;
+        const effective = isTradeOrder
+          ? Number(product.price)
+          : isOnSale
+            ? Number(product.specialPrice)
+            : Number(product.price);
         // Honour a per-line unitPrice override when:
         //   1. the line is a backorder (catalogue may be $0 / out of date), OR
         //   2. the caller is trusted (dto.trustItemUnitPrices) — used by
@@ -548,6 +602,10 @@ export class OrdersService {
         laybyExpiresAt,
         deliveryType,
         deliveryFee,
+        deliveryRegion:
+          dto.deliveryRegion === 'local' || dto.deliveryRegion === 'interstate'
+            ? dto.deliveryRegion
+            : null,
         exchangeFromOrderId: dto.exchangeFromOrderId ?? null,
       });
 
@@ -592,9 +650,15 @@ export class OrdersService {
           const lineTaxAmount = Math.round(
             (Number(calcItem.taxAmount) / Math.max(1, totalQty)) * qty * 100,
           ) / 100;
+          // Persist productId as NULL for custom items so we don't
+          // dangle an FK to a non-existent product row.
+          const persistedProductId =
+            calcItem.productId && calcItem.productId > 0
+              ? calcItem.productId
+              : null;
           const orderItem = queryRunner.manager.create(OrderItem, {
             orderId: savedOrder.id,
-            productId: calcItem.productId,
+            productId: persistedProductId,
             sku: product?.sku || calcItem.sku,
             name: product?.name || calcItem.name,
             quantity: qty,

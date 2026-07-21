@@ -442,7 +442,12 @@ export default function POSPage() {
     const outOfStock =
       product.isInStock === false || Number(product.stockQty) <= 0;
     const onSale = isProductOnSale(product);
-    const unitPrice = effectiveProductPrice(product);
+    // For trade customers, always use the FIXED RETAIL price as the base
+    // so the auto trade discount doesn't stack on top of a sale price.
+    // For retail customers, use the sale price when active.
+    const unitPrice = cart.customerIsTrade
+      ? Number(product.price)
+      : effectiveProductPrice(product);
     for (let i = 0; i < quantity; i++) {
       dispatch(
         addItem({
@@ -477,7 +482,10 @@ export default function POSPage() {
 
   const handleCheckout = () => {
     if (cart.items.length === 0) return;
-    setReviewSelections(null);
+    // Keep any prior review picks so hitting Back and coming back
+    // doesn't wipe backorder / lay-by ticks the cashier already made.
+    // reviewSelections is reset when the cart is cleared or the order
+    // completes.
     setShowReview(true);
   };
 
@@ -834,6 +842,7 @@ export default function POSPage() {
           discount={cart.itemDiscounts + cart.cartDiscountAmount}
           tax={cart.taxAmount}
           total={cart.grandTotal}
+          initialSelections={reviewSelections || undefined}
           onBack={() => setShowReview(false)}
           onContinue={(sel) => {
             setReviewSelections(sel);

@@ -63,6 +63,36 @@ export default function PaymentModal({
   const canOverrideDeposit =
     user?.role?.name === 'admin' || user?.role?.name === 'manager';
 
+  // Draft persistence helpers — declared FIRST so every useState
+  // initialiser below can reference them without hitting the TDZ.
+  // PaymentModal is unmounted when the cashier hits Back to fix the
+  // cart; sessionStorage survives the round-trip but clears when the
+  // tab closes. Cleared explicitly on successful order create.
+  const draftGet = (k: string, fallback: string): string => {
+    try {
+      const v = sessionStorage.getItem(`pos_checkoutDraft.${k}`);
+      return v == null ? fallback : v;
+    } catch {
+      return fallback;
+    }
+  };
+  const draftSet = (k: string, v: string) => {
+    try {
+      sessionStorage.setItem(`pos_checkoutDraft.${k}`, v);
+    } catch {
+      // sessionStorage may be disabled; silently ignore.
+    }
+  };
+  const clearDraft = () => {
+    try {
+      Object.keys(sessionStorage)
+        .filter((k) => k.startsWith('pos_checkoutDraft.'))
+        .forEach((k) => sessionStorage.removeItem(k));
+    } catch {
+      // ignored
+    }
+  };
+
   const [method, setMethod] = useState<PaymentMethod>('eftpos');
   // Default to Trade when the selected customer is permanently flagged
   // trade — saves the cashier a click. They can still flip back to
@@ -71,6 +101,19 @@ export default function PaymentModal({
     cart.customerIsTrade ? 'retail' : 'customer',
   );
   const [deliveryType, setDeliveryType] = useState<DeliveryType>('pickup');
+  // Local vs interstate — informational tag for the warehouse. Doesn't
+  // change the fee (that's on deliveryType). Persisted in the draft
+  // and sent through on the order. Only meaningful when deliveryType
+  // is not pickup.
+  const [deliveryRegion, setDeliveryRegion] = useState<
+    'local' | 'interstate' | ''
+  >(() => {
+    const v = draftGet('deliveryRegion', '');
+    return v === 'local' || v === 'interstate' ? v : '';
+  });
+  useEffect(() => {
+    draftSet('deliveryRegion', deliveryRegion);
+  }, [deliveryRegion]);
   const [cashTendered, setCashTendered] = useState('');
   const [eftposRef, setEftposRef] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -79,13 +122,39 @@ export default function PaymentModal({
   const [invoiceData, setInvoiceData] = useState<any>(null);
 
   // Customer details for invoice
-  const [customerName, setCustomerName] = useState(cart.customerName || '');
-  const [customerPhone, setCustomerPhone] = useState('');
-  const [customerEmail, setCustomerEmail] = useState('');
-  const [customerStreet, setCustomerStreet] = useState('');
-  const [customerCity, setCustomerCity] = useState('');
-  const [customerState, setCustomerState] = useState('');
-  const [customerPostcode, setCustomerPostcode] = useState('');
+  const [customerName, setCustomerName] = useState(
+    draftGet('customerName', cart.customerName || ''),
+  );
+  const [customerPhone, setCustomerPhone] = useState(draftGet('customerPhone', ''));
+  const [customerEmail, setCustomerEmail] = useState(draftGet('customerEmail', ''));
+  const [customerStreet, setCustomerStreet] = useState(draftGet('customerStreet', ''));
+  const [customerCity, setCustomerCity] = useState(draftGet('customerCity', ''));
+  const [customerState, setCustomerState] = useState(draftGet('customerState', ''));
+  const [customerPostcode, setCustomerPostcode] = useState(
+    draftGet('customerPostcode', ''),
+  );
+  // Persist every change so the modal round-trips with the values intact.
+  useEffect(() => {
+    draftSet('customerName', customerName);
+  }, [customerName]);
+  useEffect(() => {
+    draftSet('customerPhone', customerPhone);
+  }, [customerPhone]);
+  useEffect(() => {
+    draftSet('customerEmail', customerEmail);
+  }, [customerEmail]);
+  useEffect(() => {
+    draftSet('customerStreet', customerStreet);
+  }, [customerStreet]);
+  useEffect(() => {
+    draftSet('customerCity', customerCity);
+  }, [customerCity]);
+  useEffect(() => {
+    draftSet('customerState', customerState);
+  }, [customerState]);
+  useEffect(() => {
+    draftSet('customerPostcode', customerPostcode);
+  }, [customerPostcode]);
   const [companyAbn, setCompanyAbn] = useState('');
   // Trade buyers get separate Company / First Name / Last Name fields.
   // For non-trade orders we keep using `customerName` as a single field.
@@ -603,6 +672,11 @@ export default function PaymentModal({
           // Pickup is free, delivery adds a flat fee on top — server
           // re-applies it from a constant so the totals can't drift.
           deliveryType,
+          // Informational region tag (only meaningful when not pickup)
+          deliveryRegion:
+            deliveryType !== 'pickup' && deliveryRegion
+              ? deliveryRegion
+              : undefined,
           // Exchange link — set when this sale replaces a returned item.
           exchangeFromOrderId: cart.exchangeFromOrderId || undefined,
           items: cart.items.map((item) => {
@@ -631,6 +705,11 @@ export default function PaymentModal({
                     Math.max(0, laybyHeldQtyByProductId[item.productId]),
                   )
                 : undefined;
+            // Custom items (Custom Item button, LED strip calculator)
+            // use a negative client-generated productId. Flag them so
+            // the server skips the catalogue lookup and uses the
+            // supplied sku / name / unitPrice directly.
+            const isCustom = !item.productId || item.productId <= 0;
             return {
               productId: item.productId,
               quantity: item.quantity,
@@ -639,9 +718,13 @@ export default function PaymentModal({
               backorderQty: splitBackQty,
               isLaybyHeld: isHeld,
               laybyHeldQty: splitHeldQty,
-              // Pass unitPrice so the server can honour manual overrides on
-              // backorder lines (e.g. catalogue price is $0).
+              // Pass unitPrice so the server can honour manual overrides
+              // on backorder lines AND custom items (which have no
+              // catalogue row to fall back to).
               unitPrice: item.unitPrice,
+              ...(isCustom
+                ? { isCustom: true, sku: item.sku, name: item.name }
+                : {}),
             };
           }),
           cartDiscount: cart.cartDiscount || undefined,
@@ -721,6 +804,10 @@ export default function PaymentModal({
           ? [user.firstName, user.lastName].filter(Boolean).join(' ')
           : undefined,
       };
+
+      // Order committed — the draft has served its purpose, wipe it so
+      // the next cashier / next order starts clean.
+      clearDraft();
 
       setInvoiceData(invoice);
       setShowInvoice(true);
@@ -1019,6 +1106,37 @@ export default function PaymentModal({
               </option>
             ))}
           </select>
+
+          {/* Local vs interstate — only relevant when the fulfilment
+              method is delivery (not pickup). Informational for the
+              warehouse dispatch; doesn't change the fee. */}
+          {deliveryType !== 'pickup' && (
+            <div className="mt-3">
+              <label className="block text-xs text-gray-400 mb-1">
+                Delivery Region
+              </label>
+              <div className="flex gap-2">
+                {(['local', 'interstate'] as const).map((region) => (
+                  <button
+                    key={region}
+                    type="button"
+                    onClick={() =>
+                      setDeliveryRegion(
+                        deliveryRegion === region ? '' : region,
+                      )
+                    }
+                    className={`flex-1 px-3 py-2 rounded-lg border text-sm font-semibold capitalize transition-colors ${
+                      deliveryRegion === region
+                        ? 'bg-primary-600 border-primary-500 text-white'
+                        : 'bg-pos-card border-gray-700 text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    {region}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Order Notes — placed above customer details so the cashier
