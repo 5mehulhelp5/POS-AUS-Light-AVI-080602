@@ -820,7 +820,7 @@ export default function OrdersPage() {
             } catch {
               // ignored — user can close + reopen the drawer if refresh fails
             }
-            loadOrders();
+            fetchOrders();
           }}
         />
       )}
