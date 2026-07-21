@@ -120,6 +120,29 @@ export const ordersApi = {
   updateNotes: (orderId: number, notes: string | null) =>
     api.patch(`/orders/${orderId}/notes`, { notes }),
 
+  // Edit line items on an open order (backorder/layby/pending). Server
+  // rewrites the whole item set + re-totals. Blocked on complete
+  // orders.
+  updateItems: (
+    orderId: number,
+    items: Array<{
+      productId: number;
+      quantity: number;
+      discountPercent?: number;
+      unitPrice?: number;
+      isBackorder?: boolean;
+      isLaybyHeld?: boolean;
+      isCustom?: boolean;
+      sku?: string;
+      name?: string;
+    }>,
+  ) => api.patch(`/orders/${orderId}/items`, { items }),
+
+  // Correct a previously-recorded payment amount (cashier typo).
+  // Doesn't refund; use refundOrder for actual money back.
+  adjustPayment: (orderId: number, paymentId: number, amount: number) =>
+    api.patch(`/orders/${orderId}/payments/${paymentId}`, { amount }),
+
   createRefund: (
     orderId: number,
     data: {

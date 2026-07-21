@@ -6,6 +6,7 @@ import { ordersApi, syncApi, customersApi } from '../../services/api';
 import { RootState } from '../../store';
 import { buildInvoiceData } from '../../utils/orderInvoice';
 import InvoiceModal from '../pos/components/InvoiceModal';
+import EditOrderItemsModal from './EditOrderItemsModal';
 import {
   MagnifyingGlassIcon,
   EyeIcon,
@@ -111,6 +112,10 @@ export default function OrdersPage() {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<FilterOption>('all');
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  // "Edit Items" modal target — clone selectedOrder into this state to
+  // open it. Closed on cancel or after a successful save (which also
+  // refreshes selectedOrder).
+  const [editItemsOrder, setEditItemsOrder] = useState<any>(null);
   const [invoiceData, setInvoiceData] = useState<any>(null);
   // Order-notes edit-in-place: null = not editing, string = current
   // draft. Committing sends a PATCH and refreshes the selected order.
@@ -797,6 +802,29 @@ export default function OrdersPage() {
         <InvoiceModal invoice={invoiceData} onClose={() => setInvoiceData(null)} />
       )}
 
+      {/* Edit Items — layered above the order-detail drawer. After a
+          successful save we refetch the order so the drawer reflects
+          the new items + total. */}
+      {editItemsOrder && (
+        <EditOrderItemsModal
+          order={editItemsOrder}
+          onClose={() => setEditItemsOrder(null)}
+          onSaved={async () => {
+            setEditItemsOrder(null);
+            try {
+              const fresh = await ordersApi.getOrder(editItemsOrder.id);
+              setSelectedOrder({
+                ...fresh.data.data.order,
+                refunds: selectedOrder?.refunds || [],
+              });
+            } catch {
+              // ignored — user can close + reopen the drawer if refresh fails
+            }
+            loadOrders();
+          }}
+        />
+      )}
+
       {/* Order Detail Modal */}
       {selectedOrder && (
         <div className="modal-backdrop">
@@ -807,6 +835,20 @@ export default function OrdersPage() {
                 <ArrowLeftIcon className="h-5 w-5" /> Back
               </button>
               <div className="flex items-center gap-3">
+                {/* Edit Items — only when the order is still open.
+                    Complete/refunded/cancelled orders have a frozen
+                    item list (server enforces the same rule). */}
+                {['pending', 'processing', 'backorder_pending', 'layby_active', 'layby_expired'].includes(
+                  selectedOrder.status,
+                ) && (
+                  <button
+                    className="btn-secondary flex items-center gap-2 text-sm"
+                    onClick={() => setEditItemsOrder(selectedOrder)}
+                    title="Add/remove products, fix quantities or prices while the order is open"
+                  >
+                    Edit Items
+                  </button>
+                )}
                 <button
                   className="btn-secondary flex items-center gap-2 text-sm"
                   onClick={() => {

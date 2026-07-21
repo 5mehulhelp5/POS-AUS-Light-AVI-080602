@@ -1034,6 +1034,230 @@ export class OrdersService {
     return (await this.findById(orderId)) as Order;
   }
 
+  /**
+   * Add / remove / edit line items on an open order. Only allowed
+   * while the order is still "open" (pending, backorder, or layby) —
+   * once complete or cancelled/refunded the item list is frozen.
+   *
+   * The DTO shape is deliberately minimal: caller sends the full
+   * replacement item list. Server recomputes subtotal/tax/grandTotal
+   * from scratch using catalogue prices + per-line discounts (or the
+   * supplied unitPrice for custom / backorder lines), then rewrites
+   * order_items. Existing paid payments are preserved; the caller can
+   * use adjustPayment() separately to reconcile over/under-collected.
+   */
+  async updateItems(
+    orderId: number,
+    userId: number,
+    items: Array<{
+      productId: number;
+      quantity: number;
+      discountPercent?: number;
+      unitPrice?: number;
+      isBackorder?: boolean;
+      isLaybyHeld?: boolean;
+      isCustom?: boolean;
+      sku?: string;
+      name?: string;
+    }>,
+  ): Promise<Order> {
+    const openStatuses = new Set<OrderStatus>([
+      OrderStatus.PENDING,
+      OrderStatus.PROCESSING,
+      OrderStatus.BACKORDER_PENDING,
+      OrderStatus.LAYBY_ACTIVE,
+      OrderStatus.LAYBY_EXPIRED,
+    ]);
+
+    return this.dataSource.transaction(async (manager) => {
+      const order = await manager.findOne(Order, {
+        where: { id: orderId },
+        relations: ['items'],
+      });
+      if (!order) throw new BadRequestException('Order not found');
+      if (!openStatuses.has(order.status)) {
+        throw new BadRequestException(
+          `Order is ${order.status} — item list is frozen. Only open orders can be edited.`,
+        );
+      }
+      if (!items || items.length === 0) {
+        throw new BadRequestException('Order must have at least one item');
+      }
+
+      // Resolve catalogue products for non-custom lines
+      const catalogueIds = items
+        .filter((i) => !i.isCustom && i.productId > 0)
+        .map((i) => i.productId);
+      const products =
+        catalogueIds.length > 0
+          ? await this.productsService.findByIds(catalogueIds)
+          : [];
+
+      // Reprice every line + rebuild totals. Mirrors the pricing rules
+      // in create() but simpler (no trade auto-discount recompute —
+      // whatever the caller sends stands).
+      let subtotal = 0;
+      let itemDiscounts = 0;
+      const persistedItems: Partial<OrderItem>[] = [];
+      for (const item of items) {
+        const qty = Math.max(1, Math.floor(Number(item.quantity) || 0));
+        let sku = item.sku || 'CUSTOM';
+        let name = item.name || 'Custom Item';
+        let unitPrice: number;
+        let productId: number | null = null;
+
+        if (item.isCustom || item.productId <= 0) {
+          const p = Number(item.unitPrice);
+          if (!Number.isFinite(p) || p < 0) {
+            throw new BadRequestException(
+              `Custom item "${name}" needs a valid unitPrice`,
+            );
+          }
+          unitPrice = p;
+        } else {
+          const product = products.find((p) => p.id === item.productId);
+          if (!product) {
+            throw new BadRequestException(
+              `Product ${item.productId} not found`,
+            );
+          }
+          sku = product.sku;
+          name = product.name;
+          productId = product.id;
+          const base = product.isOnSale
+            ? Number(product.specialPrice)
+            : Number(product.price);
+          // Backorder/quote-conversion allow a manual override; catalogue
+          // lines must sell at the DB price.
+          unitPrice =
+            item.isBackorder && item.unitPrice != null && item.unitPrice >= 0
+              ? Number(item.unitPrice)
+              : base;
+        }
+
+        const discountPct = Math.max(0, Math.min(100, item.discountPercent || 0));
+        const lineGross = unitPrice * qty;
+        const lineDiscount = Math.round(lineGross * (discountPct / 100) * 100) / 100;
+        const rowTotal = Math.round((lineGross - lineDiscount) * 100) / 100;
+        const rowTax = Math.round((rowTotal / 11) * 100) / 100;
+
+        subtotal += rowTotal;
+        itemDiscounts += lineDiscount;
+
+        persistedItems.push({
+          orderId: order.id,
+          productId,
+          sku,
+          name,
+          quantity: qty,
+          unitPrice,
+          discountPercent: discountPct,
+          discountAmount: lineDiscount,
+          taxAmount: rowTax,
+          rowTotal,
+          isBackorder: !!item.isBackorder,
+          isLaybyHeld: !!item.isLaybyHeld && !item.isBackorder,
+        });
+      }
+
+      subtotal = Math.round(subtotal * 100) / 100;
+      const taxAmount = Math.round((subtotal / 11) * 100) / 100;
+      const grandTotal =
+        Math.round((subtotal + Number(order.deliveryFee || 0)) * 100) / 100;
+
+      // Wipe existing rows + insert the new set. Simplest correct
+      // approach — trying to diff line-by-line would be fragile given
+      // partial-backorder / partial-layby splits.
+      await manager.delete(OrderItem, { orderId: order.id });
+      for (const row of persistedItems) {
+        await manager.save(manager.create(OrderItem, row));
+      }
+
+      order.subtotal = subtotal;
+      order.discountAmount = itemDiscounts;
+      order.taxAmount = taxAmount;
+      order.grandTotal = grandTotal;
+      // Recompute payment status against the new total.
+      const paid = await this.sumPaidForOrder(order.id);
+      if (paid >= grandTotal - 0.01) {
+        order.paymentStatus = PaymentStatus.PAID;
+      } else if (paid > 0) {
+        order.paymentStatus = PaymentStatus.PARTIAL;
+      } else {
+        order.paymentStatus = PaymentStatus.PENDING;
+      }
+      order.updatedAt = new Date();
+      await manager.save(order);
+
+      // Breadcrumb so pm2 logs show who edited what and how.
+      // eslint-disable-next-line no-console
+      console.log(
+        `[orders.updateItems] order=${order.orderNumber} userId=${userId} lines=${persistedItems.length} grandTotal=${grandTotal} paid=${paid}`,
+      );
+
+      return (await this.findById(orderId)) as Order;
+    });
+  }
+
+  /**
+   * Correct a previously-recorded payment amount on an open order.
+   * If the recorded amount was wrong (cashier over- or under-typed),
+   * this rewrites the payment.amount and recomputes paymentStatus. No
+   * refund is issued — for actual money back use the refund flow.
+   * Blocks when the order is complete/refunded/cancelled.
+   */
+  async adjustPayment(
+    orderId: number,
+    paymentId: number,
+    newAmount: number,
+    userId: number,
+  ): Promise<Order> {
+    const frozenStatuses = new Set<OrderStatus>([
+      OrderStatus.COMPLETE,
+      OrderStatus.CANCELLED,
+      OrderStatus.REFUNDED,
+    ]);
+    if (!(newAmount >= 0)) {
+      throw new BadRequestException('Payment amount must be >= 0');
+    }
+    return this.dataSource.transaction(async (manager) => {
+      const order = await manager.findOne(Order, { where: { id: orderId } });
+      if (!order) throw new BadRequestException('Order not found');
+      if (frozenStatuses.has(order.status)) {
+        throw new BadRequestException(
+          `Order is ${order.status} — payment cannot be adjusted.`,
+        );
+      }
+      const payment = await manager.findOne(Payment, {
+        where: { id: paymentId, orderId },
+      });
+      if (!payment) throw new BadRequestException('Payment not found on this order');
+
+      const rounded = Math.round(newAmount * 100) / 100;
+      payment.amount = rounded;
+      await manager.save(payment);
+
+      // Recalculate payment status against the (unchanged) grand total.
+      const paid = await this.sumPaidForOrder(orderId);
+      const grandTotal = Number(order.grandTotal);
+      if (paid >= grandTotal - 0.01) {
+        order.paymentStatus = PaymentStatus.PAID;
+      } else if (paid > 0) {
+        order.paymentStatus = PaymentStatus.PARTIAL;
+      } else {
+        order.paymentStatus = PaymentStatus.PENDING;
+      }
+      order.updatedAt = new Date();
+      await manager.save(order);
+
+      // eslint-disable-next-line no-console
+      console.log(
+        `[orders.adjustPayment] order=${order.orderNumber} payment=${paymentId} userId=${userId} newAmount=${rounded} paid=${paid} status=${order.paymentStatus}`,
+      );
+      return (await this.findById(orderId)) as Order;
+    });
+  }
+
   // -------------------------------------------------------------------
   // Layby + backorder helpers
   // -------------------------------------------------------------------

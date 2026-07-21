@@ -209,6 +209,60 @@ export class OrdersController {
     };
   }
 
+  @Patch(':id/items')
+  @ApiOperation({
+    summary:
+      "Replace the line items on an open order (backorder/layby/pending). Blocked once the order is complete/refunded/cancelled.",
+  })
+  async updateItems(
+    @Param('id', ParseIntPipe) id: number,
+    @Body()
+    body: {
+      items: Array<{
+        productId: number;
+        quantity: number;
+        discountPercent?: number;
+        unitPrice?: number;
+        isBackorder?: boolean;
+        isLaybyHeld?: boolean;
+        isCustom?: boolean;
+        sku?: string;
+        name?: string;
+      }>;
+    },
+    @CurrentUser() user: any,
+  ) {
+    const order = await this.ordersService.updateItems(
+      id,
+      user.id,
+      body?.items || [],
+    );
+    return { success: true, data: { order } };
+  }
+
+  @Patch(':id/payments/:paymentId')
+  @ApiOperation({
+    summary:
+      "Correct a previously-recorded payment amount on an open order (cashier typed the wrong amount). Doesn't refund — use /refund for actual money back.",
+  })
+  async adjustPayment(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('paymentId', ParseIntPipe) paymentId: number,
+    @Body() body: { amount: number },
+    @CurrentUser() user: any,
+  ) {
+    const order = await this.ordersService.adjustPayment(
+      id,
+      paymentId,
+      Number(body?.amount),
+      user.id,
+    );
+    return {
+      success: true,
+      data: { order: { id: order.id, grandTotal: order.grandTotal, paymentStatus: order.paymentStatus } },
+    };
+  }
+
   @Post(':id/refund')
   @UseGuards(RolesGuard)
   @Roles(RoleNames.ADMIN, RoleNames.MANAGER, RoleNames.SALES_STAFF)
