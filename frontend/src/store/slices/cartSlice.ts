@@ -51,6 +51,12 @@ interface CartState {
   taxAmount: number;
   grandTotal: number;
   notes: string;
+  // Delivery method + fee picked in PaymentModal — mirrored here so the
+  // cart sidebar can show a matching total. PaymentModal dispatches
+  // setDelivery whenever the cashier flips the dropdown. Cleared on
+  // clearCart.
+  deliveryType: 'pickup' | 'delivery' | 'local_metro' | 'austpost';
+  deliveryFee: number;
 }
 
 const initialState: CartState = {
@@ -67,6 +73,8 @@ const initialState: CartState = {
   taxAmount: 0,
   grandTotal: 0,
   notes: '',
+  deliveryType: 'pickup',
+  deliveryFee: 0,
 };
 
 // Australian prices are GST-inclusive. GST = price / 11 (i.e. 1/11th of the inclusive price).
@@ -294,6 +302,23 @@ const cartSlice = createSlice({
       state.taxAmount = 0;
       state.grandTotal = 0;
       state.notes = '';
+      state.deliveryType = 'pickup';
+      state.deliveryFee = 0;
+    },
+
+    // Broadcast the delivery method + fee from PaymentModal so the cart
+    // sidebar's total agrees with what the customer will actually pay.
+    // Cleared on clearCart.
+    setDelivery: (
+      state,
+      action: PayloadAction<{
+        deliveryType: CartState['deliveryType'];
+        deliveryFee: number;
+      }>,
+    ) => {
+      state.deliveryType = action.payload.deliveryType;
+      state.deliveryFee =
+        Math.round((action.payload.deliveryFee || 0) * 100) / 100;
     },
 
     applyCalculatedTotals: (
@@ -333,6 +358,7 @@ export const {
   setNotes,
   setExchangeContext,
   clearCart,
+  setDelivery,
   applyCalculatedTotals,
 } = cartSlice.actions;
 

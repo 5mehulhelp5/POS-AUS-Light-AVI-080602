@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useSelector } from 'react-redux';
+import type { RootState } from '../../../store';
 import {
   TrashIcon,
   MinusIcon,
@@ -66,6 +68,10 @@ export default function CartPanel({
   onClearCart,
   onCheckout,
 }: CartPanelProps) {
+  // Delivery is picked in PaymentModal but mirrored to the cart slice
+  // so this sidebar can show the fee + a matching grand total.
+  const deliveryFee = useSelector((s: RootState) => s.cart.deliveryFee);
+  const deliveryType = useSelector((s: RootState) => s.cart.deliveryType);
   const [showDiscountModal, setShowDiscountModal] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const [custResults, setCustResults] = useState<any[]>([]);
@@ -644,9 +650,21 @@ export default function CartPanel({
           <span className="text-gray-400">GST included</span>
           <span>${tax.toFixed(2)}</span>
         </div>
+        {/* Delivery fee — populated by PaymentModal when the cashier
+            picks a fulfilment method. Keeps the sidebar total in
+            sync with the Payment screen so both agree on what the
+            customer will pay. */}
+        {deliveryFee > 0 && (
+          <div className="flex justify-between text-sm text-cyan-300">
+            <span>Delivery ({deliveryType.replace(/_/g, ' ')})</span>
+            <span>+${deliveryFee.toFixed(2)}</span>
+          </div>
+        )}
         <div className="flex justify-between text-xl font-bold pt-2 border-t border-gray-600">
           <span>Total (incl. GST)</span>
-          <span className="text-primary-400">${total.toFixed(2)}</span>
+          <span className="text-primary-400">
+            ${(total + deliveryFee).toFixed(2)}
+          </span>
         </div>
       </div>
 

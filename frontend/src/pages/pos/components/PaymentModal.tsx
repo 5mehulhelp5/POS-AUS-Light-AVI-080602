@@ -12,7 +12,11 @@ import toast from 'react-hot-toast';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState, AppDispatch } from '../../../store';
 import { ordersApi, customersApi, quotesApi } from '../../../services/api';
-import { setTradeAutoDiscounts, setCustomer } from '../../../store/slices/cartSlice';
+import {
+  setTradeAutoDiscounts,
+  setCustomer,
+  setDelivery,
+} from '../../../store/slices/cartSlice';
 import InvoiceModal from './InvoiceModal';
 import AddressAutocomplete from '../../../components/AddressAutocomplete';
 
@@ -454,6 +458,14 @@ export default function PaymentModal({
   const deliveryFeeApplied = DELIVERY_FEES[deliveryType] || 0;
   const totalWithDelivery =
     Math.round((total + deliveryFeeApplied) * 100) / 100;
+
+  // Broadcast the chosen delivery method to Redux so the CartPanel
+  // sidebar's grand total reflects it (otherwise the sidebar keeps
+  // showing the pre-delivery number while the Payment screen shows
+  // total + delivery — visually confusing for cashiers).
+  useEffect(() => {
+    dispatch(setDelivery({ deliveryType, deliveryFee: deliveryFeeApplied }));
+  }, [dispatch, deliveryType, deliveryFeeApplied]);
 
   const creditApplied = useStoreCredit
     ? Math.min(storeCreditAmount, storeCreditBalance, totalWithDelivery)
