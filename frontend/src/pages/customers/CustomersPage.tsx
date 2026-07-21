@@ -79,7 +79,6 @@ export default function CustomersPage() {
   const [adjustNote, setAdjustNote] = useState('');
   const [isAdjusting, setIsAdjusting] = useState(false);
   const { user: currentAuthUser } = useSelector((state: RootState) => state.auth);
-  const isAdmin = currentAuthUser?.role?.name === 'admin';
   const [customerOrders, setCustomerOrders] = useState<any[]>([]);
   const [customerOrdersPagination, setCustomerOrdersPagination] = useState<Pagination>({ page: 1, limit: 20, total: 0, totalPages: 0 });
   const [ordersPage, setOrdersPage] = useState(1);
@@ -1092,14 +1091,15 @@ export default function CustomersPage() {
                         ${storeCreditBalance.toFixed(2)}
                       </p>
                     </div>
-                    {isAdmin && (
-                      <button
-                        className="btn-secondary text-sm"
-                        onClick={() => setShowAdjustModal(true)}
-                      >
-                        Manual Adjust
-                      </button>
-                    )}
+                    {/* Any signed-in staff can adjust — every change is
+                        logged with amount + note + staff name in the
+                        transactions table below. */}
+                    <button
+                      className="btn-secondary text-sm"
+                      onClick={() => setShowAdjustModal(true)}
+                    >
+                      Manual Adjust
+                    </button>
                   </div>
 
                   {storeCreditTxs.length === 0 ? (
@@ -1169,7 +1169,9 @@ export default function CustomersPage() {
         </div>
       )}
 
-      {/* Store Credit Manual Adjust Modal (admin only) */}
+      {/* Store Credit Manual Adjust Modal — open to all signed-in
+          staff; note is required and every change is logged with the
+          staff member's name in the transactions table. */}
       {showAdjustModal && selectedCustomer && (
         <div className="modal-backdrop-top">
           <div className="modal-content">

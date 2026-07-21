@@ -117,9 +117,10 @@ export class CustomersController {
   }
 
   @Post(':id/store-credit/adjust')
-  @UseGuards(RolesGuard)
-  @Roles(RoleNames.ADMIN)
-  @ApiOperation({ summary: 'Manually adjust a customer store credit balance (admin only)' })
+  @ApiOperation({
+    summary:
+      "Manually adjust a customer store credit balance. Any signed-in staff can adjust — every adjustment requires a note and is logged with the staff member's name.",
+  })
   async adjustStoreCredit(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { amount: number; note: string },
